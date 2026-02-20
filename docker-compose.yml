@@ -1,0 +1,21 @@
+services:
+  animation-api:
+    container_name: animation_api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8010:8010"
+    gpus: all
+    environment:
+      ANIMATION_BACKEND: trt
+      ANIMATION_TRT_RUNTIME: local
+      ANIMATION_TRT_PRECISION: fp16
+      ANIMATION_WARMUP_ENABLED: "1"
+      ANIMATION_AUDIO_MOTION_STRIDE: "1"
+    volumes:
+      - ./output:/app/output
+      - ./output_fasterliveportrait:/app/output_fasterliveportrait
+      - ./third_party/FasterLivePortrait/checkpoints:/app/third_party/FasterLivePortrait/checkpoints
+      - ./third_party/FasterLivePortrait/results:/app/third_party/FasterLivePortrait/results
+    restart: unless-stopped

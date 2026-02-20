@@ -1,0 +1,1100 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LivePortrait Viewer</title>
+  <style>
+    :root {
+      --bg: #071426;
+      --panel: #0d1f36;
+      --panel-2: #132846;
+      --text: #e9f1ff;
+      --muted: #9fb3cf;
+      --line: #1f3b60;
+      --accent: #49d0ff;
+      --ok: #59e2a9;
+      --warn: #ffd87a;
+      --danger: #ff8d8d;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: radial-gradient(circle at top left, #132f50 0%, var(--bg) 42%, #050d1a 100%);
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .layout {
+      max-width: 1320px;
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+    }
+
+    .card {
+      background: linear-gradient(160deg, var(--panel) 0%, var(--panel-2) 100%);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+    }
+
+    .header {
+      display: grid;
+      gap: 8px;
+    }
+
+    .title {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .badge {
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.15);
+      color: var(--muted);
+    }
+
+    .badge.ok {
+      color: var(--ok);
+      border-color: rgba(89, 226, 169, 0.35);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    button,
+    input,
+    select {
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: rgba(4, 14, 26, 0.7);
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button.primary {
+      border-color: rgba(73, 208, 255, 0.55);
+      color: var(--accent);
+    }
+
+    .videos {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 12px;
+    }
+
+    .panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 8px;
+      letter-spacing: 0.2px;
+      text-transform: uppercase;
+    }
+
+    .media-box {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.25);
+      width: 100%;
+      aspect-ratio: 12 / 7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    video,
+    img,
+    canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .audio-wrap {
+      width: 100%;
+      padding: 12px;
+    }
+
+    .audio-wrap audio {
+      width: 100%;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .mono {
+      font-family: Consolas, "Courier New", monospace;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    @media (min-width: 1024px) {
+      .row {
+        grid-template-columns: 2fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="layout">
+    <section class="card header">
+      <h1 class="title">FasterLivePortrait TRT Stream Viewer</h1>
+      <p class="subtitle">Select an audio, click <strong>Generate</strong>, and watch the live stream while the video is rendered by the API.</p>
+      <div class="badges">
+        <span class="badge" id="statusBadge">Status: idle</span>
+        <span class="badge">Job: <span id="jobBadge">none</span></span>
+        <span class="badge">Source: <span id="sourceBadge">output/frames/frame_00061.png</span></span>
+        <span class="badge">Driving: <span id="drivingBadge">none</span></span>
+        <span class="badge">Stream: <span id="streamBadge">idle</span></span>
+      </div>
+    </section>
+
+    <section class="card controls">
+      <label>
+        API base
+        <input id="apiBaseInput" type="text" value="">
+      </label>
+      <label>
+        Audio
+        <input id="audioFileInput" type="file" accept=".wav,.mp3,.m4a,.aac,.flac,.ogg,audio/*">
+      </label>
+      <label>
+        Source frame
+        <input id="sourceFrameInput" type="text" value="output/frames/frame_00061.png">
+      </label>
+      <label>
+        Motion stride (1=best quality, 2=faster)
+        <input id="motionStrideInput" type="number" min="1" max="6" step="1" value="1">
+      </label>
+      <button class="primary" id="btnGenerate">Generate</button>
+      <button id="btnStopStream">Stop Stream</button>
+      <button class="primary" id="btnPlay">Play</button>
+      <button id="btnPause">Pause</button>
+      <button id="btnReset">Reset</button>
+      <label>
+        Speed
+        <input id="speedRange" type="range" min="0.5" max="1.5" step="0.05" value="1.0">
+      </label>
+      <span id="speedValue" class="badge">1.00x</span>
+      <label>
+        <input id="muteCheck" type="checkbox" checked>
+        Mute result
+      </label>
+      <label>
+        View
+        <select id="viewMode">
+          <option value="result" selected>Result</option>
+          <option value="concat">Concat</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="row">
+      <div class="card videos">
+        <article>
+          <h2 class="panel-title">Neutral Source</h2>
+          <div class="media-box">
+            <img id="sourcePreview" src="output/frames/frame_00061.png" alt="source frame">
+          </div>
+        </article>
+        <article>
+          <h2 class="panel-title">Driving Media</h2>
+          <div class="media-box">
+            <video id="drivingVideo" controls loop preload="auto"></video>
+            <div class="audio-wrap hidden" id="drivingAudioWrap">
+              <audio id="drivingAudio" controls preload="auto"></audio>
+            </div>
+          </div>
+        </article>
+        <article>
+          <h2 class="panel-title">Live Stream (while rendering)</h2>
+          <div class="media-box">
+            <video id="streamVideo" controls muted autoplay playsinline preload="auto"></video>
+          </div>
+        </article>
+        <article>
+          <h2 class="panel-title">Generated Result</h2>
+          <div class="media-box">
+            <video id="resultVideo" controls loop preload="auto"></video>
+          </div>
+        </article>
+      </div>
+
+      <aside class="card">
+        <h2 class="panel-title">Job Status</h2>
+        <pre id="reportText" class="mono">Idle. Select audio and click Generate.</pre>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const API_GENERATE_PATH = "/api/generate";
+    const API_HEALTH_PATH = "/api/health";
+    const DEFAULT_API_BASE_URL = (() => {
+      if ((window.location.protocol === "http:" || window.location.protocol === "https:") && window.location.host) {
+        return `${window.location.protocol}//${window.location.host}`;
+      }
+      return "http://127.0.0.1:8011";
+    })();
+    const DEFAULT_SOURCE_FRAME = "output/frames/frame_00061.png";
+    const DRIVING_MEDIA_DEFAULT_PATH = "";
+    const WS_PROTOCOL_HTTP = "ws:";
+    const WS_PROTOCOL_HTTPS = "wss:";
+    const WS_MESSAGE_STATUS = "status";
+    const WS_MESSAGE_TERMINAL = "terminal";
+    const WS_MESSAGE_ERROR = "error";
+    const JOB_STATE_DONE = "done";
+    const JOB_STATE_ERROR = "error";
+    const JOB_STATE_RUNNING = "running";
+    const DEFAULT_MOTION_STRIDE = 1;
+    const LIVE_STREAM_MIME_TYPE = 'video/mp4; codecs="avc1.42E01E"';
+    const STREAM_MAX_QUEUE_CHUNKS = 40;
+    const STREAM_MAX_BUFFERED_SECONDS = 1.8;
+    const STREAM_LIVE_EDGE_TARGET_SECONDS = 0.25;
+    const STREAM_SEEK_THRESHOLD_SECONDS = 2.0;
+    const STREAM_REMOVE_MIN_SPAN_SECONDS = 0.5;
+    const STREAM_LATENCY_TIMER_MS = 220;
+    const STREAM_CATCH_UP_PLAYBACK_RATE = 1.01;
+    const STREAM_NORMAL_PLAYBACK_RATE = 1.0;
+    const STREAM_RATE_SWITCH_THRESHOLD_SECONDS = 0.9;
+    const STREAM_HARD_SEEK_ENABLED = false;
+    const STREAM_FIRST_FRAME_READY_STATE = 2;
+    const JOB_PANEL_MIN_INTERVAL_MS = 120;
+    const AUTO_PLAY_DRIVING_ON_FIRST_STREAM_FRAME = true;
+    const STATUS_AUDIO_SYNCED_TEXT = "running (audio synced to first preview frame)";
+    const STATUS_AUDIO_AUTOPLAY_BLOCKED_TEXT = "audio autoplay blocked; press Play";
+
+    const elements = {
+      statusBadge: document.getElementById("statusBadge"),
+      jobBadge: document.getElementById("jobBadge"),
+      sourceBadge: document.getElementById("sourceBadge"),
+      drivingBadge: document.getElementById("drivingBadge"),
+      streamBadge: document.getElementById("streamBadge"),
+      sourcePreview: document.getElementById("sourcePreview"),
+      streamVideo: document.getElementById("streamVideo"),
+      reportText: document.getElementById("reportText"),
+      resultVideo: document.getElementById("resultVideo"),
+      drivingVideo: document.getElementById("drivingVideo"),
+      drivingAudio: document.getElementById("drivingAudio"),
+      drivingAudioWrap: document.getElementById("drivingAudioWrap"),
+      apiBaseInput: document.getElementById("apiBaseInput"),
+      audioFileInput: document.getElementById("audioFileInput"),
+      sourceFrameInput: document.getElementById("sourceFrameInput"),
+      motionStrideInput: document.getElementById("motionStrideInput"),
+      btnGenerate: document.getElementById("btnGenerate"),
+      btnStopStream: document.getElementById("btnStopStream"),
+      btnPlay: document.getElementById("btnPlay"),
+      btnPause: document.getElementById("btnPause"),
+      btnReset: document.getElementById("btnReset"),
+      speedRange: document.getElementById("speedRange"),
+      speedValue: document.getElementById("speedValue"),
+      muteCheck: document.getElementById("muteCheck"),
+      viewMode: document.getElementById("viewMode")
+    };
+
+    let currentJobId = "";
+    let currentJobState = "";
+    let statusSocket = null;
+    let streamVideoSocket = null;
+    let streamMediaSource = null;
+    let streamSourceBuffer = null;
+    let streamObjectUrl = "";
+    let streamLatencyTimer = null;
+    let streamVideoFrameCallbackId = null;
+    let currentDrivingMediaUrl = "";
+    let lastJobPanelRenderMs = 0;
+    let audioAutoStartJobId = "";
+    let audioAutoStartPending = false;
+    const streamAppendQueue = [];
+    const activeVideoPaths = {
+      result: "",
+      concat: ""
+    };
+
+    function withCacheBust(path) {
+      return `${path}?t=${Date.now()}`;
+    }
+
+    function normalizeApiBase() {
+      const raw = (elements.apiBaseInput.value || "").trim();
+      if (!raw) {
+        return `${window.location.protocol}//${window.location.host}`;
+      }
+      return raw.replace(/\/+$/, "");
+    }
+
+    function buildApiUrl(pathOrUrl) {
+      if (!pathOrUrl) {
+        return "";
+      }
+      if (/^https?:\/\//i.test(pathOrUrl)) {
+        return pathOrUrl;
+      }
+      const base = normalizeApiBase();
+      if (pathOrUrl.startsWith("/")) {
+        return `${base}${pathOrUrl}`;
+      }
+      return `${base}/${pathOrUrl}`;
+    }
+
+    function resolveMediaUrl(pathOrUrl) {
+      if (!pathOrUrl) {
+        return "";
+      }
+      if (/^https?:\/\//i.test(pathOrUrl)) {
+        return pathOrUrl;
+      }
+      if (pathOrUrl.startsWith("/jobs/")) {
+        return buildApiUrl(pathOrUrl);
+      }
+      if (pathOrUrl.startsWith("/")) {
+        return `${window.location.origin}${pathOrUrl}`;
+      }
+      return pathOrUrl;
+    }
+
+    function isAudioPath(path) {
+      return /\.(wav|mp3|m4a|aac|flac|ogg)(\?|$)/i.test(path);
+    }
+
+    function setDrivingMedia(path) {
+      const nextPath = resolveMediaUrl(path || DRIVING_MEDIA_DEFAULT_PATH);
+      if (nextPath === currentDrivingMediaUrl) {
+        return;
+      }
+      currentDrivingMediaUrl = nextPath;
+      if (!nextPath) {
+        elements.drivingAudioWrap.classList.add("hidden");
+        elements.drivingVideo.classList.remove("hidden");
+        elements.drivingVideo.removeAttribute("src");
+        elements.drivingVideo.load();
+        return;
+      }
+      if (isAudioPath(nextPath)) {
+        elements.drivingVideo.classList.add("hidden");
+        elements.drivingAudioWrap.classList.remove("hidden");
+        elements.drivingAudio.src = nextPath;
+        elements.drivingAudio.load();
+        return;
+      }
+      elements.drivingAudioWrap.classList.add("hidden");
+      elements.drivingVideo.classList.remove("hidden");
+      elements.drivingVideo.src = nextPath;
+      elements.drivingVideo.load();
+    }
+
+    function getActiveDrivingPlayer() {
+      return elements.drivingAudioWrap.classList.contains("hidden")
+        ? elements.drivingVideo
+        : elements.drivingAudio;
+    }
+
+    /**
+     * Read user-selected playback speed and return a safe value.
+     *
+     * @returns {number} Playback rate.
+     */
+    function getSelectedPlaybackRate() {
+      const playbackRate = Number(elements.speedRange.value);
+      if (!Number.isFinite(playbackRate) || playbackRate <= 0) {
+        return STREAM_NORMAL_PLAYBACK_RATE;
+      }
+      return playbackRate;
+    }
+
+    /**
+     * Stop active driving media and seek to start.
+     */
+    function resetDrivingPlaybackToStart() {
+      const player = getActiveDrivingPlayer();
+      if (!player) {
+        return;
+      }
+      player.pause();
+      try {
+        player.currentTime = 0;
+      } catch (_error) {}
+    }
+
+    /**
+     * Start driving media aligned to the selected speed.
+     */
+    function startDrivingPlaybackFromStart() {
+      const player = getActiveDrivingPlayer();
+      if (!player) {
+        return;
+      }
+      try {
+        player.currentTime = 0;
+      } catch (_error) {}
+      player.playbackRate = getSelectedPlaybackRate();
+      player.play().then(() => {
+        setStatusBadge(STATUS_AUDIO_SYNCED_TEXT, false);
+      }).catch(() => {
+        setStatusBadge(STATUS_AUDIO_AUTOPLAY_BLOCKED_TEXT, false);
+      });
+    }
+
+    /**
+     * Clear pending first-frame audio synchronization state.
+     */
+    function clearFirstFrameAudioSync() {
+      audioAutoStartPending = false;
+      audioAutoStartJobId = "";
+      if (
+        streamVideoFrameCallbackId !== null
+        && typeof elements.streamVideo.cancelVideoFrameCallback === "function"
+      ) {
+        try {
+          elements.streamVideo.cancelVideoFrameCallback(streamVideoFrameCallbackId);
+        } catch (_error) {}
+      }
+      streamVideoFrameCallbackId = null;
+    }
+
+    /**
+     * Trigger audio playback when first preview frame is rendered.
+     *
+     * @param {string} trackedJobId - Job ID bound to this synchronization window.
+     */
+    function armFirstFrameAudioSync(trackedJobId) {
+      clearFirstFrameAudioSync();
+      if (!AUTO_PLAY_DRIVING_ON_FIRST_STREAM_FRAME || !trackedJobId) {
+        return;
+      }
+      audioAutoStartPending = true;
+      audioAutoStartJobId = trackedJobId;
+      const streamVideo = elements.streamVideo;
+      const finalizeIfEligible = () => {
+        if (!audioAutoStartPending) {
+          return;
+        }
+        if (currentJobId !== trackedJobId || audioAutoStartJobId !== trackedJobId) {
+          return;
+        }
+        clearFirstFrameAudioSync();
+        startDrivingPlaybackFromStart();
+      };
+      if (typeof streamVideo.requestVideoFrameCallback === "function") {
+        streamVideoFrameCallbackId = streamVideo.requestVideoFrameCallback(() => {
+          finalizeIfEligible();
+        });
+        return;
+      }
+      const onFallbackFrameReady = () => {
+        if (streamVideo.readyState >= STREAM_FIRST_FRAME_READY_STATE) {
+          finalizeIfEligible();
+        }
+      };
+      streamVideo.addEventListener("loadeddata", onFallbackFrameReady, { once: true });
+      streamVideo.addEventListener("timeupdate", onFallbackFrameReady, { once: true });
+    }
+
+    function setStatusBadge(text, isOk = false) {
+      elements.statusBadge.textContent = `Status: ${text}`;
+      elements.statusBadge.classList.toggle("ok", isOk);
+    }
+
+    function setStreamBadge(text) {
+      elements.streamBadge.textContent = text;
+    }
+
+    function renderJobPanel(payload) {
+      const report = payload.report || null;
+      const streamStatus = payload.status || {};
+      const panel = {
+        jobId: payload.jobId,
+        state: payload.state,
+        running: payload.running,
+        exitCode: payload.exitCode,
+        audioMotionStride: payload.audioMotionStride || DEFAULT_MOTION_STRIDE,
+        progress: streamStatus.progress || 0,
+        frameIndex: streamStatus.frameIndex || 0,
+        frameTotal: streamStatus.frameTotal || 0,
+        message: streamStatus.message || "",
+        elapsedSec: streamStatus.elapsedSec || 0,
+        resultVideo: payload.resultVideoUrl || "",
+        resultConcat: payload.resultConcatUrl || ""
+      };
+      if (report) {
+        panel.reportSummary = {
+          templateUsed: report.templateUsed,
+          sourceFps: report.sourceFps,
+          drivingFps: report.drivingFps,
+          elapsedSeconds: report.elapsedSeconds
+        };
+      }
+      elements.reportText.textContent = JSON.stringify(panel, null, 2);
+    }
+
+    function updateSpeed() {
+      const speed = getSelectedPlaybackRate();
+      elements.resultVideo.playbackRate = speed;
+      elements.drivingVideo.playbackRate = speed;
+      elements.drivingAudio.playbackRate = speed;
+      elements.speedValue.textContent = `${speed.toFixed(2)}x`;
+    }
+
+    function applyMute() {
+      elements.resultVideo.muted = elements.muteCheck.checked;
+    }
+
+    function applyViewMode() {
+      const selectedMode = elements.viewMode.value;
+      const nextSource = activeVideoPaths[selectedMode] || "";
+      if (!nextSource) {
+        return;
+      }
+      const currentTime = elements.resultVideo.currentTime;
+      const paused = elements.resultVideo.paused;
+      elements.resultVideo.src = nextSource;
+      elements.resultVideo.load();
+      try {
+        elements.resultVideo.currentTime = currentTime;
+      } catch (_error) {}
+      if (!paused) {
+        elements.resultVideo.play().catch(() => {});
+      }
+    }
+
+    function buildWebSocketUrl(pathOrUrl) {
+      if (!pathOrUrl) {
+        return "";
+      }
+      if (/^wss?:\/\//i.test(pathOrUrl)) {
+        return pathOrUrl;
+      }
+      if (/^https?:\/\//i.test(pathOrUrl)) {
+        const absolute = new URL(pathOrUrl);
+        absolute.protocol = absolute.protocol === "https:" ? WS_PROTOCOL_HTTPS : WS_PROTOCOL_HTTP;
+        return absolute.toString();
+      }
+      const apiUrl = new URL(normalizeApiBase());
+      apiUrl.protocol = apiUrl.protocol === "https:" ? WS_PROTOCOL_HTTPS : WS_PROTOCOL_HTTP;
+      apiUrl.pathname = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+      apiUrl.search = "";
+      apiUrl.hash = "";
+      return apiUrl.toString();
+    }
+
+    function clearStreamVideoElement() {
+      clearFirstFrameAudioSync();
+      elements.streamVideo.pause();
+      elements.streamVideo.removeAttribute("src");
+      elements.streamVideo.load();
+    }
+
+    function closeStreamVideoSocket() {
+      if (!streamVideoSocket) {
+        return;
+      }
+      streamVideoSocket.onopen = null;
+      streamVideoSocket.onmessage = null;
+      streamVideoSocket.onerror = null;
+      streamVideoSocket.onclose = null;
+      try {
+        streamVideoSocket.close();
+      } catch (_error) {}
+      streamVideoSocket = null;
+    }
+
+    function resetStreamMediaSourceState() {
+      stopStreamLatencyController();
+      streamAppendQueue.length = 0;
+      streamSourceBuffer = null;
+      if (streamMediaSource && streamMediaSource.readyState === "open") {
+        try {
+          streamMediaSource.endOfStream();
+        } catch (_error) {}
+      }
+      streamMediaSource = null;
+      if (streamObjectUrl) {
+        URL.revokeObjectURL(streamObjectUrl);
+        streamObjectUrl = "";
+      }
+    }
+
+    function stopStreamLatencyController() {
+      if (streamLatencyTimer === null) {
+        return;
+      }
+      window.clearInterval(streamLatencyTimer);
+      streamLatencyTimer = null;
+    }
+
+    function nudgeStreamToLiveEdge() {
+      if (!STREAM_HARD_SEEK_ENABLED) {
+        return;
+      }
+      const video = elements.streamVideo;
+      if (!video || !video.buffered || video.buffered.length === 0) {
+        return;
+      }
+      const end = video.buffered.end(video.buffered.length - 1);
+      const now = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      const behind = end - now;
+      if (behind <= STREAM_SEEK_THRESHOLD_SECONDS) {
+        return;
+      }
+      const target = Math.max(0, end - STREAM_LIVE_EDGE_TARGET_SECONDS);
+      try {
+        video.currentTime = target;
+      } catch (_error) {}
+    }
+
+    function adjustStreamPlaybackRate() {
+      const video = elements.streamVideo;
+      if (!video || !video.buffered || video.buffered.length === 0) {
+        return;
+      }
+      const end = video.buffered.end(video.buffered.length - 1);
+      const now = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      const behind = end - now;
+      const targetRate = behind > STREAM_RATE_SWITCH_THRESHOLD_SECONDS
+        ? STREAM_CATCH_UP_PLAYBACK_RATE
+        : STREAM_NORMAL_PLAYBACK_RATE;
+      if (Math.abs((video.playbackRate || STREAM_NORMAL_PLAYBACK_RATE) - targetRate) > 0.001) {
+        video.playbackRate = targetRate;
+      }
+    }
+
+    function trimOldStreamBuffer() {
+      if (!streamSourceBuffer || streamSourceBuffer.updating) {
+        return;
+      }
+      const video = elements.streamVideo;
+      if (!video || !video.buffered || video.buffered.length === 0) {
+        return;
+      }
+      const trimBefore = (Number.isFinite(video.currentTime) ? video.currentTime : 0) - STREAM_MAX_BUFFERED_SECONDS;
+      if (trimBefore <= 0) {
+        return;
+      }
+      const start = video.buffered.start(0);
+      if (trimBefore - start < STREAM_REMOVE_MIN_SPAN_SECONDS) {
+        return;
+      }
+      try {
+        streamSourceBuffer.remove(start, trimBefore);
+      } catch (_error) {}
+    }
+
+    function maintainStreamLatency() {
+      trimOldStreamBuffer();
+      nudgeStreamToLiveEdge();
+      adjustStreamPlaybackRate();
+    }
+
+    function startStreamLatencyController() {
+      stopStreamLatencyController();
+      streamLatencyTimer = window.setInterval(() => {
+        maintainStreamLatency();
+      }, STREAM_LATENCY_TIMER_MS);
+    }
+
+    function appendNextStreamChunk() {
+      if (!streamSourceBuffer || streamSourceBuffer.updating || streamAppendQueue.length === 0) {
+        return;
+      }
+      const chunk = streamAppendQueue.shift();
+      if (!chunk) {
+        return;
+      }
+      try {
+        streamSourceBuffer.appendBuffer(chunk);
+      } catch (error) {
+        setStatusBadge(`stream append error (${String(error)})`, false);
+        setStreamBadge("error");
+      }
+    }
+
+    function enqueueStreamChunk(chunk) {
+      if (!chunk || chunk.byteLength === 0) {
+        return;
+      }
+      streamAppendQueue.push(chunk);
+      if (streamAppendQueue.length > STREAM_MAX_QUEUE_CHUNKS) {
+        streamAppendQueue.splice(0, streamAppendQueue.length - STREAM_MAX_QUEUE_CHUNKS);
+      }
+      appendNextStreamChunk();
+    }
+
+    function initializeLiveMediaSource() {
+      if (!window.MediaSource) {
+        setStatusBadge("MediaSource unavailable in this browser", false);
+        setStreamBadge("error");
+        return false;
+      }
+      if (!MediaSource.isTypeSupported(LIVE_STREAM_MIME_TYPE)) {
+        setStatusBadge(`unsupported live codec (${LIVE_STREAM_MIME_TYPE})`, false);
+        setStreamBadge("error");
+        return false;
+      }
+
+      resetStreamMediaSourceState();
+      clearStreamVideoElement();
+      streamMediaSource = new MediaSource();
+      streamObjectUrl = URL.createObjectURL(streamMediaSource);
+      elements.streamVideo.src = streamObjectUrl;
+      streamMediaSource.addEventListener("sourceopen", () => {
+        if (!streamMediaSource || streamMediaSource.readyState !== "open") {
+          return;
+        }
+        try {
+          streamSourceBuffer = streamMediaSource.addSourceBuffer(LIVE_STREAM_MIME_TYPE);
+          streamSourceBuffer.mode = "segments";
+          streamSourceBuffer.addEventListener("updateend", () => {
+            appendNextStreamChunk();
+            maintainStreamLatency();
+          });
+          startStreamLatencyController();
+          appendNextStreamChunk();
+          elements.streamVideo.play().catch(() => {});
+        } catch (error) {
+          setStatusBadge(`source buffer error (${String(error)})`, false);
+          setStreamBadge("error");
+        }
+      });
+      return true;
+    }
+
+    function closeStatusSocket() {
+      if (!statusSocket) {
+        return;
+      }
+      statusSocket.onopen = null;
+      statusSocket.onmessage = null;
+      statusSocket.onerror = null;
+      statusSocket.onclose = null;
+      try {
+        statusSocket.close();
+      } catch (_error) {}
+      statusSocket = null;
+    }
+
+    function applyStatusPayload(payload) {
+      if (!payload) {
+        return;
+      }
+      const streamStatus = payload.status || {};
+      currentJobState = String(payload.state || JOB_STATE_RUNNING);
+      const progressPercent = (Number(streamStatus.progress || 0) * 100).toFixed(1);
+      const frameIndex = Number(streamStatus.frameIndex || 0);
+      const frameTotal = Number(streamStatus.frameTotal || 0);
+      const totalLabel = frameTotal > 0 ? frameTotal : "?";
+      const statusText = currentJobState || JOB_STATE_RUNNING;
+      const isDone = currentJobState === JOB_STATE_DONE && Number(payload.exitCode || 0) === 0;
+      setStatusBadge(statusText, isDone);
+      setStreamBadge(`${statusText} ${progressPercent}% (${frameIndex}/${totalLabel})`);
+
+      if (payload.drivingMediaUrl) {
+        elements.drivingBadge.textContent = payload.drivingMediaUrl;
+        setDrivingMedia(payload.drivingMediaUrl);
+      }
+      if (payload.resultVideoUrl) {
+        activeVideoPaths.result = resolveMediaUrl(payload.resultVideoUrl);
+      }
+      if (payload.resultConcatUrl) {
+        activeVideoPaths.concat = resolveMediaUrl(payload.resultConcatUrl);
+      }
+      const nowMs = Date.now();
+      const isTerminal = currentJobState === JOB_STATE_DONE || currentJobState === JOB_STATE_ERROR;
+      if (isTerminal || nowMs - lastJobPanelRenderMs >= JOB_PANEL_MIN_INTERVAL_MS) {
+        renderJobPanel(payload);
+        lastJobPanelRenderMs = nowMs;
+      }
+
+      if (currentJobState === JOB_STATE_DONE) {
+        applyViewMode();
+      }
+    }
+
+    function handleStatusSocketMessage(event) {
+      let message;
+      try {
+        message = JSON.parse(event.data);
+      } catch (_error) {
+        return;
+      }
+      const messageType = message && message.type ? String(message.type) : "";
+      if (messageType === WS_MESSAGE_STATUS) {
+        applyStatusPayload(message.payload);
+        return;
+      }
+      if (messageType === WS_MESSAGE_TERMINAL) {
+        applyStatusPayload(message.payload);
+        closeStatusSocket();
+        return;
+      }
+      if (messageType === WS_MESSAGE_ERROR) {
+        setStatusBadge(`status stream error (${String(message.message || "unknown")})`, false);
+        setStreamBadge("error");
+      }
+    }
+
+    function connectStatusSocket(jobPayload) {
+      const wsPath = jobPayload.wsUrl || `/ws/jobs/${jobPayload.jobId}`;
+      const wsUrl = buildWebSocketUrl(wsPath);
+      if (!wsUrl) {
+        setStatusBadge("missing status websocket url", false);
+        setStreamBadge("error");
+        return;
+      }
+
+      closeStatusSocket();
+      const trackedJobId = jobPayload.jobId;
+      statusSocket = new WebSocket(wsUrl);
+      statusSocket.onopen = () => {
+        if (currentJobId !== trackedJobId) {
+          return;
+        }
+        setStreamBadge("status connected");
+      };
+      statusSocket.onmessage = handleStatusSocketMessage;
+      statusSocket.onerror = () => {
+        if (currentJobId !== trackedJobId) {
+          return;
+        }
+        setStatusBadge("status websocket error", false);
+        setStreamBadge("error");
+      };
+      statusSocket.onclose = () => {
+        if (currentJobId !== trackedJobId) {
+          return;
+        }
+        const isTerminalState = currentJobState === JOB_STATE_DONE || currentJobState === JOB_STATE_ERROR;
+        if (!isTerminalState) {
+          setStreamBadge("status disconnected");
+        }
+        statusSocket = null;
+      };
+    }
+
+    function connectVideoStream(jobPayload) {
+      const wsPath = jobPayload.videoWsUrl || `/ws/jobs/${jobPayload.jobId}/video`;
+      const wsUrl = buildWebSocketUrl(wsPath);
+      if (!wsUrl) {
+        setStatusBadge("missing video websocket url", false);
+        setStreamBadge("error");
+        return;
+      }
+      if (!initializeLiveMediaSource()) {
+        return;
+      }
+
+      closeStreamVideoSocket();
+      streamVideoSocket = new WebSocket(wsUrl);
+      streamVideoSocket.binaryType = "arraybuffer";
+      streamVideoSocket.onopen = () => {
+        setStreamBadge("video connected");
+        armFirstFrameAudioSync(currentJobId);
+        elements.streamVideo.play().catch(() => {});
+      };
+      streamVideoSocket.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          enqueueStreamChunk(new Uint8Array(event.data));
+          return;
+        }
+        if (event.data instanceof Blob) {
+          event.data.arrayBuffer().then((buffer) => {
+            enqueueStreamChunk(new Uint8Array(buffer));
+          }).catch(() => {});
+        }
+      };
+      streamVideoSocket.onerror = () => {
+        setStatusBadge("video websocket error", false);
+        setStreamBadge("error");
+      };
+      streamVideoSocket.onclose = () => {
+        clearFirstFrameAudioSync();
+        if (streamMediaSource && streamMediaSource.readyState === "open") {
+          try {
+            streamMediaSource.endOfStream();
+          } catch (_error) {}
+        }
+        streamVideoSocket = null;
+        if (currentJobState !== JOB_STATE_DONE && currentJobState !== JOB_STATE_ERROR) {
+          setStreamBadge("video disconnected");
+        }
+      };
+    }
+
+    function stopStreamView() {
+      closeStatusSocket();
+      closeStreamVideoSocket();
+      resetStreamMediaSourceState();
+      clearStreamVideoElement();
+      setStreamBadge("stopped");
+    }
+
+    function startJob(jobPayload) {
+      stopStreamView();
+      currentJobId = jobPayload.jobId;
+      currentJobState = String(jobPayload.state || JOB_STATE_RUNNING);
+      lastJobPanelRenderMs = 0;
+      elements.jobBadge.textContent = currentJobId;
+      setStatusBadge(currentJobState || JOB_STATE_RUNNING, false);
+      setStreamBadge("connecting");
+      if (jobPayload.drivingMediaUrl) {
+        elements.drivingBadge.textContent = jobPayload.drivingMediaUrl;
+        setDrivingMedia(jobPayload.drivingMediaUrl);
+      }
+      resetDrivingPlaybackToStart();
+      applyStatusPayload(jobPayload);
+      connectStatusSocket(jobPayload);
+      connectVideoStream(jobPayload);
+    }
+
+    async function createJob() {
+      const file = elements.audioFileInput.files && elements.audioFileInput.files[0];
+      if (!file) {
+        setStatusBadge("select an audio file first", false);
+        return;
+      }
+      const sourceFrame = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim();
+      let motionStride = Number.parseInt(String(elements.motionStrideInput.value || DEFAULT_MOTION_STRIDE), 10);
+      if (!Number.isFinite(motionStride) || motionStride < 1) {
+        motionStride = DEFAULT_MOTION_STRIDE;
+      }
+      if (motionStride > 6) {
+        motionStride = 6;
+      }
+      elements.motionStrideInput.value = String(motionStride);
+      elements.sourceBadge.textContent = sourceFrame;
+      elements.sourcePreview.src = withCacheBust(sourceFrame);
+
+      const formData = new FormData();
+      formData.append("audio", file, file.name);
+      formData.append("source_frame", sourceFrame);
+      formData.append("mode", "preview");
+      formData.append("motion_stride", String(motionStride));
+
+      elements.btnGenerate.disabled = true;
+      setStatusBadge("submitting job", false);
+      setStreamBadge("starting");
+      try {
+        const response = await fetch(buildApiUrl(API_GENERATE_PATH), {
+          method: "POST",
+          body: formData
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`HTTP ${response.status}: ${text}`);
+        }
+        const payload = await response.json();
+        startJob(payload);
+      } catch (error) {
+        setStatusBadge(`generate error (${String(error)})`, false);
+        setStreamBadge("error");
+      } finally {
+        elements.btnGenerate.disabled = false;
+      }
+    }
+
+    async function checkApiHealth() {
+      try {
+        const response = await fetch(buildApiUrl(API_HEALTH_PATH), { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        setStatusBadge(`api ${data.status}`, data.status === "ok");
+        const serverStride = Number.parseInt(String(data.defaultAudioMotionStride || DEFAULT_MOTION_STRIDE), 10);
+        if (Number.isFinite(serverStride) && serverStride >= 1 && serverStride <= 6) {
+          elements.motionStrideInput.value = String(serverStride);
+        }
+      } catch (error) {
+        setStatusBadge(`api unavailable (${String(error)})`, false);
+      }
+    }
+
+    elements.btnPlay.addEventListener("click", () => {
+      elements.resultVideo.play().catch(() => {});
+      getActiveDrivingPlayer().play().catch(() => {});
+    });
+
+    elements.btnPause.addEventListener("click", () => {
+      elements.resultVideo.pause();
+      getActiveDrivingPlayer().pause();
+    });
+
+    elements.btnReset.addEventListener("click", () => {
+      elements.resultVideo.currentTime = 0;
+      getActiveDrivingPlayer().currentTime = 0;
+    });
+
+    elements.btnGenerate.addEventListener("click", createJob);
+    elements.btnStopStream.addEventListener("click", stopStreamView);
+
+    elements.speedRange.addEventListener("input", updateSpeed);
+    elements.muteCheck.addEventListener("change", applyMute);
+    elements.viewMode.addEventListener("change", applyViewMode);
+    elements.sourceFrameInput.addEventListener("change", () => {
+      const value = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim();
+      elements.sourceBadge.textContent = value;
+      elements.sourcePreview.src = withCacheBust(value);
+    });
+    elements.apiBaseInput.addEventListener("change", checkApiHealth);
+
+    if (activeVideoPaths.result) {
+      elements.resultVideo.src = activeVideoPaths.result;
+    }
+    elements.apiBaseInput.value = DEFAULT_API_BASE_URL;
+    elements.sourceFrameInput.value = DEFAULT_SOURCE_FRAME;
+    elements.motionStrideInput.value = String(DEFAULT_MOTION_STRIDE);
+    elements.sourceBadge.textContent = DEFAULT_SOURCE_FRAME;
+    elements.sourcePreview.src = withCacheBust(DEFAULT_SOURCE_FRAME);
+    setDrivingMedia("");
+    clearStreamVideoElement();
+    updateSpeed();
+    applyMute();
+    checkApiHealth();
+  </script>
+</body>
+</html>

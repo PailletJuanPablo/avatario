@@ -1,0 +1,15 @@
+{
+  "name": "animation-realtime-trt",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "serve": "serve .",
+    "up:docker": "docker compose up --build -d",
+    "down:docker": "docker compose down",
+    "logs:docker": "docker compose logs -f animation-api",
+    "clean:legacy": "powershell -ExecutionPolicy Bypass -File .\\scripts\\cleanup_legacy.ps1"
+  },
+  "dependencies": {
+    "serve": "^14.2.4"
+  }
+}
