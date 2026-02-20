@@ -1,0 +1,1078 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixi Viseme Preview</title>
+    <style>
+      :root {
+        --bg: #0f1a2d;
+        --panel: #12233f;
+        --text: #e9eef9;
+        --muted: #9eb0d2;
+        --accent: #2f86ff;
+        --border: #244572;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background: radial-gradient(circle at 20% 20%, #152c52 0%, #0b1323 55%, #060a14 100%);
+        color: var(--text);
+        min-height: 100vh;
+      }
+
+      .layout {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 20px;
+        display: grid;
+        grid-template-columns: 340px 1fr;
+        gap: 18px;
+      }
+
+      .panel {
+        background: color-mix(in oklab, var(--panel) 88%, black 12%);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px;
+      }
+
+      .controls h2 {
+        margin: 0 0 12px 0;
+        font-size: 18px;
+      }
+
+      .field {
+        margin-bottom: 10px;
+      }
+
+      label {
+        display: block;
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+
+      input[type="text"],
+      input[type="number"],
+      select {
+        width: 100%;
+        background: #0d1a30;
+        border: 1px solid #2b4c7c;
+        color: var(--text);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+
+      input[type="range"] {
+        width: 100%;
+      }
+
+      .buttons {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      button {
+        background: linear-gradient(180deg, #3a98ff 0%, #2878da 100%);
+        border: 0;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        padding: 9px 10px;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: #1f3760;
+      }
+
+      .load-progress {
+        margin: 8px 0 12px 0;
+      }
+
+      .progress-track {
+        width: 100%;
+        height: 10px;
+        border-radius: 999px;
+        border: 1px solid #2b4c7c;
+        background: #0d1a30;
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg, #2f86ff 0%, #4ca3ff 100%);
+        transition: width 120ms ease-out;
+      }
+
+      .progress-text {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 5px;
+      }
+
+      .viewer {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .stage-wrap {
+        background: #070d18;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        min-height: 420px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #pixi-stage {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 420px;
+      }
+
+      #pixi-stage canvas {
+        max-width: 100%;
+        height: auto;
+        image-rendering: auto;
+      }
+
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="panel controls">
+        <h2>Pixi Runtime Check</h2>
+        <div class="field">
+          <label for="manifest-path">Manifest Path</label>
+          <input
+            id="manifest-path"
+            type="text"
+            value="output_fasterliveportrait/viseme_library/pixi_library_manifest.json"
+          />
+        </div>
+        <div class="field">
+          <label for="transition-manifest-path">Transition Manifest Path</label>
+          <input
+            id="transition-manifest-path"
+            type="text"
+            value="output_fasterliveportrait/viseme_library/pixi_transition_library_manifest.json"
+          />
+        </div>
+        <div class="buttons field">
+          <button id="load-btn">Load Library</button>
+          <button id="reload-btn" class="secondary">Reload</button>
+        </div>
+        <div id="load-progress" class="load-progress" hidden>
+          <div id="load-progress-label" class="progress-text">Loading library...</div>
+          <div class="progress-track">
+            <div id="load-progress-fill" class="progress-fill"></div>
+          </div>
+          <div id="load-progress-value" class="progress-text">0% (0/0)</div>
+        </div>
+        <div class="field">
+          <label for="viseme-select">Manual Viseme</label>
+          <select id="viseme-select"></select>
+        </div>
+        <div class="buttons field">
+          <button id="trigger-btn">Trigger</button>
+          <button id="next-btn" class="secondary">Next</button>
+        </div>
+        <div class="field">
+          <label for="speed-range">Animation Speed</label>
+          <input id="speed-range" type="range" min="0.4" max="2.0" value="1.0" step="0.05" />
+          <input id="speed-value" type="number" min="0.4" max="2.0" value="1.0" step="0.05" />
+        </div>
+        <div class="field">
+          <label for="hold-ms">Hold per Viseme (ms)</label>
+          <input id="hold-ms" type="number" min="100" max="3000" value="420" step="10" />
+        </div>
+        <div class="field">
+          <label for="crossfade-ms">Crossfade (ms)</label>
+          <input id="crossfade-ms" type="number" min="0" max="240" value="60" step="5" />
+        </div>
+        <div class="buttons">
+          <button id="play-btn">Play Sequence</button>
+          <button id="stop-btn" class="secondary">Stop</button>
+        </div>
+      </aside>
+
+      <main class="panel viewer">
+        <div class="stage-wrap">
+          <div id="pixi-stage"></div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./vendor/pixi/pixi.min.js"></script>
+    <script>
+      const UI_TEXT = Object.freeze({
+        idle: "status=idle\nhint=click 'Load Library'",
+        loadInProgress: "status=loading\nstate=in-progress",
+        loadIgnored: "status=loading\nstate=already-running",
+      });
+
+      const DEBUG_FLAGS = Object.freeze({
+        runtimeLogs: false,
+      });
+
+      const PLAYBACK_TUNING = Object.freeze({
+        holdFrameRepeatCount: 1,
+        defaultStartFrameIndex: 0,
+        defaultHoldMs: 420,
+        minHoldMs: 100,
+        maxHoldMs: 3000,
+        minCrossfadeMs: 0,
+        maxCrossfadeMs: 240,
+        sequenceSafetyPaddingMs: 12,
+        tickerFrameRate: 60,
+        fallbackPhaseRatios: Object.freeze({
+          attackStart: 0.3,
+          attackEnd: 0.48,
+          holdStart: 0.46,
+          holdEnd: 0.62,
+          releaseStart: 0.6,
+          releaseEnd: 0.78,
+        }),
+      });
+
+      const state = {
+        manifest: null,
+        transitionManifest: null,
+        app: null,
+        spriteA: null,
+        spriteB: null,
+        activeSprite: null,
+        transition: null,
+        texturesByViseme: new Map(),
+        playbackTexturesByViseme: new Map(),
+        visemeConfigByKey: new Map(),
+        transitionVisemeKeyByPair: new Map(),
+        visemeOrder: [],
+        visemeIndex: 0,
+        currentBaseViseme: "",
+        playing: false,
+        sequenceDeadlineMs: 0,
+        runtimeClockMs: 0,
+        baseAnimationSpeed: 25 / 60,
+        speedMultiplier: 1.0,
+        isLoading: false,
+      };
+
+      const els = {
+        manifestPath: document.getElementById("manifest-path"),
+        transitionManifestPath: document.getElementById("transition-manifest-path"),
+        loadBtn: document.getElementById("load-btn"),
+        reloadBtn: document.getElementById("reload-btn"),
+        visemeSelect: document.getElementById("viseme-select"),
+        triggerBtn: document.getElementById("trigger-btn"),
+        nextBtn: document.getElementById("next-btn"),
+        speedRange: document.getElementById("speed-range"),
+        speedValue: document.getElementById("speed-value"),
+        holdMs: document.getElementById("hold-ms"),
+        crossfadeMs: document.getElementById("crossfade-ms"),
+        playBtn: document.getElementById("play-btn"),
+        stopBtn: document.getElementById("stop-btn"),
+        stage: document.getElementById("pixi-stage"),
+        loadProgress: document.getElementById("load-progress"),
+        loadProgressLabel: document.getElementById("load-progress-label"),
+        loadProgressFill: document.getElementById("load-progress-fill"),
+        loadProgressValue: document.getElementById("load-progress-value"),
+      };
+
+      function setStatus(text) {
+        if (!els.status) {
+          return;
+        }
+        els.status.textContent = text;
+      }
+
+      function debugLog(message, payload) {
+        if (!DEBUG_FLAGS.runtimeLogs) {
+          return;
+        }
+        if (payload === undefined) {
+          console.log(`[pixi-preview] ${message}`);
+          return;
+        }
+        console.log(`[pixi-preview] ${message}`, payload);
+      }
+
+      function setLoadingUiState(isLoading) {
+        const disabled = Boolean(isLoading);
+        els.loadBtn.disabled = disabled;
+        els.reloadBtn.disabled = disabled;
+        els.transitionManifestPath.disabled = disabled;
+      }
+
+      function setProgressVisible(visible) {
+        if (!els.loadProgress) {
+          return;
+        }
+        els.loadProgress.hidden = !visible;
+      }
+
+      function updateProgressUi(stageLabel, completedCount, totalCount) {
+        if (!els.loadProgressFill || !els.loadProgressValue || !els.loadProgressLabel) {
+          return;
+        }
+        const safeTotal = Math.max(1, Number(totalCount) || 1);
+        const safeCompleted = Math.max(0, Math.min(safeTotal, Number(completedCount) || 0));
+        const percent = (safeCompleted / safeTotal) * 100;
+        els.loadProgressLabel.textContent = String(stageLabel || "Loading...");
+        els.loadProgressFill.style.width = `${percent.toFixed(2)}%`;
+        els.loadProgressValue.textContent = `${Math.round(percent)}% (${safeCompleted}/${safeTotal})`;
+      }
+
+      function pairTransitionKey(fromViseme, toViseme) {
+        return `${String(fromViseme || "").trim()}::${String(toViseme || "").trim()}`;
+      }
+
+      function clampNumber(value, minValue, maxValue, fallbackValue) {
+        const numericValue = Number(value);
+        const normalizedValue = Number.isFinite(numericValue) ? numericValue : Number(fallbackValue);
+        return Math.min(Number(maxValue), Math.max(Number(minValue), normalizedValue));
+      }
+
+      function readNumericInput(inputElement, minValue, maxValue, fallbackValue) {
+        return clampNumber(inputElement?.value, minValue, maxValue, fallbackValue);
+      }
+
+      function applyRuntimeDefaultsFromManifest(manifest) {
+        const manifestCrossfade = Number(manifest?.rendering?.defaultCrossfadeMs);
+        if (!Number.isFinite(manifestCrossfade)) {
+          return;
+        }
+        const clampedCrossfade = clampNumber(
+          manifestCrossfade,
+          PLAYBACK_TUNING.minCrossfadeMs,
+          PLAYBACK_TUNING.maxCrossfadeMs,
+          PLAYBACK_TUNING.minCrossfadeMs
+        );
+        els.crossfadeMs.value = String(Math.round(clampedCrossfade));
+      }
+
+      function currentCrossfadeMs() {
+        return readNumericInput(
+          els.crossfadeMs,
+          PLAYBACK_TUNING.minCrossfadeMs,
+          PLAYBACK_TUNING.maxCrossfadeMs,
+          PLAYBACK_TUNING.minCrossfadeMs
+        );
+      }
+
+      function currentHoldMs() {
+        return readNumericInput(
+          els.holdMs,
+          PLAYBACK_TUNING.minHoldMs,
+          PLAYBACK_TUNING.maxHoldMs,
+          PLAYBACK_TUNING.defaultHoldMs
+        );
+      }
+
+      function setSpeedMultiplier(value) {
+        const clamped = Math.max(0.4, Math.min(2.0, Number(value) || 1));
+        state.speedMultiplier = clamped;
+        els.speedRange.value = String(clamped);
+        els.speedValue.value = String(clamped);
+        const animationSpeed = state.baseAnimationSpeed * clamped;
+        if (state.spriteA) {
+          state.spriteA.animationSpeed = animationSpeed;
+        }
+        if (state.spriteB) {
+          state.spriteB.animationSpeed = animationSpeed;
+        }
+        if (state.playing) {
+          state.sequenceDeadlineMs = state.runtimeClockMs + currentHoldMs();
+        }
+      }
+
+      function resetApp() {
+        state.playing = false;
+        state.sequenceDeadlineMs = 0;
+        state.runtimeClockMs = 0;
+        state.transition = null;
+        if (state.app) {
+          state.app.destroy(true, {
+            children: true,
+            texture: false,
+            baseTexture: false,
+          });
+          state.app = null;
+        }
+        state.spriteA = null;
+        state.spriteB = null;
+        state.activeSprite = null;
+        els.stage.innerHTML = "";
+      }
+
+      function resolveTextureDimensions(texture, visemeKey) {
+        if (!texture) {
+          throw new Error(`Missing initial texture for viseme ${visemeKey}.`);
+        }
+        const width = Number(texture.width);
+        const height = Number(texture.height);
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+          throw new Error(`Invalid texture dimensions for viseme ${visemeKey}.`);
+        }
+        return { width, height };
+      }
+
+      function visemeAnimationTextures(spritesheet, visemeKey) {
+        const animationFrames = spritesheet.animations?.[visemeKey];
+        if (!Array.isArray(animationFrames) || animationFrames.length === 0) {
+          throw new Error(`Spritesheet animation '${visemeKey}' is missing.`);
+        }
+
+        const textures = animationFrames.map((frameEntry, index) => {
+          if (frameEntry && frameEntry.baseTexture) {
+            return frameEntry;
+          }
+          if (frameEntry && frameEntry.texture && frameEntry.texture.baseTexture) {
+            return frameEntry.texture;
+          }
+          throw new Error(`Spritesheet animation '${visemeKey}' has an invalid frame at index ${index}.`);
+        });
+
+        const invalidTextureIndex = textures.findIndex((texture) => !texture || !texture.baseTexture);
+        if (invalidTextureIndex !== -1) {
+          throw new Error(`Spritesheet animation '${visemeKey}' has an empty texture at index ${invalidTextureIndex}.`);
+        }
+        return textures;
+      }
+
+      function clampFrameIndex(rawIndex, frameCount) {
+        const safeFrameCount = Math.max(1, Number(frameCount) || 1);
+        const numericIndex = Number(rawIndex);
+        if (!Number.isFinite(numericIndex)) {
+          return 0;
+        }
+        const rounded = Math.round(numericIndex);
+        return Math.max(0, Math.min(safeFrameCount - 1, rounded));
+      }
+
+      function normalizeFrameIndices(rawIndices, frameCount) {
+        if (!Array.isArray(rawIndices)) {
+          return [];
+        }
+        const safeFrameCount = Math.max(1, Number(frameCount) || 1);
+        const seen = new Set();
+        const normalized = [];
+        for (const value of rawIndices) {
+          const numeric = Number(value);
+          if (!Number.isFinite(numeric)) {
+            continue;
+          }
+          const index = clampFrameIndex(numeric, safeFrameCount);
+          if (seen.has(index)) {
+            continue;
+          }
+          seen.add(index);
+          normalized.push(index);
+        }
+        return normalized;
+      }
+
+      function buildFallbackIndexRange(frameCount, startRatio, endRatio, minCount) {
+        const safeFrameCount = Math.max(1, Number(frameCount) || 1);
+        const maxIndex = safeFrameCount - 1;
+        const start = clampFrameIndex(maxIndex * Number(startRatio || 0), safeFrameCount);
+        const end = clampFrameIndex(maxIndex * Number(endRatio || 1), safeFrameCount);
+        const from = Math.min(start, end);
+        const to = Math.max(start, end);
+        const range = [];
+        for (let index = from; index <= to; index += 1) {
+          range.push(index);
+        }
+        while (range.length < Math.max(1, Number(minCount) || 1)) {
+          range.push(to);
+        }
+        return range;
+      }
+
+      function resolvePlaybackPhaseIndices(visemeConfig, frameCount) {
+        const fallback = PLAYBACK_TUNING.fallbackPhaseRatios;
+        const safeFrameCount = Math.max(1, Number(frameCount) || 1);
+        const neutralIndex = clampFrameIndex(visemeConfig?.neutralIndex ?? Math.floor(safeFrameCount * 0.5), safeFrameCount);
+
+        let attack = normalizeFrameIndices(visemeConfig?.attackIndices, safeFrameCount);
+        let hold = normalizeFrameIndices(visemeConfig?.holdIndices, safeFrameCount);
+        let release = normalizeFrameIndices(visemeConfig?.releaseIndices, safeFrameCount);
+
+        if (!attack.length) {
+          attack = buildFallbackIndexRange(safeFrameCount, fallback.attackStart, fallback.attackEnd, 2);
+        }
+        if (!hold.length) {
+          hold = buildFallbackIndexRange(safeFrameCount, fallback.holdStart, fallback.holdEnd, 1);
+          if (!hold.length) {
+            hold = [neutralIndex];
+          }
+        }
+        if (!release.length) {
+          release = buildFallbackIndexRange(safeFrameCount, fallback.releaseStart, fallback.releaseEnd, 2);
+        }
+
+        return { attack, hold, release };
+      }
+
+      function buildVisemePlaybackTextures(viseme, textures, visemeConfig) {
+        if (!Array.isArray(textures) || textures.length === 0) {
+          throw new Error(`Cannot build playback textures for ${viseme}: empty source textures.`);
+        }
+        const phaseIndices = resolvePlaybackPhaseIndices(visemeConfig, textures.length);
+        const holdExpanded = [];
+        const holdRepeatCount = Math.max(1, Number(PLAYBACK_TUNING.holdFrameRepeatCount) || 1);
+        for (let iteration = 0; iteration < holdRepeatCount; iteration += 1) {
+          holdExpanded.push(...phaseIndices.hold);
+        }
+        const playbackIndices = [...phaseIndices.attack, ...holdExpanded, ...phaseIndices.release];
+        const playbackTextures = playbackIndices.map((index) => textures[index]).filter((texture) => Boolean(texture));
+        if (!playbackTextures.length) {
+          throw new Error(`Cannot build playback textures for ${viseme}: resolved sequence is empty.`);
+        }
+        return playbackTextures;
+      }
+
+      function textureDebugInfo(texture) {
+        if (!texture) {
+          return "missing";
+        }
+        const width = Number(texture.width || 0);
+        const height = Number(texture.height || 0);
+        const frame = texture.frame;
+        const frameTag = frame ? `${frame.x},${frame.y},${frame.width},${frame.height}` : "none";
+        return `${width}x${height} frame=${frameTag}`;
+      }
+
+      function spriteDebugInfo(sprite, tag) {
+        if (!sprite) {
+          return `${tag}=missing`;
+        }
+        const frameCount = Array.isArray(sprite.textures) ? sprite.textures.length : 0;
+        const texture = sprite.texture;
+        return `${tag}{visible=${Boolean(sprite.visible)} renderable=${Boolean(sprite.renderable)} alpha=${Number(
+          sprite.alpha || 0
+        ).toFixed(2)} currentFrame=${Number(sprite.currentFrame || 0)} totalFrames=${Number(
+          sprite.totalFrames || 0
+        )} textures=${frameCount} texture=${textureDebugInfo(texture)}}`;
+      }
+
+      function applyTexturesToSprite(sprite, viseme, textures) {
+        if (!sprite) {
+          throw new Error(`Sprite target is missing for viseme ${viseme}.`);
+        }
+        if (!Array.isArray(textures) || textures.length === 0) {
+          throw new Error(`Texture list is empty for viseme ${viseme}.`);
+        }
+        const localTextures = textures.slice();
+        const invalidTextureIndex = localTextures.findIndex((texture) => !texture || !texture.baseTexture);
+        if (invalidTextureIndex !== -1) {
+          throw new Error(`Viseme ${viseme} has invalid texture at index ${invalidTextureIndex}.`);
+        }
+        sprite.textures = localTextures;
+        const startIndex = Math.max(0, Math.min(localTextures.length - 1, Number(PLAYBACK_TUNING.defaultStartFrameIndex) || 0));
+        sprite.gotoAndPlay(startIndex);
+      }
+
+      function resolveDeltaMs(app, deltaTime) {
+        const tickerDeltaMs = Number(app?.ticker?.deltaMS);
+        if (Number.isFinite(tickerDeltaMs) && tickerDeltaMs > 0) {
+          return tickerDeltaMs;
+        }
+        const numericDeltaTime = Number(deltaTime);
+        if (Number.isFinite(numericDeltaTime) && numericDeltaTime > 0) {
+          return numericDeltaTime * (1000 / PLAYBACK_TUNING.tickerFrameRate);
+        }
+        return 16.67;
+      }
+
+      function hideSprite(sprite) {
+        if (!sprite) {
+          return;
+        }
+        sprite.visible = false;
+        sprite.renderable = false;
+        sprite.alpha = 0;
+        sprite.stop();
+      }
+
+      function forceCompleteTransitionIfNeeded() {
+        if (!state.transition) {
+          return;
+        }
+        hideSprite(state.transition.from);
+        state.transition.to.visible = true;
+        state.transition.to.renderable = true;
+        state.transition.to.alpha = 1;
+        state.transition.to.play();
+        state.activeSprite = state.transition.to;
+        state.transition = null;
+      }
+
+      function resolveSpriteFramesPerSecond() {
+        const spriteFramesPerSecond = state.baseAnimationSpeed * state.speedMultiplier * PLAYBACK_TUNING.tickerFrameRate;
+        return Math.max(1, Number(spriteFramesPerSecond) || 1);
+      }
+
+      function resolvePlaybackDurationMs(textureCount) {
+        const safeTextureCount = Math.max(1, Number(textureCount) || 1);
+        return (safeTextureCount * 1000) / resolveSpriteFramesPerSecond();
+      }
+
+      function resolveSequenceStepDurationMs(playbackDurationMs) {
+        const safePlaybackDurationMs = Math.max(0, Number(playbackDurationMs) || 0);
+        return Math.max(currentHoldMs(), safePlaybackDurationMs + PLAYBACK_TUNING.sequenceSafetyPaddingMs);
+      }
+
+      function updateActiveTransition(deltaMs) {
+        if (!state.transition) {
+          return;
+        }
+        state.transition.elapsedMs += deltaMs;
+        const rawT = state.transition.elapsedMs / Math.max(1, state.transition.durationMs);
+        const t = Number.isFinite(rawT) ? Math.min(1, rawT) : 1;
+        state.transition.from.alpha = 1 - t;
+        state.transition.to.alpha = t;
+        if (t >= 1) {
+          hideSprite(state.transition.from);
+          state.transition.to.visible = true;
+          state.transition.to.renderable = true;
+          state.transition.to.alpha = 1;
+          state.transition.to.play();
+          state.activeSprite = state.transition.to;
+          debugLog("transition-complete", {
+            active: state.activeSprite === state.spriteA ? "A" : "B",
+            spriteA: spriteDebugInfo(state.spriteA, "A"),
+            spriteB: spriteDebugInfo(state.spriteB, "B"),
+          });
+          state.transition = null;
+        }
+      }
+
+      function updateSequencePlayback() {
+        if (!state.playing || !state.visemeOrder.length || state.transition) {
+          return;
+        }
+        if (state.runtimeClockMs < state.sequenceDeadlineMs) {
+          return;
+        }
+        try {
+          const transitionResult = nextViseme();
+          scheduleNextSequenceStep(transitionResult);
+        } catch (error) {
+          setStatus(`error=${error instanceof Error ? error.message : String(error)}`);
+          debugLog("sequence-error", error);
+          stopSequence();
+        }
+      }
+
+      function scheduleNextSequenceStep(transitionResult) {
+        if (!state.playing) {
+          return;
+        }
+        const cycleDurationMs = Number(transitionResult?.cycleDurationMs) || currentHoldMs();
+        state.sequenceDeadlineMs = state.runtimeClockMs + cycleDurationMs;
+      }
+
+      async function fetchJsonManifest(manifestPath, manifestLabel) {
+        const response = await fetch(manifestPath, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`${manifestLabel} HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        if (!payload || typeof payload !== "object") {
+          throw new Error(`${manifestLabel} is not a JSON object.`);
+        }
+        return payload;
+      }
+
+      async function cacheVisemeEntries(visemeEntries, sourceLabel, registerPairMapping, progressState) {
+        for (const entry of visemeEntries) {
+          const viseme = String(entry.viseme || "").trim();
+          const sheetPath = String(entry.sheetJson || "").trim();
+          if (!viseme || !sheetPath) {
+            throw new Error(`Invalid ${sourceLabel} viseme entry.`);
+          }
+          const spritesheet = await PIXI.Assets.load(sheetPath);
+          if (!spritesheet || !spritesheet.textures || !spritesheet.animations) {
+            throw new Error(`Invalid spritesheet payload for ${viseme}`);
+          }
+          const textures = visemeAnimationTextures(spritesheet, viseme);
+          const playbackTextures = buildVisemePlaybackTextures(viseme, textures, entry);
+          state.texturesByViseme.set(viseme, textures);
+          state.playbackTexturesByViseme.set(viseme, playbackTextures);
+          state.visemeConfigByKey.set(viseme, entry);
+
+          if (registerPairMapping) {
+            const fromViseme = String(entry.fromViseme || "").trim();
+            const toViseme = String(entry.toViseme || "").trim();
+            if (!fromViseme || !toViseme) {
+              throw new Error(`Transition entry '${viseme}' requires fromViseme and toViseme.`);
+            }
+            state.transitionVisemeKeyByPair.set(pairTransitionKey(fromViseme, toViseme), viseme);
+          }
+
+          debugLog(
+            `loaded ${sourceLabel} viseme=${viseme} frames=${textures.length} playback=${playbackTextures.length} first=${textureDebugInfo(
+              textures[0]
+            )}`
+          );
+
+          if (progressState && typeof progressState === "object") {
+            progressState.completed += 1;
+            updateProgressUi(
+              `Loading ${sourceLabel} spritesheets`,
+              progressState.completed,
+              progressState.total
+            );
+          }
+        }
+      }
+
+      function syncVisemeIndex(baseViseme) {
+        const index = state.visemeOrder.indexOf(baseViseme);
+        if (index >= 0) {
+          state.visemeIndex = index;
+        }
+      }
+
+      function resolvePlaybackVisemeForPair(fromBaseViseme, toBaseViseme, immediate) {
+        if (immediate) {
+          return {
+            playbackViseme: toBaseViseme,
+            playbackMode: "base",
+          };
+        }
+        const pairKey = pairTransitionKey(fromBaseViseme, toBaseViseme);
+        const pairViseme = state.transitionVisemeKeyByPair.get(pairKey);
+        if (!pairViseme) {
+          throw new Error(`Missing transition viseme for pair ${fromBaseViseme}->${toBaseViseme}.`);
+        }
+        return {
+          playbackViseme: pairViseme,
+          playbackMode: "pair",
+        };
+      }
+
+      function transitionToBaseViseme(baseViseme, immediate = false) {
+        const targetBaseViseme = String(baseViseme || "").trim();
+        if (!targetBaseViseme) {
+          return null;
+        }
+        const fromBaseViseme = String(state.currentBaseViseme || targetBaseViseme);
+        const playbackTarget = resolvePlaybackVisemeForPair(fromBaseViseme, targetBaseViseme, immediate);
+        const transitionResult = transitionTo(
+          playbackTarget.playbackViseme,
+          immediate,
+          playbackTarget.playbackMode,
+          fromBaseViseme,
+          targetBaseViseme
+        );
+        state.currentBaseViseme = targetBaseViseme;
+        syncVisemeIndex(targetBaseViseme);
+        return {
+          ...transitionResult,
+          fromBaseViseme,
+          toBaseViseme: targetBaseViseme,
+          playbackViseme: playbackTarget.playbackViseme,
+          playbackMode: playbackTarget.playbackMode,
+          cycleDurationMs: resolveSequenceStepDurationMs(transitionResult.playbackDurationMs),
+        };
+      }
+
+      async function loadLibrary() {
+        if (state.isLoading) {
+          setStatus(UI_TEXT.loadIgnored);
+          return;
+        }
+        state.isLoading = true;
+        setLoadingUiState(true);
+
+        const manifestPath = els.manifestPath.value.trim();
+        try {
+          if (!manifestPath) {
+            throw new Error("Manifest path is empty.");
+          }
+
+          resetApp();
+          state.manifest = null;
+          state.transitionManifest = null;
+          state.texturesByViseme.clear();
+          state.playbackTexturesByViseme.clear();
+          state.visemeConfigByKey.clear();
+          state.transitionVisemeKeyByPair.clear();
+          state.currentBaseViseme = "";
+          setStatus(UI_TEXT.loadInProgress);
+
+          const manifest = await fetchJsonManifest(manifestPath, "Base manifest");
+          state.manifest = manifest;
+          state.baseAnimationSpeed = Math.max(1, Number(manifest.fps || 25)) / 60;
+          applyRuntimeDefaultsFromManifest(manifest);
+
+          const baseVisemeEntries = Array.isArray(manifest.visemes) ? manifest.visemes : [];
+          if (!baseVisemeEntries.length) {
+            throw new Error("Manifest has no visemes.");
+          }
+
+          const transitionManifestPath = els.transitionManifestPath.value.trim();
+          if (!transitionManifestPath) {
+            throw new Error("Transition manifest path is empty.");
+          }
+          const transitionManifest = await fetchJsonManifest(transitionManifestPath, "Transition manifest");
+          state.transitionManifest = transitionManifest;
+          const transitionVisemeEntries = Array.isArray(transitionManifest.visemes)
+            ? transitionManifest.visemes
+            : [];
+          if (!transitionVisemeEntries.length) {
+            throw new Error("Transition manifest has no visemes.");
+          }
+          const progressState = {
+            completed: 0,
+            total: baseVisemeEntries.length + transitionVisemeEntries.length,
+          };
+          setProgressVisible(true);
+          updateProgressUi("Preparing load...", progressState.completed, progressState.total);
+
+          await cacheVisemeEntries(baseVisemeEntries, "base", false, progressState);
+          await cacheVisemeEntries(transitionVisemeEntries, "transition", true, progressState);
+
+          state.visemeOrder = baseVisemeEntries.map((item) => String(item.viseme));
+          state.visemeIndex = 0;
+          els.visemeSelect.innerHTML = "";
+          for (const viseme of state.visemeOrder) {
+            const option = document.createElement("option");
+            option.value = viseme;
+            option.textContent = viseme;
+            els.visemeSelect.appendChild(option);
+          }
+
+          const firstViseme = state.visemeOrder[0];
+          const firstTextures = state.playbackTexturesByViseme.get(firstViseme);
+          if (!firstTextures || !firstTextures.length) {
+            throw new Error(`No resolved textures for initial viseme ${firstViseme}`);
+          }
+          const textureDimensions = resolveTextureDimensions(firstTextures[0], firstViseme);
+
+          const app = new PIXI.Application({
+            width: textureDimensions.width,
+            height: textureDimensions.height,
+            backgroundAlpha: 0,
+            antialias: true,
+            autoDensity: true,
+          });
+          els.stage.appendChild(app.view);
+          state.app = app;
+
+          state.spriteA = new PIXI.AnimatedSprite(firstTextures);
+          state.spriteB = new PIXI.AnimatedSprite(firstTextures);
+          state.spriteA.loop = true;
+          state.spriteB.loop = true;
+          state.spriteA.alpha = 1;
+          state.spriteB.alpha = 0;
+          state.spriteB.visible = false;
+          state.spriteB.renderable = false;
+          setSpeedMultiplier(Number(els.speedValue.value || 1));
+          state.spriteA.play();
+          state.spriteB.stop();
+          app.stage.addChild(state.spriteA, state.spriteB);
+          state.activeSprite = state.spriteA;
+          state.runtimeClockMs = 0;
+          state.sequenceDeadlineMs = 0;
+
+          app.ticker.add((deltaTime) => {
+            const deltaMs = resolveDeltaMs(app, deltaTime);
+            state.runtimeClockMs += deltaMs;
+            updateActiveTransition(deltaMs);
+            updateSequencePlayback();
+          });
+
+          transitionToBaseViseme(firstViseme, true);
+          setStatus(
+            `status=ready\nvisemes=${state.visemeOrder.length}\ntransitionPairs=${state.transitionVisemeKeyByPair.size}\nbaseImage=${manifest.baseImage}\nfps=${manifest.fps}`
+          );
+        } finally {
+          state.isLoading = false;
+          setLoadingUiState(false);
+          setProgressVisible(false);
+        }
+      }
+
+      function transitionTo(
+        viseme,
+        immediate = false,
+        playbackMode = "base",
+        fromBaseViseme = "",
+        toBaseViseme = ""
+      ) {
+        const textures =
+          state.playbackTexturesByViseme.get(viseme) || state.texturesByViseme.get(viseme);
+        if (!textures || !state.app || !state.spriteA || !state.spriteB) {
+          return { playbackDurationMs: currentHoldMs(), crossfadeMs: 0 };
+        }
+        forceCompleteTransitionIfNeeded();
+        const fromSprite = state.activeSprite || state.spriteA;
+        if (!fromSprite) {
+          throw new Error(`Active sprite is missing for viseme ${viseme}.`);
+        }
+        const toSprite = fromSprite === state.spriteA ? state.spriteB : state.spriteA;
+
+        applyTexturesToSprite(toSprite, viseme, textures);
+        toSprite.loop = playbackMode === "base";
+        toSprite.animationSpeed = state.baseAnimationSpeed * state.speedMultiplier;
+        toSprite.visible = true;
+        toSprite.renderable = true;
+        toSprite.play();
+
+        const crossfadeMs = immediate ? 0 : currentCrossfadeMs();
+        if (crossfadeMs <= 0) {
+          hideSprite(fromSprite);
+          toSprite.alpha = 1;
+          state.activeSprite = toSprite;
+          state.transition = null;
+        } else {
+          fromSprite.visible = true;
+          fromSprite.renderable = true;
+          fromSprite.alpha = 1;
+          toSprite.alpha = 0;
+          state.transition = {
+            from: fromSprite,
+            to: toSprite,
+            elapsedMs: 0,
+            durationMs: crossfadeMs,
+          };
+        }
+
+        debugLog("transition-start", {
+          viseme,
+          immediate,
+          mode: playbackMode,
+          fromBaseViseme,
+          toBaseViseme,
+          activeBefore: fromSprite === state.spriteA ? "A" : "B",
+          activeIncoming: toSprite === state.spriteA ? "A" : "B",
+          textureInfo: textureDebugInfo(textures[0]),
+          spriteA: spriteDebugInfo(state.spriteA, "A"),
+          spriteB: spriteDebugInfo(state.spriteB, "B"),
+        });
+
+        const selectViseme = toBaseViseme || viseme;
+        if (state.visemeOrder.includes(selectViseme)) {
+          els.visemeSelect.value = selectViseme;
+        }
+        setStatus(
+          `status=animating\ncurrentViseme=${selectViseme}\nplaybackViseme=${viseme}\nplaying=${state.playing}\nmode=${playbackMode}\nblendMs=${crossfadeMs}`
+        );
+        const playbackDurationMs = resolvePlaybackDurationMs(textures.length);
+        return { playbackDurationMs, crossfadeMs };
+      }
+
+      function nextViseme() {
+        if (!state.visemeOrder.length) {
+          return null;
+        }
+        state.visemeIndex = (state.visemeIndex + 1) % state.visemeOrder.length;
+        return transitionToBaseViseme(state.visemeOrder[state.visemeIndex], false);
+      }
+
+      function startSequence() {
+        if (!state.visemeOrder.length) {
+          return;
+        }
+        state.playing = true;
+        scheduleNextSequenceStep(null);
+        setStatus(
+          `status=sequence-running\nholdMs=${currentHoldMs()}\ncrossfadeMs=${currentCrossfadeMs()}`
+        );
+      }
+
+      function stopSequence() {
+        state.playing = false;
+        state.sequenceDeadlineMs = 0;
+        setStatus("status=sequence-stopped");
+      }
+
+      els.loadBtn.addEventListener("click", async () => {
+        try {
+          await loadLibrary();
+          startSequence();
+        } catch (error) {
+          setStatus(`error=${error instanceof Error ? error.message : String(error)}`);
+        }
+      });
+
+      els.reloadBtn.addEventListener("click", async () => {
+        try {
+          await loadLibrary();
+        } catch (error) {
+          setStatus(`error=${error instanceof Error ? error.message : String(error)}`);
+        }
+      });
+
+      els.triggerBtn.addEventListener("click", () => {
+        try {
+          const transitionResult = transitionToBaseViseme(els.visemeSelect.value, false);
+          scheduleNextSequenceStep(transitionResult);
+        } catch (error) {
+          setStatus(`error=${error instanceof Error ? error.message : String(error)}`);
+          debugLog("trigger-error", error);
+        }
+      });
+
+      els.nextBtn.addEventListener("click", () => {
+        try {
+          const transitionResult = nextViseme();
+          scheduleNextSequenceStep(transitionResult);
+        } catch (error) {
+          setStatus(`error=${error instanceof Error ? error.message : String(error)}`);
+          debugLog("next-error", error);
+        }
+      });
+
+      els.playBtn.addEventListener("click", () => {
+        try {
+          startSequence();
+        } catch (error) {
+          setStatus(`error=${error instanceof Error ? error.message : String(error)}`);
+          debugLog("play-error", error);
+        }
+      });
+
+      els.stopBtn.addEventListener("click", () => {
+        stopSequence();
+      });
+
+      els.speedRange.addEventListener("input", (event) => {
+        setSpeedMultiplier(event.target.value);
+      });
+
+      els.speedValue.addEventListener("input", (event) => {
+        setSpeedMultiplier(event.target.value);
+      });
+
+      els.holdMs.addEventListener("change", () => {
+        if (state.playing) {
+          startSequence();
+        }
+      });
+
+      setStatus(UI_TEXT.idle);
+    </script>
+  </body>
+</html>
