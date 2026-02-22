@@ -1,0 +1,2285 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixi Viseme Phrase Demo</title>
+    <style>
+      :root {
+        --bg: #0a101d;
+        --panel: #101b30;
+        --border: #2a3f66;
+        --text: #ecf2ff;
+        --muted: #9cb0d8;
+        --accent: #3e9cff;
+        --accent-2: #ff8c42;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(1200px 700px at 80% -10%, #203560 0%, transparent 60%),
+          radial-gradient(900px 550px at -10% 120%, #3a1f2f 0%, transparent 60%),
+          linear-gradient(180deg, #080d18 0%, #060a12 100%);
+        min-height: 100vh;
+      }
+
+      .layout {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 20px;
+        display: grid;
+        grid-template-columns: 390px 1fr;
+        gap: 18px;
+      }
+
+      .panel {
+        background: color-mix(in oklab, var(--panel) 88%, black 12%);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+      }
+
+      .panel h1 {
+        margin: 0 0 8px 0;
+        font-size: 18px;
+        letter-spacing: 0.3px;
+      }
+
+      .panel p {
+        margin: 0 0 12px 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .field {
+        margin-bottom: 10px;
+      }
+
+      .field label {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      input[type="text"],
+      input[type="number"],
+      input[type="range"],
+      textarea,
+      select {
+        width: 100%;
+        background: #0c1628;
+        border: 1px solid #2b436d;
+        color: var(--text);
+        border-radius: 9px;
+        padding: 8px 10px;
+      }
+
+      textarea {
+        min-height: 90px;
+        resize: vertical;
+      }
+
+      .inline {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .visual-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .range-value {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .buttons {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 9px;
+        padding: 9px 10px;
+        color: #fff;
+        background: linear-gradient(180deg, var(--accent) 0%, #2a75d7 100%);
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        background: linear-gradient(180deg, #2f4d7d 0%, #263e66 100%);
+      }
+
+      button.warn {
+        background: linear-gradient(180deg, var(--accent-2) 0%, #de6d2d 100%);
+      }
+
+      .viewer {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 10px;
+      }
+
+      .status {
+        border: 1px solid #2b436d;
+        border-radius: 10px;
+        background: #0c1628;
+        padding: 10px;
+        font-size: 12px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        color: #dbe7ff;
+      }
+
+      .stage-wrap {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        background: #050a12;
+        min-height: 440px;
+        position: relative;
+      }
+
+      .stage-layer {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        min-height: 440px;
+      }
+
+      #pixi-stage canvas,
+      #three-stage canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .chip-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .chip {
+        font-size: 11px;
+        border-radius: 999px;
+        padding: 3px 8px;
+        border: 1px solid #3c5b8d;
+        background: #13213b;
+        color: #cbddff;
+      }
+
+      @media (max-width: 1020px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="panel">
+        <h1>Pixi Phrase Demo</h1>
+        <p>Reproduce una frase visual usando clips aleatorios por visema y transiciones A_to_B.</p>
+
+        <div class="field">
+          <label for="manifest-path">Clip Manifest Path</label>
+          <input
+            id="manifest-path"
+            type="text"
+            value="/output_fasterliveportrait/liveportrait_dataset_poc/clip_library/manifest.json"
+          />
+        </div>
+
+        <div class="field">
+          <label for="clip-variant">Clip Variant</label>
+          <select id="clip-variant">
+            <option value="clipCrop">Crop</option>
+            <option value="clipOrg" selected>Org</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="preset-select">Demo Preset</label>
+          <select id="preset-select">
+            <option value="short">Demo corto (hola demo visemas)</option>
+            <option value="wide">Demo amplio (mas visemas)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="base-sequence">Base Viseme Sequence (coma o espacio)</label>
+          <textarea id="base-sequence"></textarea>
+        </div>
+
+        <div class="field inline">
+          <div>
+            <label for="playback-rate">Playback Rate</label>
+            <input id="playback-rate" type="number" min="0.5" max="2.0" step="0.05" value="1.0" />
+          </div>
+          <div>
+            <label for="loop-count">Loops</label>
+            <input id="loop-count" type="number" min="1" max="9" step="1" value="1" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="render-mode">Render Mode</label>
+          <select id="render-mode">
+            <option value="pixi">Pixi (direct)</option>
+            <option value="three">Three.js (deformation)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="visual-preset">Visual Preset</label>
+          <select id="visual-preset">
+            <option value="neutral">Neutral</option>
+            <option value="cinematic">Cinematic</option>
+            <option value="elastic">Elastic</option>
+            <option value="noir">Noir</option>
+          </select>
+        </div>
+
+        <div class="field visual-grid">
+          <div>
+            <label for="distortion-strength">Distortion</label>
+            <input id="distortion-strength" type="range" min="0.0" max="0.4" step="0.01" value="0.06" />
+            <div id="distortion-strength-value" class="range-value">0.06</div>
+          </div>
+          <div>
+            <label for="warp-speed">Warp Speed</label>
+            <input id="warp-speed" type="range" min="0.0" max="4.0" step="0.05" value="1.2" />
+            <div id="warp-speed-value" class="range-value">1.20</div>
+          </div>
+          <div>
+            <label for="vignette-strength">Vignette</label>
+            <input id="vignette-strength" type="range" min="0.0" max="1.2" step="0.01" value="0.18" />
+            <div id="vignette-strength-value" class="range-value">0.18</div>
+          </div>
+          <div>
+            <label for="grain-strength">Grain</label>
+            <input id="grain-strength" type="range" min="0.0" max="0.2" step="0.01" value="0.03" />
+            <div id="grain-strength-value" class="range-value">0.03</div>
+          </div>
+          <div>
+            <label for="saturation-value">Saturation</label>
+            <input id="saturation-value" type="range" min="0.0" max="2.0" step="0.01" value="1.0" />
+            <div id="saturation-value-value" class="range-value">1.00</div>
+          </div>
+          <div>
+            <label for="contrast-value">Contrast</label>
+            <input id="contrast-value" type="range" min="0.5" max="1.8" step="0.01" value="1.0" />
+            <div id="contrast-value-value" class="range-value">1.00</div>
+          </div>
+          <div>
+            <label for="brightness-value">Brightness</label>
+            <input id="brightness-value" type="range" min="-0.4" max="0.4" step="0.01" value="0.0" />
+            <div id="brightness-value-value" class="range-value">0.00</div>
+          </div>
+          <div>
+            <label for="zoom-value">Zoom</label>
+            <input id="zoom-value" type="range" min="0.8" max="1.3" step="0.01" value="1.0" />
+            <div id="zoom-value-value" class="range-value">1.00</div>
+          </div>
+        </div>
+
+        <div class="buttons field">
+          <button id="load-btn">Load Manifest</button>
+          <button id="apply-btn" class="secondary">Apply Preset</button>
+        </div>
+
+        <div class="buttons">
+          <button id="play-btn">Play Demo</button>
+          <button id="stop-btn" class="warn">Stop</button>
+        </div>
+      </aside>
+
+      <main class="panel viewer">
+        <div id="status" class="status">status=idle</div>
+        <div class="chip-row">
+          <span class="chip">Incluye transiciones A_to_B</span>
+          <span class="chip">Render en Pixi usando video textures</span>
+          <span class="chip">Modo Three.js con deformacion configurable</span>
+        </div>
+        <div class="stage-wrap">
+          <div id="pixi-stage" class="stage-layer"></div>
+          <div id="three-stage" class="stage-layer hidden"></div>
+        </div>
+      </main>
+    </div>
+
+    <script src="./vendor/pixi/pixi.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script>
+      const DEMO_PRESETS = Object.freeze({
+        short: Object.freeze([
+          "L",
+          "A",
+          "REST",
+          "M",
+          "A",
+          "E",
+          "S",
+          "TD",
+          "R",
+          "I",
+          "A",
+        ]),
+        wide: Object.freeze([
+          "E",
+          "L",
+          "REST",
+          "BP",
+          "R",
+          "O",
+          "CH",
+          "E",
+          "REST",
+          "M",
+          "A",
+          "R",
+          "CH",
+          "A",
+          "R",
+          "REST",
+          "TD",
+          "I",
+          "E",
+          "N",
+          "E",
+        ]),
+      });
+
+      const TOKEN_ALIASES = Object.freeze({
+        sil: "REST",
+        rest: "REST",
+        idle: "IDLE",
+        _: "REST",
+      });
+
+      const CLIP_FIELDS = Object.freeze({
+        crop: "clipCrop",
+        org: "clipOrg",
+      });
+
+      const CONTINUITY_FIELDS = Object.freeze({
+        startState: "continuityStartState",
+        endState: "continuityEndState",
+        startVelocity: "continuityStartVelocity",
+        endVelocity: "continuityEndVelocity",
+      });
+
+      const CONTINUITY_SELECTION = Object.freeze({
+        enabledByDefault: true,
+        plannerMode: "viterbi-beam",
+        beamWidth: 28,
+        maxCandidatesPerStep: 180,
+        fallbackRandomProbability: 0.0,
+        initialVelocityPenaltyWeight: 0.2,
+        positionDistanceWeight: 1.0,
+        velocityDistanceWeight: 1.7,
+        edgeVelocityPenaltyWeight: 0.42,
+        datasetSwitchPenalty: 0.45,
+        sameEntrySegmentGapPenalty: 0.012,
+        immediateClipReusePenalty: 0.25,
+        minimumStdEpsilon: 1e-6,
+        missingDistancePenalty: 1000,
+      });
+
+      const CONTINUITY_FEATURE_GROUPS = Object.freeze({
+        eyeExpressionIndices: Object.freeze([0, 1, 2, 3, 4, 5, 7, 10, 11, 13, 15]),
+        mouthExpressionIndices: Object.freeze([6, 8, 9, 12, 14, 16, 17, 18, 19, 20]),
+      });
+
+      const EYE_EXPRESSION_INDEX_SET = new Set(CONTINUITY_FEATURE_GROUPS.eyeExpressionIndices);
+      const MOUTH_EXPRESSION_INDEX_SET = new Set(CONTINUITY_FEATURE_GROUPS.mouthExpressionIndices);
+
+      const CONTINUITY_FEATURE_WEIGHTS = Object.freeze({
+        eyeExpression: 2.8,
+        mouthExpression: 2.2,
+        genericExpression: 1.35,
+        headRotation: 3.0,
+        translation: 3.2,
+        scale: 1.5,
+        fallback: 1.0,
+      });
+
+      const RENDER_MODES = Object.freeze({
+        pixi: "pixi",
+        three: "three",
+      });
+
+      const DEFAULT_RENDER_MODE = RENDER_MODES.pixi;
+
+      const VISUAL_PRESETS = Object.freeze({
+        neutral: Object.freeze({
+          distortionStrength: 0.06,
+          warpSpeed: 1.2,
+          vignetteStrength: 0.18,
+          grainStrength: 0.03,
+          saturationValue: 1.0,
+          contrastValue: 1.0,
+          brightnessValue: 0.0,
+          zoomValue: 1.0,
+        }),
+        cinematic: Object.freeze({
+          distortionStrength: 0.08,
+          warpSpeed: 0.95,
+          vignetteStrength: 0.34,
+          grainStrength: 0.05,
+          saturationValue: 0.92,
+          contrastValue: 1.14,
+          brightnessValue: -0.03,
+          zoomValue: 1.04,
+        }),
+        elastic: Object.freeze({
+          distortionStrength: 0.22,
+          warpSpeed: 2.2,
+          vignetteStrength: 0.12,
+          grainStrength: 0.04,
+          saturationValue: 1.22,
+          contrastValue: 1.08,
+          brightnessValue: 0.02,
+          zoomValue: 1.0,
+        }),
+        noir: Object.freeze({
+          distortionStrength: 0.09,
+          warpSpeed: 0.7,
+          vignetteStrength: 0.52,
+          grainStrength: 0.08,
+          saturationValue: 0.22,
+          contrastValue: 1.26,
+          brightnessValue: -0.09,
+          zoomValue: 1.07,
+        }),
+      });
+
+      const VISUAL_CONTROL_KEYS = Object.freeze([
+        "distortionStrength",
+        "warpSpeed",
+        "vignetteStrength",
+        "grainStrength",
+        "saturationValue",
+        "contrastValue",
+        "brightnessValue",
+        "zoomValue",
+      ]);
+
+      const VISUAL_CONTROL_LIMITS = Object.freeze({
+        distortionStrength: Object.freeze({ min: 0.0, max: 0.4, fallback: 0.06, decimals: 2 }),
+        warpSpeed: Object.freeze({ min: 0.0, max: 4.0, fallback: 1.2, decimals: 2 }),
+        vignetteStrength: Object.freeze({ min: 0.0, max: 1.2, fallback: 0.18, decimals: 2 }),
+        grainStrength: Object.freeze({ min: 0.0, max: 0.2, fallback: 0.03, decimals: 2 }),
+        saturationValue: Object.freeze({ min: 0.0, max: 2.0, fallback: 1.0, decimals: 2 }),
+        contrastValue: Object.freeze({ min: 0.5, max: 1.8, fallback: 1.0, decimals: 2 }),
+        brightnessValue: Object.freeze({ min: -0.4, max: 0.4, fallback: 0.0, decimals: 2 }),
+        zoomValue: Object.freeze({ min: 0.8, max: 1.3, fallback: 1.0, decimals: 2 }),
+      });
+
+      const RENDER_SURFACE_CONFIG = Object.freeze({
+        fallbackStageWidth: 960,
+        fallbackStageHeight: 540,
+        minStageWidth: 320,
+        minStageHeight: 240,
+      });
+
+      const PIXI_RENDERER_CONFIG = Object.freeze({
+        maxPixelRatio: 2,
+        antialias: true,
+        autoDensity: true,
+        autoStart: true,
+        backgroundAlpha: 0,
+        powerPreference: "high-performance",
+      });
+
+      const THREE_RENDERER_CONFIG = Object.freeze({
+        maxPixelRatio: 2.25,
+        antialias: true,
+        alpha: true,
+        depth: false,
+        stencil: false,
+        powerPreference: "high-performance",
+      });
+
+      const VIDEO_TEXTURE_CONFIG = Object.freeze({
+        preload: "auto",
+        muted: true,
+        loop: false,
+        playsInline: true,
+        crossOrigin: "anonymous",
+      });
+
+      const THREE_SHADER = Object.freeze({
+        vertex: `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = vec4(position, 1.0);
+          }
+        `,
+        fragment: `
+          precision highp float;
+          varying vec2 vUv;
+          uniform sampler2D uTexture;
+          uniform float uTime;
+          uniform float uDistortionStrength;
+          uniform float uWarpSpeed;
+          uniform float uVignetteStrength;
+          uniform float uGrainStrength;
+          uniform float uSaturationValue;
+          uniform float uContrastValue;
+          uniform float uBrightnessValue;
+          uniform float uZoomValue;
+
+          float randomNoise(vec2 value) {
+            return fract(sin(dot(value, vec2(12.9898, 78.233))) * 43758.5453);
+          }
+
+          vec3 applySaturation(vec3 color, float saturationValue) {
+            float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+            return mix(vec3(luminance), color, saturationValue);
+          }
+
+          vec3 applyContrast(vec3 color, float contrastValue) {
+            return (color - vec3(0.5)) * contrastValue + vec3(0.5);
+          }
+
+          void main() {
+            vec2 centeredUv = (vUv - vec2(0.5)) / max(0.001, uZoomValue) + vec2(0.5);
+            float waveX = sin((centeredUv.y * 9.0) + (uTime * uWarpSpeed * 0.9)) * uDistortionStrength * 0.02;
+            float waveY = cos((centeredUv.x * 8.5) + (uTime * uWarpSpeed * 0.75)) * uDistortionStrength * 0.02;
+            vec2 warpedUv = centeredUv + vec2(waveX, waveY);
+            vec4 baseColor = texture2D(uTexture, warpedUv);
+            vec3 color = baseColor.rgb;
+
+            color = applySaturation(color, uSaturationValue);
+            color = applyContrast(color, uContrastValue);
+            color += vec3(uBrightnessValue);
+
+            float grainSeed = randomNoise(warpedUv * 130.0 + vec2(uTime * 7.0, uTime * 5.0));
+            color += (grainSeed - 0.5) * uGrainStrength;
+
+            float vignetteMask = smoothstep(0.95, 0.2, distance(vUv, vec2(0.5)));
+            color *= mix(1.0 - uVignetteStrength, 1.0, vignetteMask);
+            gl_FragColor = vec4(clamp(color, 0.0, 1.0), baseColor.a);
+          }
+        `,
+      });
+
+      const state = {
+        app: null,
+        sprite: null,
+        manifest: null,
+        clipEntriesByKey: new Map(),
+        videoCacheByClipPath: new Map(),
+        textureCacheByClipPath: new Map(),
+        mediaCacheBustToken: Date.now(),
+        currentVideo: null,
+        currentClipEntry: null,
+        currentClipKey: "",
+        currentClipPath: "",
+        playRunId: 0,
+        renderMode: DEFAULT_RENDER_MODE,
+        visualConfig: Object.assign({}, VISUAL_PRESETS.neutral),
+        continuityStats: null,
+        threeRuntime: null,
+        pixiResizeHandler: null,
+      };
+
+      const elements = {
+        manifestPath: document.getElementById("manifest-path"),
+        clipVariant: document.getElementById("clip-variant"),
+        presetSelect: document.getElementById("preset-select"),
+        baseSequence: document.getElementById("base-sequence"),
+        playbackRate: document.getElementById("playback-rate"),
+        loopCount: document.getElementById("loop-count"),
+        loadBtn: document.getElementById("load-btn"),
+        applyBtn: document.getElementById("apply-btn"),
+        playBtn: document.getElementById("play-btn"),
+        stopBtn: document.getElementById("stop-btn"),
+        renderMode: document.getElementById("render-mode"),
+        visualPreset: document.getElementById("visual-preset"),
+        distortionStrength: document.getElementById("distortion-strength"),
+        distortionStrengthValue: document.getElementById("distortion-strength-value"),
+        warpSpeed: document.getElementById("warp-speed"),
+        warpSpeedValue: document.getElementById("warp-speed-value"),
+        vignetteStrength: document.getElementById("vignette-strength"),
+        vignetteStrengthValue: document.getElementById("vignette-strength-value"),
+        grainStrength: document.getElementById("grain-strength"),
+        grainStrengthValue: document.getElementById("grain-strength-value"),
+        saturationValue: document.getElementById("saturation-value"),
+        saturationValueValue: document.getElementById("saturation-value-value"),
+        contrastValue: document.getElementById("contrast-value"),
+        contrastValueValue: document.getElementById("contrast-value-value"),
+        brightnessValue: document.getElementById("brightness-value"),
+        brightnessValueValue: document.getElementById("brightness-value-value"),
+        zoomValue: document.getElementById("zoom-value"),
+        zoomValueValue: document.getElementById("zoom-value-value"),
+        status: document.getElementById("status"),
+        stage: document.getElementById("pixi-stage"),
+        threeStage: document.getElementById("three-stage"),
+      };
+
+      const visualInputByKey = Object.freeze({
+        distortionStrength: elements.distortionStrength,
+        warpSpeed: elements.warpSpeed,
+        vignetteStrength: elements.vignetteStrength,
+        grainStrength: elements.grainStrength,
+        saturationValue: elements.saturationValue,
+        contrastValue: elements.contrastValue,
+        brightnessValue: elements.brightnessValue,
+        zoomValue: elements.zoomValue,
+      });
+
+      const visualValueLabelByKey = Object.freeze({
+        distortionStrength: elements.distortionStrengthValue,
+        warpSpeed: elements.warpSpeedValue,
+        vignetteStrength: elements.vignetteStrengthValue,
+        grainStrength: elements.grainStrengthValue,
+        saturationValue: elements.saturationValueValue,
+        contrastValue: elements.contrastValueValue,
+        brightnessValue: elements.brightnessValueValue,
+        zoomValue: elements.zoomValueValue,
+      });
+
+      function setStatus(text) {
+        elements.status.textContent = String(text || "");
+      }
+
+      function isPlayInterruptedError(error) {
+        const errorName = String(error?.name || "");
+        const errorMessage = String(error?.message || "");
+        return (
+          errorName === "AbortError" ||
+          errorMessage.includes("interrupted by a call to pause") ||
+          errorMessage.includes("The play() request was interrupted")
+        );
+      }
+
+      function reportIdleLoopWarning(error) {
+        if (isPlayInterruptedError(error)) {
+          return;
+        }
+        console.warn("idle loop warning", error);
+      }
+
+      async function safePlayVideoElement(videoElement) {
+        if (!videoElement) {
+          return false;
+        }
+        try {
+          await videoElement.play();
+          return true;
+        } catch (error) {
+          if (isPlayInterruptedError(error)) {
+            return false;
+          }
+          throw error;
+        }
+      }
+
+      function clampNumber(rawValue, minValue, maxValue, fallbackValue) {
+        const numericValue = Number(rawValue);
+        const safeValue = Number.isFinite(numericValue) ? numericValue : Number(fallbackValue);
+        return Math.min(Number(maxValue), Math.max(Number(minValue), safeValue));
+      }
+
+      function getPresetVisualConfig(presetKey) {
+        const selectedPreset = String(presetKey || "");
+        const presetConfig = VISUAL_PRESETS[selectedPreset] || VISUAL_PRESETS.neutral;
+        return Object.assign({}, presetConfig);
+      }
+
+      function normalizeVisualConfig(rawConfig) {
+        const normalizedConfig = {};
+        for (const key of VISUAL_CONTROL_KEYS) {
+          const limits = VISUAL_CONTROL_LIMITS[key];
+          normalizedConfig[key] = clampNumber(
+            rawConfig?.[key],
+            limits.min,
+            limits.max,
+            limits.fallback
+          );
+        }
+        return normalizedConfig;
+      }
+
+      function updateVisualValueLabel(key, value) {
+        const labelElement = visualValueLabelByKey[key];
+        const limits = VISUAL_CONTROL_LIMITS[key];
+        if (!labelElement || !limits) {
+          return;
+        }
+        labelElement.textContent = Number(value).toFixed(limits.decimals);
+      }
+
+      function applyVisualConfigToInputs(config) {
+        const normalizedConfig = normalizeVisualConfig(config);
+        for (const key of VISUAL_CONTROL_KEYS) {
+          const inputElement = visualInputByKey[key];
+          if (!inputElement) {
+            continue;
+          }
+          const numericValue = normalizedConfig[key];
+          inputElement.value = String(numericValue);
+          updateVisualValueLabel(key, numericValue);
+        }
+        state.visualConfig = normalizedConfig;
+      }
+
+      function readVisualConfigFromInputs() {
+        const nextConfig = {};
+        for (const key of VISUAL_CONTROL_KEYS) {
+          const limits = VISUAL_CONTROL_LIMITS[key];
+          const inputElement = visualInputByKey[key];
+          nextConfig[key] = clampNumber(
+            inputElement?.value,
+            limits.min,
+            limits.max,
+            limits.fallback
+          );
+        }
+        return normalizeVisualConfig(nextConfig);
+      }
+
+      function buildCanvasCssFilter(visualConfig) {
+        const normalizedConfig = normalizeVisualConfig(visualConfig);
+        const brightnessPercent = (1 + normalizedConfig.brightnessValue) * 100;
+        const contrastPercent = normalizedConfig.contrastValue * 100;
+        const saturationPercent = normalizedConfig.saturationValue * 100;
+        return [
+          `brightness(${brightnessPercent.toFixed(2)}%)`,
+          `contrast(${contrastPercent.toFixed(2)}%)`,
+          `saturate(${saturationPercent.toFixed(2)}%)`,
+        ].join(" ");
+      }
+
+      function applyVisualFilterToPixiCanvas() {
+        if (!state.app?.view) {
+          return;
+        }
+        state.app.view.style.filter = buildCanvasCssFilter(state.visualConfig);
+      }
+
+      function toBaseVisemeToken(token) {
+        const cleaned = String(token || "").trim();
+        if (!cleaned) {
+          return "";
+        }
+        const aliasToken = TOKEN_ALIASES[cleaned.toLowerCase()];
+        if (aliasToken) {
+          return aliasToken;
+        }
+        return cleaned.toUpperCase();
+      }
+
+      function parseBaseSequenceInput(rawValue) {
+        return String(rawValue || "")
+          .split(/[\s,]+/g)
+          .map((token) => toBaseVisemeToken(token))
+          .filter((token) => Boolean(token));
+      }
+
+      function buildSequenceWithTransitions(baseVisemes, clipEntriesByKey) {
+        if (!Array.isArray(baseVisemes) || !baseVisemes.length) {
+          throw new Error("Base sequence is empty.");
+        }
+        const sequence = [];
+        for (let index = 0; index < baseVisemes.length; index += 1) {
+          const current = baseVisemes[index];
+          if (!clipEntriesByKey.has(current)) {
+            throw new Error(`Missing clip entry for base viseme '${current}'.`);
+          }
+          if (index === 0) {
+            sequence.push(current);
+            continue;
+          }
+          const previous = baseVisemes[index - 1];
+          const transitionKey = `${previous}_to_${current}`;
+          if (clipEntriesByKey.has(transitionKey)) {
+            sequence.push(transitionKey);
+          }
+          sequence.push(current);
+        }
+        return sequence;
+      }
+
+      function getSelectedPresetSequence() {
+        const presetKey = String(elements.presetSelect.value || "short");
+        return Array.from(DEMO_PRESETS[presetKey] || DEMO_PRESETS.short);
+      }
+
+      function getSelectedClipFieldName() {
+        const selectedClipVariant = String(elements.clipVariant.value || CLIP_FIELDS.crop);
+        return selectedClipVariant === CLIP_FIELDS.org ? CLIP_FIELDS.org : CLIP_FIELDS.crop;
+      }
+
+      function resolveIdleKey() {
+        if (state.clipEntriesByKey.has("IDLE")) {
+          return "IDLE";
+        }
+        if (state.clipEntriesByKey.has("REST")) {
+          return "REST";
+        }
+        return "";
+      }
+
+      function applySelectedPreset() {
+        const presetSequence = getSelectedPresetSequence();
+        elements.baseSequence.value = presetSequence.join(", ");
+      }
+
+      function applyVisualPreset(presetKey) {
+        const presetConfig = getPresetVisualConfig(presetKey);
+        applyVisualConfigToInputs(presetConfig);
+        applyVisualConfigFromInputs();
+      }
+
+      function destroyCachedMedia() {
+        for (const video of state.videoCacheByClipPath.values()) {
+          try {
+            video.pause();
+            video.removeAttribute("src");
+            video.load();
+          } catch (error) {
+            console.warn("video cleanup warning", error);
+          }
+        }
+        for (const texture of state.textureCacheByClipPath.values()) {
+          try {
+            texture.destroy(true);
+          } catch (error) {
+            console.warn("texture cleanup warning", error);
+          }
+        }
+        state.videoCacheByClipPath.clear();
+        state.textureCacheByClipPath.clear();
+        state.currentVideo = null;
+        state.currentClipEntry = null;
+        state.currentClipKey = "";
+        state.currentClipPath = "";
+      }
+
+      async function fetchManifest(manifestPath) {
+        const response = await fetch(manifestPath, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Manifest HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        if (!payload || typeof payload !== "object") {
+          throw new Error("Manifest is invalid.");
+        }
+        return payload;
+      }
+
+      function resolveManifestPath(baseManifestPath, maybeRelativePath) {
+        const targetPath = String(maybeRelativePath || "").trim();
+        if (!targetPath) {
+          return "";
+        }
+        if (/^https?:\/\//i.test(targetPath) || targetPath.startsWith("file://")) {
+          return targetPath;
+        }
+        if (targetPath.startsWith("/")) {
+          return new URL(targetPath, window.location.origin).toString();
+        }
+        if (targetPath.startsWith("./") || targetPath.startsWith("../")) {
+          return new URL(targetPath, new URL(baseManifestPath, window.location.href)).toString();
+        }
+        return new URL(`/${targetPath.replace(/^\/+/, "")}`, window.location.origin).toString();
+      }
+
+      function resolveMainManifestPath(rawPath) {
+        const normalizedPath = String(rawPath || "").trim();
+        if (!normalizedPath) {
+          return "";
+        }
+        if (/^https?:\/\//i.test(normalizedPath) || normalizedPath.startsWith("file://")) {
+          return normalizedPath;
+        }
+        return new URL(`/${normalizedPath.replace(/^\/+/, "")}`, window.location.origin).toString();
+      }
+
+      function withMediaCacheBust(rawPath) {
+        const pathValue = String(rawPath || "").trim();
+        if (!pathValue) {
+          return "";
+        }
+        const cacheToken = Number(state.mediaCacheBustToken) || Date.now();
+        state.mediaCacheBustToken = cacheToken;
+        try {
+          const resolvedUrl = /^https?:\/\//i.test(pathValue)
+            ? new URL(pathValue)
+            : new URL(pathValue, window.location.href);
+          resolvedUrl.searchParams.set("v", String(cacheToken));
+          return resolvedUrl.toString();
+        } catch (error) {
+          const separator = pathValue.includes("?") ? "&" : "?";
+          return `${pathValue}${separator}v=${cacheToken}`;
+        }
+      }
+
+      function appendClipEntry(clipEntriesByKey, key, entry) {
+        if (!clipEntriesByKey.has(key)) {
+          clipEntriesByKey.set(key, []);
+        }
+        clipEntriesByKey.get(key).push(entry);
+      }
+
+      function getEntryKey(entry) {
+        const viseme = String(entry?.viseme || "").trim();
+        if (viseme) {
+          return viseme;
+        }
+        const explicitKey = String(entry?.key || "").trim();
+        if (explicitKey) {
+          return explicitKey;
+        }
+        const fromViseme = String(entry?.fromViseme || "").trim();
+        const toViseme = String(entry?.toViseme || "").trim();
+        if (fromViseme && toViseme) {
+          return `${fromViseme}_to_${toViseme}`;
+        }
+        return "";
+      }
+
+      function hasAnyClipPath(entry) {
+        return Boolean(String(entry?.clipCrop || "").trim() || String(entry?.clipOrg || "").trim());
+      }
+
+      async function buildClipEntryMap(manifestPayload, manifestPath) {
+        const clipEntriesByKey = new Map();
+        const visemeGroupManifests = Array.isArray(manifestPayload?.visemeGroupManifests)
+          ? manifestPayload.visemeGroupManifests
+          : [];
+        const transitionGroupManifests = Array.isArray(manifestPayload?.transitionGroupManifests)
+          ? manifestPayload.transitionGroupManifests
+          : [];
+        const hasGroupedManifest = visemeGroupManifests.length > 0 || transitionGroupManifests.length > 0;
+        if (hasGroupedManifest) {
+          const groupManifestPaths = visemeGroupManifests.concat(transitionGroupManifests);
+          const groupPayloads = await Promise.all(
+            groupManifestPaths.map(async (groupManifestPath) => {
+              const resolvedPath = resolveManifestPath(manifestPath, groupManifestPath);
+              return fetchManifest(resolvedPath);
+            })
+          );
+          for (const groupPayload of groupPayloads) {
+            const key = String(groupPayload?.key || "").trim();
+            const clips = Array.isArray(groupPayload?.clips) ? groupPayload.clips : [];
+            if (!key || !clips.length) {
+              continue;
+            }
+            for (const clipEntry of clips) {
+              if (!hasAnyClipPath(clipEntry)) {
+                continue;
+              }
+              appendClipEntry(clipEntriesByKey, key, clipEntry);
+            }
+          }
+          return clipEntriesByKey;
+        }
+
+        if (Array.isArray(manifestPayload?.clips) && manifestPayload.clips.length) {
+          const key = String(manifestPayload?.key || "").trim();
+          if (!key) {
+            throw new Error("Single-group manifest is missing key.");
+          }
+          for (const clipEntry of manifestPayload.clips) {
+            if (!hasAnyClipPath(clipEntry)) {
+              continue;
+            }
+            appendClipEntry(clipEntriesByKey, key, clipEntry);
+          }
+          return clipEntriesByKey;
+        }
+
+        const candidateEntries = [];
+        if (Array.isArray(manifestPayload?.visemes)) {
+          candidateEntries.push(...manifestPayload.visemes);
+        }
+        if (Array.isArray(manifestPayload?.transitions)) {
+          candidateEntries.push(...manifestPayload.transitions);
+        }
+        for (const entry of candidateEntries) {
+          const key = getEntryKey(entry);
+          if (!key || !hasAnyClipPath(entry)) {
+            continue;
+          }
+          appendClipEntry(clipEntriesByKey, key, entry);
+        }
+        return clipEntriesByKey;
+      }
+
+      function countTransitionKeys(clipEntriesByKey) {
+        let transitionCount = 0;
+        for (const key of clipEntriesByKey.keys()) {
+          if (key.includes("_to_")) {
+            transitionCount += 1;
+          }
+        }
+        return transitionCount;
+      }
+
+      function toFiniteNumber(rawValue) {
+        const numericValue = Number(rawValue);
+        return Number.isFinite(numericValue) ? numericValue : null;
+      }
+
+      function parseContinuityState(rawValue) {
+        if (!Array.isArray(rawValue) || !rawValue.length) {
+          return null;
+        }
+        const parsed = [];
+        for (const item of rawValue) {
+          const numericItem = toFiniteNumber(item);
+          if (numericItem === null) {
+            return null;
+          }
+          parsed.push(numericItem);
+        }
+        return parsed;
+      }
+
+      function parseContinuityFeatureOrder(rawValue) {
+        if (!Array.isArray(rawValue) || !rawValue.length) {
+          return null;
+        }
+        const parsed = [];
+        for (const item of rawValue) {
+          const featureName = String(item || "").trim();
+          if (!featureName) {
+            return null;
+          }
+          parsed.push(featureName);
+        }
+        return parsed;
+      }
+
+      function buildDefaultContinuityFeatureOrder(featureCount) {
+        const safeFeatureCount = Math.max(0, Number(featureCount) || 0);
+        const featureOrder = [];
+        const axisNames = ["x", "y", "z"];
+        const expressionFeatureCount = Math.min(63, safeFeatureCount);
+        for (let featureIndex = 0; featureIndex < expressionFeatureCount; featureIndex += 1) {
+          const expressionIndex = Math.floor(featureIndex / axisNames.length);
+          const axisName = axisNames[featureIndex % axisNames.length];
+          featureOrder.push(`exp_${String(expressionIndex).padStart(2, "0")}_${axisName}`);
+        }
+        const poseOrder = ["pitch", "yaw", "roll", "scale", "t_x", "t_y", "t_z"];
+        while (featureOrder.length < safeFeatureCount) {
+          const poseIndex = featureOrder.length - expressionFeatureCount;
+          const fallbackName = poseOrder[poseIndex] || `feature_${featureOrder.length}`;
+          featureOrder.push(fallbackName);
+        }
+        return featureOrder;
+      }
+
+      function parseExpressionIndex(featureName) {
+        const normalizedName = String(featureName || "").trim();
+        const match = /^exp_(\d+)_/i.exec(normalizedName);
+        if (!match) {
+          return null;
+        }
+        const parsedIndex = toFiniteNumber(match[1]);
+        if (parsedIndex === null) {
+          return null;
+        }
+        const integerIndex = Math.floor(parsedIndex);
+        return integerIndex >= 0 ? integerIndex : null;
+      }
+
+      function resolveFeatureWeight(featureName) {
+        const normalizedName = String(featureName || "").trim();
+        const expressionIndex = parseExpressionIndex(normalizedName);
+        if (expressionIndex !== null) {
+          if (EYE_EXPRESSION_INDEX_SET.has(expressionIndex)) {
+            return CONTINUITY_FEATURE_WEIGHTS.eyeExpression;
+          }
+          if (MOUTH_EXPRESSION_INDEX_SET.has(expressionIndex)) {
+            return CONTINUITY_FEATURE_WEIGHTS.mouthExpression;
+          }
+          return CONTINUITY_FEATURE_WEIGHTS.genericExpression;
+        }
+        if (normalizedName === "pitch" || normalizedName === "yaw" || normalizedName === "roll") {
+          return CONTINUITY_FEATURE_WEIGHTS.headRotation;
+        }
+        if (normalizedName === "t_x" || normalizedName === "t_y" || normalizedName === "t_z") {
+          return CONTINUITY_FEATURE_WEIGHTS.translation;
+        }
+        if (normalizedName === "scale") {
+          return CONTINUITY_FEATURE_WEIGHTS.scale;
+        }
+        return CONTINUITY_FEATURE_WEIGHTS.fallback;
+      }
+
+      function buildContinuityFeatureWeights(featureOrder, featureCount) {
+        const safeCount = Math.max(0, Number(featureCount) || 0);
+        const fallbackOrder = buildDefaultContinuityFeatureOrder(safeCount);
+        const resolvedOrder =
+          Array.isArray(featureOrder) && featureOrder.length === safeCount ? featureOrder : fallbackOrder;
+        return resolvedOrder.map((featureName) => resolveFeatureWeight(featureName));
+      }
+
+      function normalizeContinuityStats(rawContinuityPayload) {
+        if (!rawContinuityPayload || typeof rawContinuityPayload !== "object") {
+          return null;
+        }
+        const stateStdRaw = parseContinuityState(rawContinuityPayload.stateStd || rawContinuityPayload.std);
+        const velocityStdRaw = parseContinuityState(
+          rawContinuityPayload.velocityStd || rawContinuityPayload.std
+        );
+        if (!stateStdRaw || !velocityStdRaw || stateStdRaw.length !== velocityStdRaw.length) {
+          return null;
+        }
+        const featureCount = stateStdRaw.length;
+        if (!featureCount) {
+          return null;
+        }
+        const safeStateStd = stateStdRaw.map((value) =>
+          Math.max(CONTINUITY_SELECTION.minimumStdEpsilon, value)
+        );
+        const safeVelocityStd = velocityStdRaw.map((value) =>
+          Math.max(CONTINUITY_SELECTION.minimumStdEpsilon, value)
+        );
+        const rawFeatureOrder = parseContinuityFeatureOrder(rawContinuityPayload.featureOrder);
+        const featureOrder =
+          rawFeatureOrder && rawFeatureOrder.length === featureCount
+            ? rawFeatureOrder
+            : buildDefaultContinuityFeatureOrder(featureCount);
+        const featureWeights = buildContinuityFeatureWeights(featureOrder, featureCount);
+        return {
+          featureCount,
+          featureOrder,
+          featureWeights,
+          stateStd: safeStateStd,
+          velocityStd: safeVelocityStd,
+        };
+      }
+
+      function getEntryClipPath(clipEntry, clipFieldName) {
+        return String(clipEntry?.[clipFieldName] || "").trim();
+      }
+
+      function getEntryContinuityVector(clipEntry, fieldName) {
+        return parseContinuityState(clipEntry?.[fieldName]);
+      }
+
+      function computeWeightedNormalizedDistance(leftVector, rightVector, stdVector, featureWeights) {
+        if (!leftVector || !rightVector || !stdVector || !featureWeights) {
+          return null;
+        }
+        if (
+          leftVector.length !== rightVector.length ||
+          leftVector.length !== stdVector.length ||
+          leftVector.length !== featureWeights.length
+        ) {
+          return null;
+        }
+        let weightedSquaredDistance = 0;
+        let weightSum = 0;
+        for (let index = 0; index < leftVector.length; index += 1) {
+          const weight = Number(featureWeights[index]) || CONTINUITY_FEATURE_WEIGHTS.fallback;
+          const safeStd = Math.max(
+            CONTINUITY_SELECTION.minimumStdEpsilon,
+            Number(stdVector[index]) || CONTINUITY_SELECTION.minimumStdEpsilon
+          );
+          const delta = (leftVector[index] - rightVector[index]) / safeStd;
+          weightedSquaredDistance += weight * delta * delta;
+          weightSum += weight;
+        }
+        if (weightSum <= 0) {
+          return null;
+        }
+        return Math.sqrt(weightedSquaredDistance / weightSum);
+      }
+
+      function computeWeightedNormalizedMagnitude(vector, stdVector, featureWeights) {
+        if (!vector || !stdVector || !featureWeights) {
+          return null;
+        }
+        if (vector.length !== stdVector.length || vector.length !== featureWeights.length) {
+          return null;
+        }
+        let weightedSquaredMagnitude = 0;
+        let weightSum = 0;
+        for (let index = 0; index < vector.length; index += 1) {
+          const weight = Number(featureWeights[index]) || CONTINUITY_FEATURE_WEIGHTS.fallback;
+          const safeStd = Math.max(
+            CONTINUITY_SELECTION.minimumStdEpsilon,
+            Number(stdVector[index]) || CONTINUITY_SELECTION.minimumStdEpsilon
+          );
+          const normalizedValue = vector[index] / safeStd;
+          weightedSquaredMagnitude += weight * normalizedValue * normalizedValue;
+          weightSum += weight;
+        }
+        if (weightSum <= 0) {
+          return null;
+        }
+        return Math.sqrt(weightedSquaredMagnitude / weightSum);
+      }
+
+      function computeEntryEdgeVelocityCost(clipEntry, continuityStats) {
+        if (!clipEntry || !continuityStats) {
+          return null;
+        }
+        const startVelocity = getEntryContinuityVector(clipEntry, CONTINUITY_FIELDS.startVelocity);
+        const endVelocity = getEntryContinuityVector(clipEntry, CONTINUITY_FIELDS.endVelocity);
+        const startCost = computeWeightedNormalizedMagnitude(
+          startVelocity,
+          continuityStats.velocityStd,
+          continuityStats.featureWeights
+        );
+        const endCost = computeWeightedNormalizedMagnitude(
+          endVelocity,
+          continuityStats.velocityStd,
+          continuityStats.featureWeights
+        );
+        if (startCost === null || endCost === null) {
+          return null;
+        }
+        return (startCost + endCost) * 0.5;
+      }
+
+      function computeContinuityTransitionCost(
+        previousClipEntry,
+        nextClipEntry,
+        continuityStats,
+        clipFieldName
+      ) {
+        if (!previousClipEntry || !nextClipEntry || !continuityStats) {
+          return CONTINUITY_SELECTION.missingDistancePenalty;
+        }
+        const previousEndState = getEntryContinuityVector(previousClipEntry, CONTINUITY_FIELDS.endState);
+        const nextStartState = getEntryContinuityVector(nextClipEntry, CONTINUITY_FIELDS.startState);
+        const previousEndVelocity = getEntryContinuityVector(previousClipEntry, CONTINUITY_FIELDS.endVelocity);
+        const nextStartVelocity = getEntryContinuityVector(nextClipEntry, CONTINUITY_FIELDS.startVelocity);
+        const stateDistance = computeWeightedNormalizedDistance(
+          previousEndState,
+          nextStartState,
+          continuityStats.stateStd,
+          continuityStats.featureWeights
+        );
+        const velocityDistance = computeWeightedNormalizedDistance(
+          previousEndVelocity,
+          nextStartVelocity,
+          continuityStats.velocityStd,
+          continuityStats.featureWeights
+        );
+        const nextEdgeVelocityCost = computeEntryEdgeVelocityCost(nextClipEntry, continuityStats);
+        if (stateDistance === null || velocityDistance === null || nextEdgeVelocityCost === null) {
+          return CONTINUITY_SELECTION.missingDistancePenalty;
+        }
+        let transitionCost =
+          stateDistance * CONTINUITY_SELECTION.positionDistanceWeight +
+          velocityDistance * CONTINUITY_SELECTION.velocityDistanceWeight +
+          nextEdgeVelocityCost * CONTINUITY_SELECTION.edgeVelocityPenaltyWeight;
+
+        const previousClipPath = getEntryClipPath(previousClipEntry, clipFieldName);
+        const nextClipPath = getEntryClipPath(nextClipEntry, clipFieldName);
+        if (previousClipPath && nextClipPath && previousClipPath === nextClipPath) {
+          transitionCost += CONTINUITY_SELECTION.immediateClipReusePenalty;
+        }
+
+        const previousEntryId = String(previousClipEntry?.id || "").trim();
+        const nextEntryId = String(nextClipEntry?.id || "").trim();
+        if (previousEntryId && nextEntryId) {
+          if (previousEntryId !== nextEntryId) {
+            transitionCost += CONTINUITY_SELECTION.datasetSwitchPenalty;
+          } else {
+            const previousSegmentIndex = Number(previousClipEntry?.segmentIndex);
+            const nextSegmentIndex = Number(nextClipEntry?.segmentIndex);
+            if (Number.isFinite(previousSegmentIndex) && Number.isFinite(nextSegmentIndex)) {
+              transitionCost +=
+                Math.abs(previousSegmentIndex - nextSegmentIndex) *
+                CONTINUITY_SELECTION.sameEntrySegmentGapPenalty;
+            }
+          }
+        }
+        return transitionCost;
+      }
+
+      function getEntryDurationSec(clipEntry) {
+        const durationCandidates = [
+          Number(clipEntry?.clipDurationSec),
+          Number(clipEntry?.durationSec),
+          Number(clipEntry?.endSec) - Number(clipEntry?.startSec),
+        ];
+        for (const durationValue of durationCandidates) {
+          if (Number.isFinite(durationValue) && durationValue > 0) {
+            return durationValue;
+          }
+        }
+        return 0;
+      }
+
+      function estimateEntrySeekSecByTargetState(clipEntry, targetState, continuityStats) {
+        if (!clipEntry || !targetState || !continuityStats) {
+          return 0;
+        }
+        const clipDurationSec = getEntryDurationSec(clipEntry);
+        if (!(clipDurationSec > 0)) {
+          return 0;
+        }
+        const startState = getEntryContinuityVector(clipEntry, CONTINUITY_FIELDS.startState);
+        const endState = getEntryContinuityVector(clipEntry, CONTINUITY_FIELDS.endState);
+        if (!startState || !endState) {
+          return 0;
+        }
+        if (
+          startState.length !== endState.length ||
+          startState.length !== targetState.length ||
+          startState.length !== continuityStats.stateStd.length ||
+          startState.length !== continuityStats.featureWeights.length
+        ) {
+          return 0;
+        }
+
+        let numerator = 0;
+        let denominator = 0;
+        for (let index = 0; index < startState.length; index += 1) {
+          const deltaEdge = endState[index] - startState[index];
+          const deltaTarget = targetState[index] - startState[index];
+          const safeStd = Math.max(
+            CONTINUITY_SELECTION.minimumStdEpsilon,
+            Number(continuityStats.stateStd[index]) || CONTINUITY_SELECTION.minimumStdEpsilon
+          );
+          const weight = Math.max(
+            CONTINUITY_FEATURE_WEIGHTS.fallback,
+            Number(continuityStats.featureWeights[index]) || CONTINUITY_FEATURE_WEIGHTS.fallback
+          );
+          const normalizedWeight = weight / (safeStd * safeStd);
+          numerator += normalizedWeight * deltaEdge * deltaTarget;
+          denominator += normalizedWeight * deltaEdge * deltaEdge;
+        }
+        if (!(denominator > 0)) {
+          return 0;
+        }
+        const alpha = Math.min(1, Math.max(0, numerator / denominator));
+        const clampedDuration = Math.max(0.04, clipDurationSec);
+        return Math.min(clampedDuration - 0.02, Math.max(0, alpha * clampedDuration));
+      }
+
+      function selectBestTransitionCandidate(
+        previousClipEntry,
+        candidateEntries,
+        continuityStats,
+        clipFieldName
+      ) {
+        const playableEntries = Array.isArray(candidateEntries) ? candidateEntries : [];
+        if (!playableEntries.length) {
+          return null;
+        }
+        if (!previousClipEntry || !continuityStats) {
+          return pickRandomClipEntry(playableEntries);
+        }
+        let bestEntry = null;
+        let bestCost = Number.POSITIVE_INFINITY;
+        for (const candidateEntry of playableEntries) {
+          const transitionCost = computeContinuityTransitionCost(
+            previousClipEntry,
+            candidateEntry,
+            continuityStats,
+            clipFieldName
+          );
+          if (transitionCost < bestCost) {
+            bestCost = transitionCost;
+            bestEntry = candidateEntry;
+          }
+        }
+        return bestEntry || pickRandomClipEntry(playableEntries);
+      }
+
+      function expandSequenceByLoops(sequenceKeys, loopCount) {
+        const expandedSequence = [];
+        for (let loopIndex = 0; loopIndex < loopCount; loopIndex += 1) {
+          expandedSequence.push(...sequenceKeys);
+        }
+        return expandedSequence;
+      }
+
+      function listStepCandidates(sequenceKeys, clipFieldName, continuityStats) {
+        const stepCandidates = [];
+        for (const clipKey of sequenceKeys) {
+          const clipEntries = state.clipEntriesByKey.get(clipKey);
+          if (!Array.isArray(clipEntries) || !clipEntries.length) {
+            throw new Error(`Viseme '${clipKey}' not found in loaded dataset.`);
+          }
+          const playableEntries = clipEntries.filter((entry) => Boolean(getEntryClipPath(entry, clipFieldName)));
+          if (!playableEntries.length) {
+            throw new Error(`Viseme '${clipKey}' has no clip path in '${clipFieldName}'.`);
+          }
+          if (!continuityStats || playableEntries.length <= CONTINUITY_SELECTION.maxCandidatesPerStep) {
+            stepCandidates.push(playableEntries);
+            continue;
+          }
+          const scoredEntries = playableEntries
+            .map((entry) => {
+              const edgeVelocityCost = computeEntryEdgeVelocityCost(entry, continuityStats);
+              return {
+                entry,
+                intrinsicCost:
+                  edgeVelocityCost === null ? CONTINUITY_SELECTION.missingDistancePenalty : edgeVelocityCost,
+              };
+            })
+            .sort((left, right) => left.intrinsicCost - right.intrinsicCost);
+          stepCandidates.push(
+            scoredEntries
+              .slice(0, CONTINUITY_SELECTION.maxCandidatesPerStep)
+              .map((scoredEntry) => scoredEntry.entry)
+          );
+        }
+        return stepCandidates;
+      }
+
+      function selectRandomPlaybackPlan(sequenceKeys, clipFieldName) {
+        return sequenceKeys.map((clipKey) => {
+          const clipEntries = state.clipEntriesByKey.get(clipKey);
+          if (!Array.isArray(clipEntries) || !clipEntries.length) {
+            throw new Error(`Viseme '${clipKey}' not found in loaded dataset.`);
+          }
+          const playableEntries = clipEntries.filter((entry) => Boolean(getEntryClipPath(entry, clipFieldName)));
+          if (!playableEntries.length) {
+            throw new Error(`Viseme '${clipKey}' has no clip path in '${clipFieldName}'.`);
+          }
+          return {
+            key: clipKey,
+            entry: pickRandomClipEntry(playableEntries),
+          };
+        });
+      }
+
+      function buildPlaybackPlan(sequenceKeys, clipFieldName, loopCount, startAnchorEntry) {
+        const expandedSequenceKeys = expandSequenceByLoops(sequenceKeys, loopCount);
+        if (!expandedSequenceKeys.length) {
+          return [];
+        }
+        const continuityAvailable =
+          CONTINUITY_SELECTION.enabledByDefault &&
+          state.continuityStats &&
+          Math.random() >= CONTINUITY_SELECTION.fallbackRandomProbability;
+        if (!continuityAvailable) {
+          return selectRandomPlaybackPlan(expandedSequenceKeys, clipFieldName);
+        }
+
+        const continuityStats = state.continuityStats;
+        const stepCandidates = listStepCandidates(expandedSequenceKeys, clipFieldName, continuityStats);
+        const beamWidth = Math.max(1, Math.floor(CONTINUITY_SELECTION.beamWidth));
+        let beamStates = stepCandidates[0]
+          .map((entry) => {
+            const anchorTransitionCost = startAnchorEntry
+              ? computeContinuityTransitionCost(
+                  startAnchorEntry,
+                  entry,
+                  continuityStats,
+                  clipFieldName
+                )
+              : 0;
+            const initialEdgeVelocityCost = computeEntryEdgeVelocityCost(entry, continuityStats);
+            const initialVelocityCost =
+              initialEdgeVelocityCost === null
+                ? CONTINUITY_SELECTION.missingDistancePenalty
+                : initialEdgeVelocityCost * CONTINUITY_SELECTION.initialVelocityPenaltyWeight;
+            const initialCost = anchorTransitionCost + initialVelocityCost;
+            return {
+              cost: initialCost,
+              entry,
+              parent: null,
+            };
+          })
+          .sort((left, right) => left.cost - right.cost)
+          .slice(0, beamWidth);
+
+        for (let stepIndex = 1; stepIndex < stepCandidates.length; stepIndex += 1) {
+          const currentCandidates = stepCandidates[stepIndex];
+          const nextBeamStates = [];
+          for (const candidateEntry of currentCandidates) {
+            let bestCost = Number.POSITIVE_INFINITY;
+            let bestParent = null;
+            for (const previousState of beamStates) {
+              const transitionCost = computeContinuityTransitionCost(
+                previousState.entry,
+                candidateEntry,
+                continuityStats,
+                clipFieldName
+              );
+              const totalCost = previousState.cost + transitionCost;
+              if (totalCost < bestCost) {
+                bestCost = totalCost;
+                bestParent = previousState;
+              }
+            }
+            if (bestParent) {
+              nextBeamStates.push({
+                cost: bestCost,
+                entry: candidateEntry,
+                parent: bestParent,
+              });
+            }
+          }
+          if (!nextBeamStates.length) {
+            throw new Error("Continuity planner failed to resolve a valid path.");
+          }
+          nextBeamStates.sort((left, right) => left.cost - right.cost);
+          beamStates = nextBeamStates.slice(0, beamWidth);
+        }
+
+        if (!beamStates.length) {
+          throw new Error("Continuity planner produced an empty beam.");
+        }
+        const bestFinalState = beamStates[0];
+        const selectedEntries = [];
+        let cursorState = bestFinalState;
+        while (cursorState) {
+          selectedEntries.push(cursorState.entry);
+          cursorState = cursorState.parent;
+        }
+        selectedEntries.reverse();
+        if (selectedEntries.length !== expandedSequenceKeys.length) {
+          throw new Error("Continuity planner backtracking produced invalid sequence length.");
+        }
+        return expandedSequenceKeys.map((clipKey, stepIndex) => ({
+          key: clipKey,
+          entry: selectedEntries[stepIndex],
+        }));
+      }
+
+      function resolveRenderMode(rawRenderMode) {
+        const normalizedMode = String(rawRenderMode || "").trim().toLowerCase();
+        if (normalizedMode === RENDER_MODES.three) {
+          return RENDER_MODES.three;
+        }
+        return RENDER_MODES.pixi;
+      }
+
+      function resolveRenderPixelRatio(maxPixelRatio) {
+        const safeLimit = Math.max(1, Number(maxPixelRatio) || 1);
+        return Math.max(1, Math.min(window.devicePixelRatio || 1, safeLimit));
+      }
+
+      function resolveRenderSurfaceSize(containerElement) {
+        const safeContainer = containerElement || null;
+        const width = Math.max(
+          RENDER_SURFACE_CONFIG.minStageWidth,
+          Number(safeContainer?.clientWidth) || RENDER_SURFACE_CONFIG.fallbackStageWidth
+        );
+        const height = Math.max(
+          RENDER_SURFACE_CONFIG.minStageHeight,
+          Number(safeContainer?.clientHeight) || RENDER_SURFACE_CONFIG.fallbackStageHeight
+        );
+        return { width, height };
+      }
+
+      function updateThreeUniforms() {
+        if (!state.threeRuntime?.material) {
+          return;
+        }
+        const uniforms = state.threeRuntime.material.uniforms;
+        uniforms.uDistortionStrength.value = state.visualConfig.distortionStrength;
+        uniforms.uWarpSpeed.value = state.visualConfig.warpSpeed;
+        uniforms.uVignetteStrength.value = state.visualConfig.vignetteStrength;
+        uniforms.uGrainStrength.value = state.visualConfig.grainStrength;
+        uniforms.uSaturationValue.value = state.visualConfig.saturationValue;
+        uniforms.uContrastValue.value = state.visualConfig.contrastValue;
+        uniforms.uBrightnessValue.value = state.visualConfig.brightnessValue;
+        uniforms.uZoomValue.value = state.visualConfig.zoomValue;
+      }
+
+      function updateThreePlaneScale() {
+        if (!state.threeRuntime?.mesh || !elements.threeStage || !state.app?.screen) {
+          return;
+        }
+        const stageSize = resolveRenderSurfaceSize(elements.threeStage);
+        const containerWidth = Math.max(1, stageSize.width);
+        const containerHeight = Math.max(1, stageSize.height);
+        const containerAspect = containerWidth / containerHeight;
+        const sourceAspect = state.app.screen.width / Math.max(1, state.app.screen.height);
+        let scaleX = 1;
+        let scaleY = 1;
+        if (containerAspect > sourceAspect) {
+          scaleX = sourceAspect / containerAspect;
+        } else {
+          scaleY = containerAspect / sourceAspect;
+        }
+        state.threeRuntime.mesh.scale.set(scaleX, scaleY, 1);
+      }
+
+      function resizeThreeRuntime() {
+        if (!state.threeRuntime?.renderer || !elements.threeStage) {
+          return;
+        }
+        const stageSize = resolveRenderSurfaceSize(elements.threeStage);
+        const width = Math.max(1, stageSize.width);
+        const height = Math.max(1, stageSize.height);
+        const pixelRatio = resolveRenderPixelRatio(THREE_RENDERER_CONFIG.maxPixelRatio);
+        state.threeRuntime.renderer.setPixelRatio(pixelRatio);
+        state.threeRuntime.renderer.setSize(width, height, false);
+        updateThreePlaneScale();
+      }
+
+      function createThreeCanvasTexture(threeApi, sourceCanvas, renderer) {
+        const texture = new threeApi.CanvasTexture(sourceCanvas);
+        texture.generateMipmaps = false;
+        texture.minFilter = threeApi.LinearFilter;
+        texture.magFilter = threeApi.LinearFilter;
+        texture.wrapS = threeApi.ClampToEdgeWrapping;
+        texture.wrapT = threeApi.ClampToEdgeWrapping;
+        if ("colorSpace" in texture && threeApi.SRGBColorSpace) {
+          texture.colorSpace = threeApi.SRGBColorSpace;
+        }
+        if ("anisotropy" in texture && renderer?.capabilities?.getMaxAnisotropy) {
+          const maxAnisotropy = Number(renderer.capabilities.getMaxAnisotropy()) || 1;
+          texture.anisotropy = Math.max(1, Math.min(8, maxAnisotropy));
+        }
+        texture.needsUpdate = true;
+        return texture;
+      }
+
+      function syncThreeTextureWithPixiCanvas(forceRecreate) {
+        if (!state.threeRuntime?.renderer || !state.threeRuntime?.material || !state.app?.view || !window.THREE) {
+          return;
+        }
+        const sourceCanvas = state.app.view;
+        const nextWidth = Math.max(1, Number(sourceCanvas.width) || 1);
+        const nextHeight = Math.max(1, Number(sourceCanvas.height) || 1);
+        const runtime = state.threeRuntime;
+        const shouldRecreateTexture =
+          Boolean(forceRecreate) ||
+          nextWidth !== Number(runtime.sourceCanvasWidth || 0) ||
+          nextHeight !== Number(runtime.sourceCanvasHeight || 0) ||
+          !runtime.texture;
+        if (!shouldRecreateTexture) {
+          return;
+        }
+        const threeApi = window.THREE;
+        const nextTexture = createThreeCanvasTexture(threeApi, sourceCanvas, runtime.renderer);
+        runtime.material.uniforms.uTexture.value = nextTexture;
+        if (runtime.texture && typeof runtime.texture.dispose === "function") {
+          runtime.texture.dispose();
+        }
+        runtime.texture = nextTexture;
+        runtime.sourceCanvasWidth = nextWidth;
+        runtime.sourceCanvasHeight = nextHeight;
+      }
+
+      function renderThreeFrame(timestampMs) {
+        if (!state.threeRuntime || state.renderMode !== RENDER_MODES.three) {
+          return;
+        }
+        const elapsedSec = Number(timestampMs) * 0.001;
+        state.threeRuntime.material.uniforms.uTime.value = elapsedSec;
+        syncThreeTextureWithPixiCanvas(false);
+        try {
+          state.threeRuntime.texture.needsUpdate = true;
+          state.threeRuntime.renderer.render(state.threeRuntime.scene, state.threeRuntime.camera);
+        } catch (error) {
+          console.error("three render failed, switching to pixi mode", error);
+          stopThreeLoop();
+          state.renderMode = RENDER_MODES.pixi;
+          elements.renderMode.value = RENDER_MODES.pixi;
+          syncRenderModeVisibility();
+          setStatus("status=warning\nthreejs=render-failed\nfallback=pixi");
+          return;
+        }
+        state.threeRuntime.frameRequestId = window.requestAnimationFrame(renderThreeFrame);
+      }
+
+      function startThreeLoop() {
+        if (!state.threeRuntime || state.threeRuntime.frameRequestId !== null) {
+          return;
+        }
+        state.threeRuntime.frameRequestId = window.requestAnimationFrame(renderThreeFrame);
+      }
+
+      function stopThreeLoop() {
+        if (!state.threeRuntime || state.threeRuntime.frameRequestId === null) {
+          return;
+        }
+        window.cancelAnimationFrame(state.threeRuntime.frameRequestId);
+        state.threeRuntime.frameRequestId = null;
+      }
+
+      function ensureThreeRuntime() {
+        if (state.threeRuntime) {
+          return true;
+        }
+        if (!state.app?.view) {
+          return false;
+        }
+        if (!window.THREE) {
+          console.warn("three.js is not available, fallback to pixi mode");
+          return false;
+        }
+
+        const threeApi = window.THREE;
+        const renderer = new threeApi.WebGLRenderer({
+          antialias: THREE_RENDERER_CONFIG.antialias,
+          alpha: THREE_RENDERER_CONFIG.alpha,
+          depth: THREE_RENDERER_CONFIG.depth,
+          stencil: THREE_RENDERER_CONFIG.stencil,
+          powerPreference: THREE_RENDERER_CONFIG.powerPreference,
+        });
+        renderer.setClearColor(0x000000, 0);
+        if ("outputColorSpace" in renderer && threeApi.SRGBColorSpace) {
+          renderer.outputColorSpace = threeApi.SRGBColorSpace;
+        }
+        if ("toneMapping" in renderer && threeApi.NoToneMapping !== undefined) {
+          renderer.toneMapping = threeApi.NoToneMapping;
+        }
+        elements.threeStage.innerHTML = "";
+        elements.threeStage.appendChild(renderer.domElement);
+        const contextLostHandler = (event) => {
+          event.preventDefault();
+          stopThreeLoop();
+          state.renderMode = RENDER_MODES.pixi;
+          elements.renderMode.value = RENDER_MODES.pixi;
+          syncRenderModeVisibility();
+          setStatus("status=warning\nthreejs=context-lost\nfallback=pixi");
+        };
+        renderer.domElement.addEventListener("webglcontextlost", contextLostHandler, false);
+
+        const scene = new threeApi.Scene();
+        const camera = new threeApi.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        camera.position.z = 1;
+
+        const geometry = new threeApi.PlaneGeometry(2, 2, 1, 1);
+        const texture = createThreeCanvasTexture(threeApi, state.app.view, renderer);
+
+        const material = new threeApi.ShaderMaterial({
+          uniforms: {
+            uTexture: { value: texture },
+            uTime: { value: 0 },
+            uDistortionStrength: { value: state.visualConfig.distortionStrength },
+            uWarpSpeed: { value: state.visualConfig.warpSpeed },
+            uVignetteStrength: { value: state.visualConfig.vignetteStrength },
+            uGrainStrength: { value: state.visualConfig.grainStrength },
+            uSaturationValue: { value: state.visualConfig.saturationValue },
+            uContrastValue: { value: state.visualConfig.contrastValue },
+            uBrightnessValue: { value: state.visualConfig.brightnessValue },
+            uZoomValue: { value: state.visualConfig.zoomValue },
+          },
+          vertexShader: THREE_SHADER.vertex,
+          fragmentShader: THREE_SHADER.fragment,
+          transparent: true,
+        });
+
+        const mesh = new threeApi.Mesh(geometry, material);
+        scene.add(mesh);
+
+        const resizeHandler = () => {
+          resizeThreeRuntime();
+        };
+        window.addEventListener("resize", resizeHandler);
+        state.threeRuntime = {
+          renderer,
+          scene,
+          camera,
+          mesh,
+          material,
+          texture,
+          resizeHandler,
+          contextLostHandler,
+          sourceCanvasWidth: Math.max(1, Number(state.app.view.width) || 1),
+          sourceCanvasHeight: Math.max(1, Number(state.app.view.height) || 1),
+          frameRequestId: null,
+        };
+        updateThreeUniforms();
+        syncThreeTextureWithPixiCanvas(true);
+        resizeThreeRuntime();
+        return true;
+      }
+
+      function syncRenderModeVisibility() {
+        const isThreeMode = state.renderMode === RENDER_MODES.three;
+        elements.stage.classList.toggle("hidden", isThreeMode);
+        elements.threeStage.classList.toggle("hidden", !isThreeMode);
+      }
+
+      function applyRenderMode(rawRenderMode) {
+        state.renderMode = resolveRenderMode(rawRenderMode);
+        syncRenderModeVisibility();
+        if (state.renderMode === RENDER_MODES.three) {
+          if (ensureThreeRuntime()) {
+            startThreeLoop();
+            return;
+          }
+          state.renderMode = RENDER_MODES.pixi;
+          elements.renderMode.value = RENDER_MODES.pixi;
+          syncRenderModeVisibility();
+        }
+        stopThreeLoop();
+      }
+
+      function applyVisualConfigFromInputs() {
+        const nextConfig = readVisualConfigFromInputs();
+        state.visualConfig = nextConfig;
+        for (const key of VISUAL_CONTROL_KEYS) {
+          updateVisualValueLabel(key, nextConfig[key]);
+        }
+        applyVisualFilterToPixiCanvas();
+        updateThreeUniforms();
+      }
+
+      function resizePixiRuntime() {
+        if (!state.app || !elements.stage) {
+          return;
+        }
+        const stageSize = resolveRenderSurfaceSize(elements.stage);
+        const pixelRatio = resolveRenderPixelRatio(PIXI_RENDERER_CONFIG.maxPixelRatio);
+        const renderer = state.app.renderer;
+        if (!renderer) {
+          return;
+        }
+        if (renderer?.resolution !== pixelRatio) {
+          renderer.resolution = pixelRatio;
+        }
+        renderer.resize(stageSize.width, stageSize.height);
+        if (state.threeRuntime) {
+          syncThreeTextureWithPixiCanvas(true);
+        }
+        if (state.sprite?.texture) {
+          fitSpriteToScreen(state.sprite.texture);
+        }
+        if (state.renderMode === RENDER_MODES.three) {
+          resizeThreeRuntime();
+        }
+      }
+
+      function ensureAppReady() {
+        if (state.app) {
+          applyVisualFilterToPixiCanvas();
+          resizePixiRuntime();
+          return;
+        }
+        const stageSize = resolveRenderSurfaceSize(elements.stage);
+        const pixelRatio = resolveRenderPixelRatio(PIXI_RENDERER_CONFIG.maxPixelRatio);
+        state.app = new PIXI.Application({
+          width: stageSize.width,
+          height: stageSize.height,
+          backgroundAlpha: PIXI_RENDERER_CONFIG.backgroundAlpha,
+          antialias: PIXI_RENDERER_CONFIG.antialias,
+          autoStart: PIXI_RENDERER_CONFIG.autoStart,
+          autoDensity: PIXI_RENDERER_CONFIG.autoDensity,
+          resolution: pixelRatio,
+          powerPreference: PIXI_RENDERER_CONFIG.powerPreference,
+        });
+        elements.stage.innerHTML = "";
+        elements.stage.appendChild(state.app.view);
+        state.sprite = new PIXI.Sprite();
+        state.sprite.anchor.set(0.5);
+        state.sprite.x = state.app.screen.width / 2;
+        state.sprite.y = state.app.screen.height / 2;
+        state.app.stage.addChild(state.sprite);
+        applyVisualFilterToPixiCanvas();
+        state.pixiResizeHandler = () => {
+          resizePixiRuntime();
+        };
+        window.addEventListener("resize", state.pixiResizeHandler);
+        resizePixiRuntime();
+        if (state.renderMode === RENDER_MODES.three) {
+          applyRenderMode(RENDER_MODES.three);
+        }
+      }
+
+      function fitSpriteToScreen(texture) {
+        if (!state.sprite || !state.app || !texture) {
+          return;
+        }
+        const sourceWidth = Math.max(1, Number(texture.width) || 1);
+        const sourceHeight = Math.max(1, Number(texture.height) || 1);
+        const scale = Math.min(state.app.screen.width / sourceWidth, state.app.screen.height / sourceHeight);
+        state.sprite.width = sourceWidth * scale;
+        state.sprite.height = sourceHeight * scale;
+        state.sprite.x = state.app.screen.width / 2;
+        state.sprite.y = state.app.screen.height / 2;
+      }
+
+      function pickRandomClipEntry(clipEntries) {
+        if (!Array.isArray(clipEntries) || !clipEntries.length) {
+          return null;
+        }
+        const randomIndex = Math.floor(Math.random() * clipEntries.length);
+        return clipEntries[randomIndex];
+      }
+
+      async function ensureVideoTexture(clipKey, selectedEntry, clipFieldName) {
+        if (!selectedEntry || typeof selectedEntry !== "object") {
+          throw new Error(`Viseme '${clipKey}' has no selectable clip entries.`);
+        }
+        const clipPath = getEntryClipPath(selectedEntry, clipFieldName);
+        if (!clipPath) {
+          throw new Error(`Viseme '${clipKey}' has no clip path in '${clipFieldName}'.`);
+        }
+
+        if (state.textureCacheByClipPath.has(clipPath) && state.videoCacheByClipPath.has(clipPath)) {
+          return {
+            texture: state.textureCacheByClipPath.get(clipPath),
+            video: state.videoCacheByClipPath.get(clipPath),
+            clipPath,
+            selectedEntry,
+          };
+        }
+
+        const videoElement = document.createElement("video");
+        videoElement.src = withMediaCacheBust(clipPath);
+        videoElement.preload = VIDEO_TEXTURE_CONFIG.preload;
+        videoElement.muted = VIDEO_TEXTURE_CONFIG.muted;
+        videoElement.loop = VIDEO_TEXTURE_CONFIG.loop;
+        videoElement.playsInline = VIDEO_TEXTURE_CONFIG.playsInline;
+        videoElement.crossOrigin = VIDEO_TEXTURE_CONFIG.crossOrigin;
+        videoElement.disableRemotePlayback = true;
+        videoElement.setAttribute("crossorigin", VIDEO_TEXTURE_CONFIG.crossOrigin);
+        videoElement.setAttribute("playsinline", "true");
+        videoElement.setAttribute("webkit-playsinline", "true");
+
+        await new Promise((resolve, reject) => {
+          const onReady = () => resolve();
+          const onError = () => reject(new Error(`Video load failed: ${clipPath}`));
+          videoElement.addEventListener("loadeddata", onReady, { once: true });
+          videoElement.addEventListener("error", onError, { once: true });
+          videoElement.load();
+        });
+
+        const texture = PIXI.Texture.from(videoElement);
+        const baseTexture = texture?.baseTexture || null;
+        if (baseTexture) {
+          if (PIXI.SCALE_MODES?.LINEAR !== undefined) {
+            baseTexture.scaleMode = PIXI.SCALE_MODES.LINEAR;
+          }
+          if (PIXI.MIPMAP_MODES?.OFF !== undefined) {
+            baseTexture.mipmap = PIXI.MIPMAP_MODES.OFF;
+          }
+          if ("anisotropicLevel" in baseTexture) {
+            baseTexture.anisotropicLevel = 0;
+          }
+          baseTexture.update();
+        }
+        state.videoCacheByClipPath.set(clipPath, videoElement);
+        state.textureCacheByClipPath.set(clipPath, texture);
+        return { texture, video: videoElement, clipPath, selectedEntry };
+      }
+
+      async function playIdleLoopIfAvailable(reasonLabel, transitionAnchorEntry) {
+        if (!state.sprite || !state.clipEntriesByKey.size) {
+          return false;
+        }
+        const idleKey = resolveIdleKey();
+        if (!idleKey) {
+          return false;
+        }
+        const clipFieldName = getSelectedClipFieldName();
+        const clipEntries = state.clipEntriesByKey.get(idleKey);
+        const playableEntries = Array.isArray(clipEntries)
+          ? clipEntries.filter((entry) => Boolean(getEntryClipPath(entry, clipFieldName)))
+          : [];
+        if (!playableEntries.length) {
+          return false;
+        }
+        const selectedEntry = selectBestTransitionCandidate(
+          transitionAnchorEntry || null,
+          playableEntries,
+          state.continuityStats,
+          clipFieldName
+        );
+        const media = await ensureVideoTexture(idleKey, selectedEntry, clipFieldName);
+        if (!state.sprite) {
+          return false;
+        }
+        state.sprite.texture = media.texture;
+        fitSpriteToScreen(media.texture);
+        const video = media.video;
+        if (state.currentVideo && state.currentVideo !== video) {
+          try {
+            state.currentVideo.pause();
+          } catch (error) {
+            console.warn("pause previous video warning", error);
+          }
+        }
+        state.currentVideo = video;
+        video.pause();
+        const transitionTargetState = transitionAnchorEntry
+          ? getEntryContinuityVector(transitionAnchorEntry, CONTINUITY_FIELDS.endState)
+          : null;
+        const idleSeekSec = estimateEntrySeekSecByTargetState(
+          selectedEntry,
+          transitionTargetState,
+          state.continuityStats
+        );
+        video.currentTime = Math.max(0, Number.isFinite(idleSeekSec) ? idleSeekSec : 0);
+        video.playbackRate = 1.0;
+        video.loop = true;
+        const started = await safePlayVideoElement(video);
+        if (!started) {
+          return false;
+        }
+        state.currentClipEntry = selectedEntry;
+        state.currentClipKey = idleKey;
+        state.currentClipPath = media.clipPath;
+        const clipLabel = String(media.clipPath).split("/").pop();
+        setStatus(
+          [
+            "status=idle-loop",
+            `reason=${String(reasonLabel || "auto")}`,
+            `viseme=${idleKey}`,
+            `clip=${clipLabel}`,
+            `idleSeekSec=${video.currentTime.toFixed(3)}`,
+            `variant=${clipFieldName}`,
+          ].join("\n")
+        );
+        return true;
+      }
+
+      function stopPlaybackNow() {
+        state.playRunId += 1;
+        if (state.currentVideo) {
+          try {
+            state.currentVideo.pause();
+            state.currentVideo.currentTime = 0;
+          } catch (error) {
+            console.warn("stop playback warning", error);
+          }
+        }
+        state.currentVideo = null;
+        setStatus("status=stopped");
+        void playIdleLoopIfAvailable("stopped", state.currentClipEntry).catch((error) => {
+          reportIdleLoopWarning(error);
+        });
+      }
+
+      async function playOneViseme(playStep, clipFieldName, playbackRate, runId, stepIndex, stepCount) {
+        const visemeKey = String(playStep?.key || "").trim();
+        const media = await ensureVideoTexture(visemeKey, playStep?.entry, clipFieldName);
+        if (runId !== state.playRunId) {
+          return;
+        }
+        if (!state.sprite) {
+          return;
+        }
+        state.sprite.texture = media.texture;
+        fitSpriteToScreen(media.texture);
+
+        const video = media.video;
+        if (state.currentVideo && state.currentVideo !== video) {
+          try {
+            state.currentVideo.pause();
+          } catch (error) {
+            console.warn("pause previous video warning", error);
+          }
+        }
+        state.currentClipEntry = playStep?.entry || null;
+        state.currentClipKey = visemeKey;
+        state.currentClipPath = media.clipPath;
+        state.currentVideo = video;
+        video.pause();
+        video.currentTime = 0;
+        video.loop = false;
+        video.playbackRate = playbackRate;
+        const clipLabel = String(media.clipPath).split("/").pop();
+
+        setStatus(
+          [
+            "status=playing",
+            `step=${stepIndex + 1}/${stepCount}`,
+            `viseme=${visemeKey}`,
+            `clip=${clipLabel}`,
+            `variant=${clipFieldName}`,
+            `playbackRate=${playbackRate.toFixed(2)}`,
+          ].join("\n")
+        );
+
+        const started = await safePlayVideoElement(video);
+        if (!started) {
+          return;
+        }
+
+        await new Promise((resolve) => {
+          const expectedDurationMs = Math.max(120, ((video.duration || 0.1) * 1000) / Math.max(0.1, playbackRate));
+          let settled = false;
+          const finish = () => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            video.removeEventListener("ended", finish);
+            resolve();
+          };
+          video.addEventListener("ended", finish, { once: true });
+          setTimeout(finish, expectedDurationMs + 220);
+        });
+      }
+
+      async function playSequence(playbackPlan, clipFieldName, playbackRate) {
+        if (!Array.isArray(playbackPlan) || !playbackPlan.length) {
+          throw new Error("Playback sequence is empty.");
+        }
+        state.playRunId += 1;
+        const runId = state.playRunId;
+        for (let stepIndex = 0; stepIndex < playbackPlan.length; stepIndex += 1) {
+          if (runId !== state.playRunId) {
+            return;
+          }
+          await playOneViseme(
+            playbackPlan[stepIndex],
+            clipFieldName,
+            playbackRate,
+            runId,
+            stepIndex,
+            playbackPlan.length
+          );
+        }
+        if (runId === state.playRunId) {
+          setStatus("status=done");
+          const lastPlanStep = playbackPlan[playbackPlan.length - 1] || null;
+          try {
+            await playIdleLoopIfAvailable("sequence_done", lastPlanStep?.entry || state.currentClipEntry);
+          } catch (error) {
+            reportIdleLoopWarning(error);
+          }
+        }
+      }
+
+      async function loadManifestFromUi() {
+        const rawManifestPath = String(elements.manifestPath.value || "").trim();
+        if (!rawManifestPath) {
+          throw new Error("Manifest path is empty.");
+        }
+        const manifestPath = resolveMainManifestPath(rawManifestPath);
+        elements.manifestPath.value = manifestPath;
+        setStatus("status=loading");
+        const manifestPayload = await fetchManifest(manifestPath);
+        const clipEntriesByKey = await buildClipEntryMap(manifestPayload, manifestPath);
+        if (!clipEntriesByKey.size) {
+          throw new Error("Resolved manifest produced zero playable clip groups.");
+        }
+        state.manifest = manifestPayload;
+        state.clipEntriesByKey = clipEntriesByKey;
+        state.continuityStats = normalizeContinuityStats(manifestPayload?.continuity);
+        state.mediaCacheBustToken = Date.now();
+        destroyCachedMedia();
+        ensureAppReady();
+        applyRenderMode(elements.renderMode.value);
+        const transitionKeyCount = countTransitionKeys(clipEntriesByKey);
+        setStatus(
+          [
+            "status=ready",
+            `manifest=${manifestPath}`,
+            `keys=${clipEntriesByKey.size}`,
+            `transitionKeys=${transitionKeyCount}`,
+            `continuity=${state.continuityStats ? CONTINUITY_SELECTION.plannerMode : "fallback-random"}`,
+          ].join("\n")
+        );
+        void playIdleLoopIfAvailable("manifest_loaded").catch((error) => {
+          reportIdleLoopWarning(error);
+        });
+      }
+
+      async function playDemoFromUi() {
+        if (!state.manifest) {
+          await loadManifestFromUi();
+        }
+        const startAnchorEntry = state.currentClipEntry;
+        state.mediaCacheBustToken = Date.now();
+        destroyCachedMedia();
+
+        const baseSequence = parseBaseSequenceInput(elements.baseSequence.value);
+        if (!baseSequence.length) {
+          throw new Error("Base viseme sequence is empty.");
+        }
+        const playbackRate = Math.min(2.0, Math.max(0.5, Number(elements.playbackRate.value) || 1.0));
+        const loopCount = Math.min(9, Math.max(1, Math.floor(Number(elements.loopCount.value) || 1)));
+        const clipFieldName = getSelectedClipFieldName();
+        const playbackSequence = buildSequenceWithTransitions(baseSequence, state.clipEntriesByKey);
+        const playbackPlan = buildPlaybackPlan(
+          playbackSequence,
+          clipFieldName,
+          loopCount,
+          startAnchorEntry
+        );
+
+        setStatus(
+          [
+            "status=sequence-prepared",
+            `baseCount=${baseSequence.length}`,
+            `expandedCount=${playbackSequence.length}`,
+            `loops=${loopCount}`,
+            `steps=${playbackPlan.length}`,
+            `continuity=${state.continuityStats ? CONTINUITY_SELECTION.plannerMode : "fallback-random"}`,
+          ].join("\n")
+        );
+
+        await playSequence(playbackPlan, clipFieldName, playbackRate);
+      }
+
+      elements.applyBtn.addEventListener("click", () => {
+        applySelectedPreset();
+      });
+
+      elements.loadBtn.addEventListener("click", async () => {
+        try {
+          await loadManifestFromUi();
+        } catch (error) {
+          console.error(error);
+          setStatus(`status=error\nmessage=${error.message}`);
+        }
+      });
+
+      elements.playBtn.addEventListener("click", async () => {
+        try {
+          await playDemoFromUi();
+        } catch (error) {
+          console.error(error);
+          setStatus(`status=error\nmessage=${error.message}`);
+        }
+      });
+
+      elements.stopBtn.addEventListener("click", () => {
+        stopPlaybackNow();
+      });
+
+      elements.renderMode.addEventListener("change", () => {
+        ensureAppReady();
+        applyRenderMode(elements.renderMode.value);
+      });
+
+      elements.visualPreset.addEventListener("change", () => {
+        applyVisualPreset(elements.visualPreset.value);
+      });
+
+      for (const visualControlKey of VISUAL_CONTROL_KEYS) {
+        const inputElement = visualInputByKey[visualControlKey];
+        if (!inputElement) {
+          continue;
+        }
+        inputElement.addEventListener("input", () => {
+          applyVisualConfigFromInputs();
+        });
+      }
+
+      applySelectedPreset();
+      applyVisualPreset(elements.visualPreset.value);
+      applyRenderMode(elements.renderMode.value);
+      setStatus("status=idle\nhint=Load Dataset Manifest -> Play Demo");
+    </script>
+  </body>
+</html>

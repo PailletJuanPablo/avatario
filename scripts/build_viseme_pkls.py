@@ -33,8 +33,25 @@ DEFAULT_CONTAINER_APP_ROOT = "/app"
 DEFAULT_RUNTIME = "docker"
 DEFAULT_MOTION_UPSAMPLE_FACTOR = 1
 DEFAULT_PARALLEL_JOBS = 1
+DEFAULT_RANDOM_SEED = 1234
+DEFAULT_VOWEL_OPEN_BASE_DELTA = 0.0105
+DEFAULT_ENABLE_EYE_TAMED_PRESET = True
+DEFAULT_EYE_SOFT_FACTOR = 0.45
+DEFAULT_EYE_HARD_FACTOR = 0.18
+DEFAULT_EYE_HARD_DY_MIN = -0.0045
+DEFAULT_EYE_HARD_DY_MAX = 0.0035
 RUNTIME_DOCKER = "docker"
 RUNTIME_LOCAL = "local"
+VOWEL_VISEME_KEYS = ("AA", "E", "I", "O", "U")
+EYE_TAMED_SOFT_INDICES = (0, 1, 2, 3, 4, 5, 7, 10, 13)
+EYE_TAMED_HARD_INDICES = (11, 15)
+DEFAULT_VOWEL_OPEN_GAIN_BY_VISEME = {
+    "AA": 1.35,
+    "E": 0.90,
+    "I": 0.70,
+    "O": 1.20,
+    "U": 1.05,
+}
 
 
 @dataclass(frozen=True)
@@ -68,6 +85,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--docker-container", default=DEFAULT_DOCKER_CONTAINER)
     parser.add_argument("--docker-service", default=DEFAULT_DOCKER_SERVICE)
     parser.add_argument("--docker-python", default=DEFAULT_DOCKER_PYTHON)
+    parser.add_argument("--seed", type=int, default=DEFAULT_RANDOM_SEED)
     parser.add_argument(
         "--motion-upsample-factor",
         type=int,
@@ -79,6 +97,64 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_PARALLEL_JOBS,
         help="Parallel workers for viseme pkl generation.",
+    )
+    parser.add_argument(
+        "--enable-vowel-open-boost",
+        action="store_true",
+        default=True,
+        help="Boost lip opening in vowel viseme templates (AA/E/I/O/U).",
+    )
+    parser.add_argument(
+        "--disable-vowel-open-boost",
+        dest="enable_vowel_open_boost",
+        action="store_false",
+    )
+    parser.add_argument(
+        "--vowel-open-base-delta",
+        type=float,
+        default=DEFAULT_VOWEL_OPEN_BASE_DELTA,
+        help="Base additive lip-opening delta applied to vowel visemes.",
+    )
+    parser.add_argument(
+        "--vowel-open-gains-json",
+        default="",
+        help="JSON object overriding per-vowel opening gains.",
+    )
+    parser.add_argument(
+        "--enable-eye-tamed-preset",
+        action="store_true",
+        default=DEFAULT_ENABLE_EYE_TAMED_PRESET,
+        help="Apply eye/upper-face damping preset to reduce excessive eye motion.",
+    )
+    parser.add_argument(
+        "--disable-eye-tamed-preset",
+        dest="enable_eye_tamed_preset",
+        action="store_false",
+        help="Disable eye/upper-face damping preset.",
+    )
+    parser.add_argument(
+        "--eye-soft-factor",
+        type=float,
+        default=DEFAULT_EYE_SOFT_FACTOR,
+        help="Soft damping factor [0..1] for upper-face indices.",
+    )
+    parser.add_argument(
+        "--eye-hard-factor",
+        type=float,
+        default=DEFAULT_EYE_HARD_FACTOR,
+        help="Hard damping factor [0..1] for eye-sensitive indices.",
+    )
+    parser.add_argument(
+        "--eye-hard-dy-min",
+        type=float,
+        default=DEFAULT_EYE_HARD_DY_MIN,
+        help="Minimum allowed eye vertical delta for hard indices.",
+    )
+    parser.add_argument(
+        "--eye-hard-dy-max",
+        type=float,
+        default=DEFAULT_EYE_HARD_DY_MAX,
+        help="Maximum allowed eye vertical delta for hard indices.",
     )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
@@ -179,6 +255,25 @@ def read_json(path_value: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Expected JSON object in {path_value}")
     return payload
+
+
+def parse_vowel_open_gain_map(raw_value: str) -> dict[str, float]:
+    """
+    Parse optional per-vowel gain overrides.
+    """
+    gain_map = dict(DEFAULT_VOWEL_OPEN_GAIN_BY_VISEME)
+    if not str(raw_value).strip():
+        return gain_map
+    payload = json.loads(str(raw_value))
+    if not isinstance(payload, dict):
+        raise ValueError("vowel-open-gains-json must be a JSON object.")
+    valid_keys = set(VOWEL_VISEME_KEYS)
+    for key, value in payload.items():
+        viseme = str(key).strip()
+        if viseme not in valid_keys:
+            raise ValueError(f"Invalid vowel key in gains map: {viseme}")
+        gain_map[viseme] = float(value)
+    return gain_map
 
 
 def load_viseme_entries(audio_manifest_path: Path) -> tuple[str, list[dict[str, str]]]:
@@ -334,18 +429,197 @@ def upsample_motion_payload(payload: dict[str, Any], factor: int) -> dict[str, A
     return processed
 
 
-def apply_motion_postprocess(pkl_path: Path, upsample_factor: int) -> None:
+def get_lip_energy(exp_array: np.ndarray) -> float:
+    """
+    Estimate lip opening energy from expression tensor.
+    """
+    if exp_array.ndim == 3:
+        frame_exp = exp_array[0]
+    else:
+        frame_exp = exp_array
+    frame_exp = np.asarray(frame_exp, dtype=np.float32)
+    positive = lambda value: float(max(0.0, value))
+    energy = (
+        positive(frame_exp[19, 1])
+        + positive(frame_exp[20, 1])
+        + 0.45 * positive(frame_exp[14, 1])
+        + 0.20 * positive(frame_exp[17, 1])
+    )
+    return energy
+
+
+def apply_vowel_open_boost_to_payload(
+    payload: dict[str, Any],
+    viseme_key: str,
+    base_delta: float,
+    gain_map: dict[str, float],
+) -> dict[str, Any]:
+    """
+    Apply lip-opening boost to vowel viseme motion payload.
+    """
+    viseme = str(viseme_key).strip()
+    if viseme not in VOWEL_VISEME_KEYS:
+        return payload
+    motion = payload.get("motion")
+    if not isinstance(motion, list) or not motion:
+        return payload
+    safe_base_delta = max(0.0, float(base_delta))
+    viseme_gain = float(gain_map.get(viseme, 1.0))
+    if safe_base_delta <= 0.0 or viseme_gain <= 0.0:
+        return payload
+
+    energies = []
+    for frame in motion:
+        if not isinstance(frame, dict):
+            continue
+        exp_value = frame.get("exp")
+        if exp_value is None:
+            continue
+        energies.append(get_lip_energy(np.asarray(exp_value, dtype=np.float32)))
+    if not energies:
+        return payload
+    max_energy = max(energies)
+    norm_den = max(max_energy, 1e-6)
+    target_delta = safe_base_delta * viseme_gain
+
+    processed = copy.deepcopy(payload)
+    processed_motion = processed.get("motion")
+    if not isinstance(processed_motion, list):
+        return payload
+    for frame_index, frame in enumerate(processed_motion):
+        if not isinstance(frame, dict) or "exp" not in frame:
+            continue
+        exp_array = np.asarray(frame["exp"], dtype=np.float32).copy()
+        frame_energy = get_lip_energy(exp_array)
+        dynamic = frame_energy / norm_den
+        envelope = 0.35 + 0.65 * dynamic
+        boost = target_delta * envelope
+        if exp_array.ndim == 3:
+            exp_array[0, 19, 1] += boost * 1.00
+            exp_array[0, 20, 1] += boost * 0.85
+            exp_array[0, 14, 1] += boost * 0.60
+            exp_array[0, 17, 1] += boost * 0.35
+            exp_array[0, 19, 2] += boost * 0.22
+            exp_array[0, 20, 2] += boost * 0.16
+        else:
+            exp_array[19, 1] += boost * 1.00
+            exp_array[20, 1] += boost * 0.85
+            exp_array[14, 1] += boost * 0.60
+            exp_array[17, 1] += boost * 0.35
+            exp_array[19, 2] += boost * 0.22
+            exp_array[20, 2] += boost * 0.16
+        frame["exp"] = exp_array
+    return processed
+
+
+def resolve_vowel_boost_key(viseme_key: str, from_viseme: str, to_viseme: str) -> str:
+    """
+    Resolve which vowel key should receive lip-opening boost.
+    """
+    viseme = str(viseme_key).strip()
+    from_key = str(from_viseme).strip()
+    to_key = str(to_viseme).strip()
+
+    if viseme in VOWEL_VISEME_KEYS:
+        return viseme
+    if "_to_" in viseme:
+        return ""
+    if from_key == to_key and from_key in VOWEL_VISEME_KEYS:
+        return from_key
+    token = viseme.split("_", 1)[0].strip()
+    if token in VOWEL_VISEME_KEYS and not from_key and not to_key:
+        return token
+    return ""
+
+
+def apply_eye_tamed_preset_to_payload(
+    payload: dict[str, Any],
+    soft_factor: float,
+    hard_factor: float,
+    hard_dy_min: float,
+    hard_dy_max: float,
+) -> dict[str, Any]:
+    """
+    Damp upper-face and eye channels relative to frame-0 baseline.
+    """
+    motion = payload.get("motion")
+    if not isinstance(motion, list) or not motion:
+        return payload
+    first_frame = motion[0]
+    if not isinstance(first_frame, dict) or "exp" not in first_frame:
+        return payload
+
+    base_exp = np.asarray(first_frame["exp"], dtype=np.float32).reshape(21, 3).copy()
+    safe_soft = float(np.clip(soft_factor, 0.0, 1.0))
+    safe_hard = float(np.clip(hard_factor, 0.0, 1.0))
+    safe_min = float(min(hard_dy_min, hard_dy_max))
+    safe_max = float(max(hard_dy_min, hard_dy_max))
+
+    processed = copy.deepcopy(payload)
+    processed_motion = processed.get("motion")
+    if not isinstance(processed_motion, list):
+        return payload
+
+    for frame in processed_motion:
+        if not isinstance(frame, dict) or "exp" not in frame:
+            continue
+        exp_array = np.asarray(frame["exp"], dtype=np.float32).reshape(21, 3).copy()
+        for index in EYE_TAMED_SOFT_INDICES:
+            exp_array[index, :] = base_exp[index, :] + (exp_array[index, :] - base_exp[index, :]) * safe_soft
+        for index in EYE_TAMED_HARD_INDICES:
+            exp_array[index, :] = base_exp[index, :] + (exp_array[index, :] - base_exp[index, :]) * safe_hard
+            delta_y = exp_array[index, 1] - base_exp[index, 1]
+            exp_array[index, 1] = base_exp[index, 1] + float(np.clip(delta_y, safe_min, safe_max))
+        frame["exp"] = exp_array.reshape(1, 21, 3)
+    return processed
+
+
+def apply_motion_postprocess(
+    pkl_path: Path,
+    upsample_factor: int,
+    viseme_key: str,
+    from_viseme: str,
+    to_viseme: str,
+    enable_vowel_open_boost: bool,
+    vowel_open_base_delta: float,
+    vowel_open_gain_map: dict[str, float],
+    enable_eye_tamed_preset: bool,
+    eye_soft_factor: float,
+    eye_hard_factor: float,
+    eye_hard_dy_min: float,
+    eye_hard_dy_max: float,
+) -> None:
     """
     Apply optional postprocess steps to generated motion pkl.
     """
     safe_factor = max(1, int(upsample_factor))
-    if safe_factor == 1:
-        return
     with pkl_path.open("rb") as handle:
         payload = pickle.load(handle)
     if not isinstance(payload, dict):
         raise ValueError(f"Invalid pkl payload type: {type(payload)}")
-    processed = upsample_motion_payload(payload, safe_factor)
+    processed = payload
+    if safe_factor > 1:
+        processed = upsample_motion_payload(processed, safe_factor)
+    if enable_eye_tamed_preset:
+        processed = apply_eye_tamed_preset_to_payload(
+            payload=processed,
+            soft_factor=eye_soft_factor,
+            hard_factor=eye_hard_factor,
+            hard_dy_min=eye_hard_dy_min,
+            hard_dy_max=eye_hard_dy_max,
+        )
+    if enable_vowel_open_boost:
+        boost_viseme_key = resolve_vowel_boost_key(
+            viseme_key=viseme_key,
+            from_viseme=from_viseme,
+            to_viseme=to_viseme,
+        )
+        processed = apply_vowel_open_boost_to_payload(
+            payload=processed,
+            viseme_key=boost_viseme_key,
+            base_delta=vowel_open_base_delta,
+            gain_map=vowel_open_gain_map,
+        )
     with pkl_path.open("wb") as handle:
         pickle.dump(processed, handle)
 
@@ -357,6 +631,7 @@ def build_local_command(
     cfg_path: Path,
     audio_path: Path,
     output_pkl_path: Path,
+    seed: int,
 ) -> list[str]:
     """
     Build local host command for one viseme pkl.
@@ -372,6 +647,8 @@ def build_local_command(
         str(audio_path),
         "--output-pkl",
         str(output_pkl_path),
+        "--seed",
+        str(int(seed)),
     ]
 
 
@@ -383,6 +660,7 @@ def build_docker_command(
     cfg_path: Path,
     audio_path: Path,
     output_pkl_path: Path,
+    seed: int,
 ) -> list[str]:
     """
     Build docker exec command for one viseme pkl.
@@ -401,6 +679,8 @@ def build_docker_command(
         to_container_path(audio_path),
         "--output-pkl",
         to_container_path(output_pkl_path),
+        "--seed",
+        str(int(seed)),
     ]
 
 
@@ -447,6 +727,14 @@ def build_single_entry(
     cfg_path: Path,
     output_dir: Path,
     upsample_factor: int,
+    enable_vowel_open_boost: bool,
+    vowel_open_base_delta: float,
+    vowel_open_gain_map: dict[str, float],
+    enable_eye_tamed_preset: bool,
+    eye_soft_factor: float,
+    eye_hard_factor: float,
+    eye_hard_dy_min: float,
+    eye_hard_dy_max: float,
 ) -> BuildResult:
     """
     Build one viseme pkl entry.
@@ -483,6 +771,7 @@ def build_single_entry(
             cfg_path=cfg_path,
             audio_path=audio_path,
             output_pkl_path=output_pkl_path,
+            seed=int(args.seed),
         )
     else:
         command = build_local_command(
@@ -492,10 +781,25 @@ def build_single_entry(
             cfg_path=cfg_path,
             audio_path=audio_path,
             output_pkl_path=output_pkl_path,
+            seed=int(args.seed),
         )
 
     run_command(command)
-    apply_motion_postprocess(output_pkl_path, upsample_factor)
+    apply_motion_postprocess(
+        pkl_path=output_pkl_path,
+        upsample_factor=upsample_factor,
+        viseme_key=viseme,
+        from_viseme=from_viseme,
+        to_viseme=to_viseme,
+        enable_vowel_open_boost=enable_vowel_open_boost,
+        vowel_open_base_delta=vowel_open_base_delta,
+        vowel_open_gain_map=vowel_open_gain_map,
+        enable_eye_tamed_preset=enable_eye_tamed_preset,
+        eye_soft_factor=eye_soft_factor,
+        eye_hard_factor=eye_hard_factor,
+        eye_hard_dy_min=eye_hard_dy_min,
+        eye_hard_dy_max=eye_hard_dy_max,
+    )
     elapsed = time.perf_counter() - started_at
     stats = extract_template_stats(output_pkl_path)
     stats["motionUpsampleFactor"] = upsample_factor
@@ -536,6 +840,14 @@ def main() -> None:
         raise FileNotFoundError(f"Audio->PKL script not found: {script_path}")
     upsample_factor = max(1, int(args.motion_upsample_factor))
     parallel_jobs = max(1, int(args.jobs))
+    enable_vowel_open_boost = bool(args.enable_vowel_open_boost)
+    vowel_open_base_delta = max(0.0, float(args.vowel_open_base_delta))
+    vowel_open_gain_map = parse_vowel_open_gain_map(str(args.vowel_open_gains_json))
+    enable_eye_tamed_preset = bool(args.enable_eye_tamed_preset)
+    eye_soft_factor = float(args.eye_soft_factor)
+    eye_hard_factor = float(args.eye_hard_factor)
+    eye_hard_dy_min = float(args.eye_hard_dy_min)
+    eye_hard_dy_max = float(args.eye_hard_dy_max)
 
     if args.runtime == RUNTIME_DOCKER:
         ensure_container_running(
@@ -563,6 +875,14 @@ def main() -> None:
                     cfg_path=cfg_path,
                     output_dir=output_dir,
                     upsample_factor=upsample_factor,
+                    enable_vowel_open_boost=enable_vowel_open_boost,
+                    vowel_open_base_delta=vowel_open_base_delta,
+                    vowel_open_gain_map=vowel_open_gain_map,
+                    enable_eye_tamed_preset=enable_eye_tamed_preset,
+                    eye_soft_factor=eye_soft_factor,
+                    eye_hard_factor=eye_hard_factor,
+                    eye_hard_dy_min=eye_hard_dy_min,
+                    eye_hard_dy_max=eye_hard_dy_max,
                 )
                 built_results.append(result)
             except Exception as exc:  # noqa: BLE001
@@ -584,6 +904,14 @@ def main() -> None:
                     cfg_path,
                     output_dir,
                     upsample_factor,
+                    enable_vowel_open_boost,
+                    vowel_open_base_delta,
+                    vowel_open_gain_map,
+                    enable_eye_tamed_preset,
+                    eye_soft_factor,
+                    eye_hard_factor,
+                    eye_hard_dy_min,
+                    eye_hard_dy_max,
                 )
                 future_to_viseme[future] = entry["viseme"]
 

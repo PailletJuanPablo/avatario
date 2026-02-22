@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import argparse
 import pickle
+import random
 import sys
 from pathlib import Path
 
+import numpy as np
+import torch
 from omegaconf import OmegaConf
 
 
@@ -21,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cfg", required=True, help="Path to FasterLivePortrait cfg yaml")
     parser.add_argument("--driving-audio", required=True, help="Path to driving audio (.wav/.mp3/...)")
     parser.add_argument("--output-pkl", required=True, help="Output motion template .pkl")
+    parser.add_argument("--seed", type=int, default=1234, help="Global seed for deterministic motion generation.")
     return parser.parse_args()
 
 
@@ -29,6 +33,16 @@ def resolve_path(path_value: str) -> Path:
     Resolve path value to absolute path.
     """
     return Path(path_value).expanduser().resolve()
+
+
+def set_global_seed(seed_value: int) -> None:
+    """Set deterministic seed across python, numpy and torch."""
+    safe_seed = int(seed_value)
+    random.seed(safe_seed)
+    np.random.seed(safe_seed)
+    torch.manual_seed(safe_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(safe_seed)
 
 
 def main() -> None:
@@ -40,6 +54,7 @@ def main() -> None:
     cfg_path = resolve_path(args.cfg)
     driving_audio_path = resolve_path(args.driving_audio)
     output_pkl_path = resolve_path(args.output_pkl)
+    set_global_seed(args.seed)
 
     if not faster_repo_dir.exists():
         raise FileNotFoundError(f"FasterLivePortrait repo not found: {faster_repo_dir}")

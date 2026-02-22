@@ -206,7 +206,7 @@
         </div>
         <div class="field">
           <label for="crossfade-ms">Crossfade (ms)</label>
-          <input id="crossfade-ms" type="number" min="0" max="240" value="60" step="5" />
+          <input id="crossfade-ms" type="number" min="0" max="240" value="18" step="5" />
         </div>
         <div class="buttons">
           <button id="play-btn">Play Sequence</button>
@@ -233,6 +233,17 @@
         runtimeLogs: false,
       });
 
+      const PLAYBACK_MODE = Object.freeze({
+        base: "base",
+        pair: "pair",
+      });
+
+      const LOADING_STAGE = Object.freeze({
+        base: "Loading base spritesheets",
+        transitionIndex: "Indexing transition manifest",
+        transitionPreload: "Preloading transition pairs",
+      });
+
       const PLAYBACK_TUNING = Object.freeze({
         holdFrameRepeatCount: 1,
         defaultStartFrameIndex: 0,
@@ -241,7 +252,11 @@
         maxHoldMs: 3000,
         minCrossfadeMs: 0,
         maxCrossfadeMs: 240,
+        maxPairCrossfadeMs: 24,
         sequenceSafetyPaddingMs: 12,
+        transitionCyclePaddingMs: 8,
+        minTransitionCycleMs: 100,
+        preloadedTransitionLookahead: 1,
         tickerFrameRate: 60,
         fallbackPhaseRatios: Object.freeze({
           attackStart: 0.3,
@@ -263,13 +278,18 @@
         transition: null,
         texturesByViseme: new Map(),
         playbackTexturesByViseme: new Map(),
+        visemeFpsByKey: new Map(),
         visemeConfigByKey: new Map(),
         transitionVisemeKeyByPair: new Map(),
+        transitionEntryByPair: new Map(),
+        transitionLoadPromiseByPair: new Map(),
+        preloadedTransitionPairs: new Set(),
         visemeOrder: [],
         visemeIndex: 0,
         currentBaseViseme: "",
         playing: false,
         sequenceDeadlineMs: 0,
+        currentCycleDurationMs: 420,
         runtimeClockMs: 0,
         baseAnimationSpeed: 25 / 60,
         speedMultiplier: 1.0,
@@ -341,6 +361,20 @@
         els.loadProgressValue.textContent = `${Math.round(percent)}% (${safeCompleted}/${safeTotal})`;
       }
 
+      /**
+       * Advance load-progress state by one step and refresh UI.
+       *
+       * @param {object} progressState - Mutable progress tracker.
+       * @param {string} stageLabel - Current loading stage label.
+       */
+      function advanceLoadProgress(progressState, stageLabel) {
+        if (!progressState || typeof progressState !== "object") {
+          return;
+        }
+        progressState.completed += 1;
+        updateProgressUi(stageLabel, progressState.completed, progressState.total);
+      }
+
       function pairTransitionKey(fromViseme, toViseme) {
         return `${String(fromViseme || "").trim()}::${String(toViseme || "").trim()}`;
       }
@@ -355,7 +389,26 @@
         return clampNumber(inputElement?.value, minValue, maxValue, fallbackValue);
       }
 
-      function applyRuntimeDefaultsFromManifest(manifest) {
+      /**
+       * Resolve maximum effective crossfade for the current playback mode.
+       *
+       * @param {string} playbackMode - Playback mode.
+       * @returns {number} Maximum allowed crossfade in milliseconds.
+       */
+      function resolveCrossfadeCapMs(playbackMode) {
+        if (playbackMode === PLAYBACK_MODE.pair) {
+          return PLAYBACK_TUNING.maxPairCrossfadeMs;
+        }
+        return PLAYBACK_TUNING.maxCrossfadeMs;
+      }
+
+      /**
+       * Apply manifest defaults to runtime controls with mode-aware crossfade caps.
+       *
+       * @param {object} manifest - Runtime manifest payload.
+       * @param {string} playbackMode - Playback mode.
+       */
+      function applyRuntimeDefaultsFromManifest(manifest, playbackMode = PLAYBACK_MODE.base) {
         const manifestCrossfade = Number(manifest?.rendering?.defaultCrossfadeMs);
         if (!Number.isFinite(manifestCrossfade)) {
           return;
@@ -363,7 +416,7 @@
         const clampedCrossfade = clampNumber(
           manifestCrossfade,
           PLAYBACK_TUNING.minCrossfadeMs,
-          PLAYBACK_TUNING.maxCrossfadeMs,
+          resolveCrossfadeCapMs(playbackMode),
           PLAYBACK_TUNING.minCrossfadeMs
         );
         els.crossfadeMs.value = String(Math.round(clampedCrossfade));
@@ -387,26 +440,100 @@
         );
       }
 
+      /**
+       * Resolve effective crossfade for the requested playback mode.
+       *
+       * @param {string} playbackMode - Playback mode.
+       * @param {boolean} immediate - Whether transition is immediate.
+       * @returns {number} Effective crossfade in milliseconds.
+       */
+      function resolveEffectiveCrossfadeMs(playbackMode, immediate) {
+        if (immediate) {
+          return 0;
+        }
+        const configuredCrossfade = currentCrossfadeMs();
+        const modeCap = resolveCrossfadeCapMs(playbackMode);
+        return clampNumber(
+          configuredCrossfade,
+          PLAYBACK_TUNING.minCrossfadeMs,
+          modeCap,
+          PLAYBACK_TUNING.minCrossfadeMs
+        );
+      }
+
+      /**
+       * Resolve viseme playback fps from manifest entry with fallback.
+       *
+       * @param {object} entry - Viseme manifest entry.
+       * @param {number} fallbackFps - Fallback fps when entry does not define frame duration.
+       * @returns {number} Playback fps.
+       */
+      function resolveVisemeFpsFromEntry(entry, fallbackFps) {
+        const frameDurationMs = Number(entry?.frameDurationMs || 0);
+        if (Number.isFinite(frameDurationMs) && frameDurationMs > 0) {
+          return Math.max(1, 1000 / frameDurationMs);
+        }
+        return Math.max(1, Number(fallbackFps) || PLAYBACK_TUNING.tickerFrameRate);
+      }
+
+      /**
+       * Resolve playback fps for viseme key from runtime cache.
+       *
+       * @param {string} visemeKey - Viseme key.
+       * @returns {number} Viseme fps.
+       */
+      function resolveVisemeFps(visemeKey) {
+        const cachedFps = Number(state.visemeFpsByKey.get(visemeKey));
+        if (Number.isFinite(cachedFps) && cachedFps > 0) {
+          return cachedFps;
+        }
+        return Math.max(1, Number(state.manifest?.fps || PLAYBACK_TUNING.tickerFrameRate));
+      }
+
+      /**
+       * Resolve animationSpeed value for AnimatedSprite from viseme fps.
+       *
+       * @param {string} visemeKey - Viseme key.
+       * @returns {number} AnimatedSprite animationSpeed.
+       */
+      function resolveAnimationSpeedForViseme(visemeKey) {
+        const visemeFps = resolveVisemeFps(visemeKey);
+        const targetFps = Math.max(1, visemeFps * state.speedMultiplier);
+        return targetFps / PLAYBACK_TUNING.tickerFrameRate;
+      }
+
+      /**
+       * Apply speed multiplier to one sprite according to its runtime viseme key.
+       *
+       * @param {PIXI.AnimatedSprite | null} sprite - Target sprite.
+       */
+      function applySpeedToSprite(sprite) {
+        if (!sprite) {
+          return;
+        }
+        const visemeKey = String(sprite.runtimeVisemeKey || "").trim();
+        if (!visemeKey) {
+          return;
+        }
+        sprite.animationSpeed = resolveAnimationSpeedForViseme(visemeKey);
+      }
+
       function setSpeedMultiplier(value) {
         const clamped = Math.max(0.4, Math.min(2.0, Number(value) || 1));
         state.speedMultiplier = clamped;
         els.speedRange.value = String(clamped);
         els.speedValue.value = String(clamped);
-        const animationSpeed = state.baseAnimationSpeed * clamped;
-        if (state.spriteA) {
-          state.spriteA.animationSpeed = animationSpeed;
-        }
-        if (state.spriteB) {
-          state.spriteB.animationSpeed = animationSpeed;
-        }
+        applySpeedToSprite(state.spriteA);
+        applySpeedToSprite(state.spriteB);
         if (state.playing) {
-          state.sequenceDeadlineMs = state.runtimeClockMs + currentHoldMs();
+          state.sequenceDeadlineMs = state.runtimeClockMs + Math.max(1, Number(state.currentCycleDurationMs) || currentHoldMs());
         }
       }
 
       function resetApp() {
         state.playing = false;
         state.sequenceDeadlineMs = 0;
+        state.currentCycleDurationMs = PLAYBACK_TUNING.defaultHoldMs;
         state.runtimeClockMs = 0;
         state.transition = null;
         if (state.app) {
@@ -420,6 +547,8 @@
         state.spriteA = null;
         state.spriteB = null;
         state.activeSprite = null;
+        state.transitionLoadPromiseByPair.clear();
+        state.preloadedTransitionPairs.clear();
         els.stage.innerHTML = "";
       }
 
@@ -536,6 +665,12 @@
         if (!Array.isArray(textures) || textures.length === 0) {
           throw new Error(`Cannot build playback textures for ${viseme}: empty source textures.`);
         }
+        const fromViseme = String(visemeConfig?.fromViseme || "").trim();
+        const toViseme = String(visemeConfig?.toViseme || "").trim();
+        const isTransitionEntry = Boolean(fromViseme && toViseme);
+        if (isTransitionEntry) {
+          return textures.slice();
+        }
         const phaseIndices = resolvePlaybackPhaseIndices(visemeConfig, textures.length);
         const holdExpanded = [];
         const holdRepeatCount = Math.max(1, Number(PLAYBACK_TUNING.holdFrameRepeatCount) || 1);
@@ -586,6 +721,7 @@
         if (invalidTextureIndex !== -1) {
           throw new Error(`Viseme ${viseme} has invalid texture at index ${invalidTextureIndex}.`);
         }
+        sprite.runtimeVisemeKey = viseme;
         sprite.textures = localTextures;
         const startIndex = Math.max(0, Math.min(localTextures.length - 1, Number(PLAYBACK_TUNING.defaultStartFrameIndex) || 0));
         sprite.gotoAndPlay(startIndex);
@@ -626,19 +762,39 @@
         state.transition = null;
       }
 
-      function resolveSpriteFramesPerSecond() {
-        const spriteFramesPerSecond = state.baseAnimationSpeed * state.speedMultiplier * PLAYBACK_TUNING.tickerFrameRate;
-        return Math.max(1, Number(spriteFramesPerSecond) || 1);
-      }
-
-      function resolvePlaybackDurationMs(textureCount) {
+      function resolvePlaybackDurationMs(textureCount, visemeKey) {
         const safeTextureCount = Math.max(1, Number(textureCount) || 1);
-        return (safeTextureCount * 1000) / resolveSpriteFramesPerSecond();
+        const visemeFps = Math.max(1, resolveVisemeFps(visemeKey) * state.speedMultiplier);
+        return (safeTextureCount * 1000) / visemeFps;
       }
 
-      function resolveSequenceStepDurationMs(playbackDurationMs) {
+      /**
+       * Resolve cycle duration from playback mode and clip duration.
+       *
+       * @param {number} playbackDurationMs - Current animation duration in milliseconds.
+       * @param {string} playbackMode - Playback mode.
+       * @returns {number} Cycle duration in milliseconds.
+       */
+      function resolveSequenceStepDurationMs(playbackDurationMs, playbackMode) {
         const safePlaybackDurationMs = Math.max(0, Number(playbackDurationMs) || 0);
+        if (playbackMode === PLAYBACK_MODE.pair) {
+          return Math.max(
+            PLAYBACK_TUNING.minTransitionCycleMs,
+            safePlaybackDurationMs + PLAYBACK_TUNING.transitionCyclePaddingMs
+          );
+        }
         return Math.max(currentHoldMs(), safePlaybackDurationMs + PLAYBACK_TUNING.sequenceSafetyPaddingMs);
+      }
+
+      /**
+       * Apply smoothstep easing to alpha transitions.
+       *
+       * @param {number} rawFactor - Linear blend factor in [0, 1].
+       * @returns {number} Smoothed blend factor.
+       */
+      function smoothstep01(rawFactor) {
+        const clampedFactor = clampNumber(rawFactor, 0, 1, 0);
+        return clampedFactor * clampedFactor * (3 - (2 * clampedFactor));
       }
 
       function updateActiveTransition(deltaMs) {
@@ -647,10 +803,10 @@
         }
         state.transition.elapsedMs += deltaMs;
         const rawT = state.transition.elapsedMs / Math.max(1, state.transition.durationMs);
-        const t = Number.isFinite(rawT) ? Math.min(1, rawT) : 1;
+        const t = smoothstep01(rawT);
         state.transition.from.alpha = 1 - t;
         state.transition.to.alpha = t;
-        if (t >= 1) {
+        if (rawT >= 1) {
           hideSprite(state.transition.from);
           state.transition.to.visible = true;
           state.transition.to.renderable = true;
@@ -687,7 +843,11 @@
         if (!state.playing) {
           return;
         }
-        const cycleDurationMs = Number(transitionResult?.cycleDurationMs) || currentHoldMs();
+        const cycleDurationMs = Math.max(
+          1,
+          Number(transitionResult?.cycleDurationMs) || currentHoldMs()
+        );
+        state.currentCycleDurationMs = cycleDurationMs;
         state.sequenceDeadlineMs = state.runtimeClockMs + cycleDurationMs;
       }
 
@@ -703,45 +863,102 @@
         return payload;
       }
 
-      async function cacheVisemeEntries(visemeEntries, sourceLabel, registerPairMapping, progressState) {
+      /**
+       * Validate viseme manifest entry and normalize required fields.
+       *
+       * @param {object} entry - Raw viseme manifest entry.
+       * @param {string} sourceLabel - Entry source for error context.
+       * @returns {{viseme: string, sheetPath: string, fromViseme: string, toViseme: string}}
+       */
+      function normalizeVisemeEntry(entry, sourceLabel) {
+        const viseme = String(entry?.viseme || "").trim();
+        const sheetPath = String(entry?.sheetJson || "").trim();
+        if (!viseme || !sheetPath) {
+          throw new Error(`Invalid ${sourceLabel} viseme entry.`);
+        }
+        return {
+          viseme,
+          sheetPath,
+          fromViseme: String(entry?.fromViseme || "").trim(),
+          toViseme: String(entry?.toViseme || "").trim(),
+        };
+      }
+
+      /**
+       * Load one viseme spritesheet and cache runtime textures.
+       *
+       * @param {object} entry - Viseme manifest entry.
+       * @param {string} sourceLabel - Entry source label.
+       */
+      async function loadVisemeTextures(entry, sourceLabel) {
+        const normalizedEntry = normalizeVisemeEntry(entry, sourceLabel);
+        if (state.playbackTexturesByViseme.has(normalizedEntry.viseme)) {
+          return;
+        }
+        const spritesheet = await PIXI.Assets.load(normalizedEntry.sheetPath);
+        if (!spritesheet || !spritesheet.textures || !spritesheet.animations) {
+          throw new Error(`Invalid spritesheet payload for ${normalizedEntry.viseme}`);
+        }
+        const textures = visemeAnimationTextures(spritesheet, normalizedEntry.viseme);
+        const playbackTextures = buildVisemePlaybackTextures(
+          normalizedEntry.viseme,
+          textures,
+          entry
+        );
+        state.texturesByViseme.set(normalizedEntry.viseme, textures);
+        state.playbackTexturesByViseme.set(normalizedEntry.viseme, playbackTextures);
+        debugLog(
+          `loaded ${sourceLabel} viseme=${normalizedEntry.viseme} frames=${textures.length} playback=${playbackTextures.length} first=${textureDebugInfo(
+            textures[0]
+          )}`
+        );
+      }
+
+      /**
+       * Cache viseme entries and optionally load their textures.
+       *
+       * @param {Array<object>} visemeEntries - Viseme entries to cache.
+       * @param {string} sourceLabel - Entry source label.
+       * @param {boolean} registerPairMapping - Whether to register from->to mapping.
+       * @param {object|null} progressState - Optional progress tracker.
+       * @param {boolean} loadTextures - Whether to load spritesheet textures now.
+       */
+      async function cacheVisemeEntries(
+        visemeEntries,
+        sourceLabel,
+        registerPairMapping,
+        progressState,
+        loadTextures,
+        sourceFps
+      ) {
         for (const entry of visemeEntries) {
-          const viseme = String(entry.viseme || "").trim();
-          const sheetPath = String(entry.sheetJson || "").trim();
-          if (!viseme || !sheetPath) {
-            throw new Error(`Invalid ${sourceLabel} viseme entry.`);
-          }
-          const spritesheet = await PIXI.Assets.load(sheetPath);
-          if (!spritesheet || !spritesheet.textures || !spritesheet.animations) {
-            throw new Error(`Invalid spritesheet payload for ${viseme}`);
-          }
-          const textures = visemeAnimationTextures(spritesheet, viseme);
-          const playbackTextures = buildVisemePlaybackTextures(viseme, textures, entry);
-          state.texturesByViseme.set(viseme, textures);
-          state.playbackTexturesByViseme.set(viseme, playbackTextures);
-          state.visemeConfigByKey.set(viseme, entry);
-
-          if (registerPairMapping) {
-            const fromViseme = String(entry.fromViseme || "").trim();
-            const toViseme = String(entry.toViseme || "").trim();
-            if (!fromViseme || !toViseme) {
-              throw new Error(`Transition entry '${viseme}' requires fromViseme and toViseme.`);
-            }
-            state.transitionVisemeKeyByPair.set(pairTransitionKey(fromViseme, toViseme), viseme);
-          }
-
-          debugLog(
-            `loaded ${sourceLabel} viseme=${viseme} frames=${textures.length} playback=${playbackTextures.length} first=${textureDebugInfo(
-              textures[0]
-            )}`
+          const normalizedEntry = normalizeVisemeEntry(entry, sourceLabel);
+          state.visemeConfigByKey.set(normalizedEntry.viseme, entry);
+          state.visemeFpsByKey.set(
+            normalizedEntry.viseme,
+            resolveVisemeFpsFromEntry(entry, sourceFps)
           );
 
-          if (progressState && typeof progressState === "object") {
-            progressState.completed += 1;
-            updateProgressUi(
-              `Loading ${sourceLabel} spritesheets`,
-              progressState.completed,
-              progressState.total
+          if (registerPairMapping) {
+            if (!normalizedEntry.fromViseme || !normalizedEntry.toViseme) {
+              throw new Error(
+                `Transition entry '${normalizedEntry.viseme}' requires fromViseme and toViseme.`
+              );
+            }
+            const pairKey = pairTransitionKey(
+              normalizedEntry.fromViseme,
+              normalizedEntry.toViseme
             );
+            state.transitionVisemeKeyByPair.set(pairKey, normalizedEntry.viseme);
+            state.transitionEntryByPair.set(pairKey, entry);
+          }
+
+          if (loadTextures) {
+            await loadVisemeTextures(entry, sourceLabel);
+          }
+
+          if (progressState && typeof progressState === "object") {
+            advanceLoadProgress(progressState, sourceLabel);
           }
         }
       }
@@ -753,11 +970,66 @@
         }
       }
 
+      /**
+       * Build cyclic adjacent viseme pairs used by sequence playback.
+       *
+       * @returns {Array<{fromViseme: string, toViseme: string}>} Sequence transition pairs.
+       */
+      function buildSequencePairPlan() {
+        if (!Array.isArray(state.visemeOrder) || state.visemeOrder.length <= 1) {
+          return [];
+        }
+        const pairs = [];
+        for (let index = 0; index < state.visemeOrder.length; index += 1) {
+          const fromViseme = state.visemeOrder[index];
+          const toViseme = state.visemeOrder[(index + 1) % state.visemeOrder.length];
+          pairs.push({ fromViseme, toViseme });
+        }
+        return pairs;
+      }
+
+      /**
+       * Ensure one transition pair textures are loaded exactly once.
+       *
+       * @param {string} fromViseme - Source base viseme.
+       * @param {string} toViseme - Target base viseme.
+       * @param {object|null} progressState - Optional progress tracker.
+       */
+      async function ensurePairTransitionLoaded(fromViseme, toViseme, progressState) {
+        const pairKey = pairTransitionKey(fromViseme, toViseme);
+        if (state.preloadedTransitionPairs.has(pairKey)) {
+          return;
+        }
+        const transitionEntry = state.transitionEntryByPair.get(pairKey);
+        if (!transitionEntry) {
+          throw new Error(`Missing transition entry for pair ${fromViseme}->${toViseme}.`);
+        }
+
+        let loadingPromise = state.transitionLoadPromiseByPair.get(pairKey);
+        if (!loadingPromise) {
+          loadingPromise = (async () => {
+            await loadVisemeTextures(transitionEntry, LOADING_STAGE.transitionPreload);
+            state.preloadedTransitionPairs.add(pairKey);
+          })();
+          state.transitionLoadPromiseByPair.set(pairKey, loadingPromise);
+        }
+
+        try {
+          await loadingPromise;
+        } finally {
+          state.transitionLoadPromiseByPair.delete(pairKey);
+        }
+
+        if (progressState && typeof progressState === "object") {
+          advanceLoadProgress(progressState, LOADING_STAGE.transitionPreload);
+        }
+      }
+
       function resolvePlaybackVisemeForPair(fromBaseViseme, toBaseViseme, immediate) {
         if (immediate) {
           return {
             playbackViseme: toBaseViseme,
-            playbackMode: "base",
+            playbackMode: PLAYBACK_MODE.base,
           };
         }
         const pairKey = pairTransitionKey(fromBaseViseme, toBaseViseme);
@@ -767,7 +1039,7 @@
         }
         return {
           playbackViseme: pairViseme,
-          playbackMode: "pair",
+          playbackMode: PLAYBACK_MODE.pair,
         };
       }
 
@@ -793,7 +1065,10 @@
           toBaseViseme: targetBaseViseme,
           playbackViseme: playbackTarget.playbackViseme,
           playbackMode: playbackTarget.playbackMode,
-          cycleDurationMs: resolveSequenceStepDurationMs(transitionResult.playbackDurationMs),
+          cycleDurationMs: resolveSequenceStepDurationMs(
+            transitionResult.playbackDurationMs,
+            playbackTarget.playbackMode
+          ),
         };
       }
 
@@ -816,15 +1091,19 @@
           state.transitionManifest = null;
           state.texturesByViseme.clear();
           state.playbackTexturesByViseme.clear();
+          state.visemeFpsByKey.clear();
           state.visemeConfigByKey.clear();
           state.transitionVisemeKeyByPair.clear();
+          state.transitionEntryByPair.clear();
+          state.preloadedTransitionPairs.clear();
+          state.transitionLoadPromiseByPair.clear();
           state.currentBaseViseme = "";
           setStatus(UI_TEXT.loadInProgress);
 
           const manifest = await fetchJsonManifest(manifestPath, "Base manifest");
           state.manifest = manifest;
           state.baseAnimationSpeed = Math.max(1, Number(manifest.fps || 25)) / 60;
-          applyRuntimeDefaultsFromManifest(manifest);
+          applyRuntimeDefaultsFromManifest(manifest, PLAYBACK_MODE.base);
 
           const baseVisemeEntries = Array.isArray(manifest.visemes) ? manifest.visemes : [];
           if (!baseVisemeEntries.length) {
@@ -837,24 +1116,53 @@
           }
           const transitionManifest = await fetchJsonManifest(transitionManifestPath, "Transition manifest");
           state.transitionManifest = transitionManifest;
+          applyRuntimeDefaultsFromManifest(transitionManifest, PLAYBACK_MODE.pair);
           const transitionVisemeEntries = Array.isArray(transitionManifest.visemes)
             ? transitionManifest.visemes
             : [];
           if (!transitionVisemeEntries.length) {
             throw new Error("Transition manifest has no visemes.");
           }
-          const progressState = {
-            completed: 0,
-            total: baseVisemeEntries.length + transitionVisemeEntries.length,
-          };
-          setProgressVisible(true);
-          updateProgressUi("Preparing load...", progressState.completed, progressState.total);
-
-          await cacheVisemeEntries(baseVisemeEntries, "base", false, progressState);
-          await cacheVisemeEntries(transitionVisemeEntries, "transition", true, progressState);
-
           state.visemeOrder = baseVisemeEntries.map((item) => String(item.viseme));
           state.visemeIndex = 0;
+          const sequencePairPlan = buildSequencePairPlan();
+
+          const progressState = {
+            completed: 0,
+            total: baseVisemeEntries.length + 1 + sequencePairPlan.length,
+          };
+          setProgressVisible(true);
+          updateProgressUi(
+            LOADING_STAGE.base,
+            progressState.completed,
+            progressState.total
+          );
+
+          await cacheVisemeEntries(
+            baseVisemeEntries,
+            LOADING_STAGE.base,
+            false,
+            progressState,
+            true,
+            Number(manifest.fps || PLAYBACK_TUNING.tickerFrameRate)
+          );
+          await cacheVisemeEntries(
+            transitionVisemeEntries,
+            LOADING_STAGE.transitionIndex,
+            true,
+            null,
+            false,
+            Number(transitionManifest.fps || manifest.fps || PLAYBACK_TUNING.tickerFrameRate)
+          );
+          advanceLoadProgress(progressState, LOADING_STAGE.transitionIndex);
+          for (const pair of sequencePairPlan) {
+            await ensurePairTransitionLoaded(
+              pair.fromViseme,
+              pair.toViseme,
+              progressState
+            );
+          }
+
           els.visemeSelect.innerHTML = "";
           for (const viseme of state.visemeOrder) {
             const option = document.createElement("option");
@@ -888,6 +1196,8 @@
           state.spriteB.alpha = 0;
           state.spriteB.visible = false;
           state.spriteB.renderable = false;
+          state.spriteA.runtimeVisemeKey = firstViseme;
+          state.spriteB.runtimeVisemeKey = firstViseme;
           setSpeedMultiplier(Number(els.speedValue.value || 1));
           state.spriteA.play();
           state.spriteB.stop();
@@ -917,7 +1227,7 @@
       function transitionTo(
         viseme,
         immediate = false,
-        playbackMode = "base",
+        playbackMode = PLAYBACK_MODE.base,
         fromBaseViseme = "",
         toBaseViseme = ""
       ) {
@@ -934,13 +1244,13 @@
         const toSprite = fromSprite === state.spriteA ? state.spriteB : state.spriteA;
 
         applyTexturesToSprite(toSprite, viseme, textures);
-        toSprite.loop = playbackMode === "base";
-        toSprite.animationSpeed = state.baseAnimationSpeed * state.speedMultiplier;
+        toSprite.loop = playbackMode === PLAYBACK_MODE.base;
+        toSprite.animationSpeed = resolveAnimationSpeedForViseme(viseme);
         toSprite.visible = true;
         toSprite.renderable = true;
         toSprite.play();
 
-        const crossfadeMs = immediate ? 0 : currentCrossfadeMs();
+        const crossfadeMs = resolveEffectiveCrossfadeMs(playbackMode, immediate);
         if (crossfadeMs <= 0) {
           hideSprite(fromSprite);
           toSprite.alpha = 1;
@@ -976,10 +1286,13 @@
         if (state.visemeOrder.includes(selectViseme)) {
           els.visemeSelect.value = selectViseme;
         }
+        const playbackDurationMs = resolvePlaybackDurationMs(textures.length, viseme);
+        const cycleDurationMs = resolveSequenceStepDurationMs(playbackDurationMs, playbackMode);
         setStatus(
-          `status=animating\ncurrentViseme=${selectViseme}\nplaybackViseme=${viseme}\nplaying=${state.playing}\nmode=${playbackMode}\nblendMs=${crossfadeMs}`
+          `status=animating\ncurrentViseme=${selectViseme}\nplaybackViseme=${viseme}\nplaying=${state.playing}\nmode=${playbackMode}\nblendMs=${crossfadeMs}\nclipMs=${Math.round(
+            playbackDurationMs
+          )}\ncycleMs=${Math.round(cycleDurationMs)}`
         );
-        const playbackDurationMs = resolvePlaybackDurationMs(textures.length);
         return { playbackDurationMs, crossfadeMs };
       }
 
@@ -1025,8 +1338,16 @@
         }
       });
 
-      els.triggerBtn.addEventListener("click", () => {
+      els.triggerBtn.addEventListener("click", async () => {
         try {
+          const targetBaseViseme = String(els.visemeSelect.value || "").trim();
+          if (!targetBaseViseme) {
+            return;
+          }
+          const fromBaseViseme = String(state.currentBaseViseme || targetBaseViseme);
+          if (fromBaseViseme !== targetBaseViseme) {
+            await ensurePairTransitionLoaded(fromBaseViseme, targetBaseViseme, null);
+          }
           const transitionResult = transitionToBaseViseme(els.visemeSelect.value, false);
           scheduleNextSequenceStep(transitionResult);
         } catch (error) {

@@ -119,6 +119,36 @@ python .\scripts\build_viseme_pkls.py `
 
 Con 14 visemas se generan 196 transiciones (`A_to_B`), cada una con su `.pkl`.
 
+### Variante: pipeline desde un unico audio combinado
+
+Si quieres generar **un solo clip** con FastLivePortrait y luego cortarlo en visemas/transiciones:
+
+```powershell
+python .\scripts\build_combined_viseme_audio.py --overwrite
+
+python .\scripts\build_viseme_clips_from_combined.py `
+  --combined-audio output_fasterliveportrait/viseme_library/viseme_all_segments.wav `
+  --segment-manifest output_fasterliveportrait/viseme_library/viseme_all_segments_manifest.json `
+  --output-dir output_fasterliveportrait/viseme_library/clips_from_combined_single `
+  --output-manifest output_fasterliveportrait/viseme_library/viseme_clip_from_combined_single_manifest.json `
+  --jobs 4 `
+  --overwrite
+```
+
+Este flujo hace:
+- `audio largo -> 1 pkl`
+- `1 pkl -> 1 clip org/crop`
+- `1 clip org/crop -> 210 clips` (14 base + 196 transiciones)
+
+Si ya tienes `motion_combined.pkl` y `result_org/result_crop` en `work-dir`, puedes reutilizarlos:
+
+```powershell
+python .\scripts\build_viseme_clips_from_combined.py `
+  --skip-pkl-build `
+  --skip-render `
+  --overwrite
+```
+
 Si quieres usar esas transiciones en Pixi (tambien como atlas):
 
 ```powershell
@@ -137,8 +167,16 @@ python .\scripts\extract_viseme_frames.py `
   --sharpen-amount 0.28 `
   --overwrite
 
-python .\scripts\build_viseme_atlas.py `
+python .\scripts\interpolate_transition_frames.py `
   --frames-manifest output_fasterliveportrait/viseme_library/viseme_transition_frames_manifest.json `
+  --output-dir output_fasterliveportrait/viseme_library/frames_transitions_flow `
+  --output-manifest output_fasterliveportrait/viseme_library/viseme_transition_frames_flow_manifest.json `
+  --subframes-per-pair 2 `
+  --jobs 4 `
+  --overwrite
+
+python .\scripts\build_viseme_atlas.py `
+  --frames-manifest output_fasterliveportrait/viseme_library/viseme_transition_frames_flow_manifest.json `
   --motion-manifest output_fasterliveportrait/viseme_library/viseme_transition_motion_manifest.json `
   --output-dir output_fasterliveportrait/viseme_library/atlas_transitions `
   --output-manifest output_fasterliveportrait/viseme_library/pixi_transition_library_manifest.json `
@@ -215,4 +253,10 @@ Abrir:
 
 ```text
 http://127.0.0.1:3010/pixi_preview.html
+```
+
+Demo de frase con visemas + transiciones (usando clips recortados):
+
+```text
+http://127.0.0.1:3010/pixi_viseme_phrase_demo.html
 ```

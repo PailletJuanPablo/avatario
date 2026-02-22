@@ -29,8 +29,23 @@ DEFAULT_CONTAINER_APP_ROOT = "/app"
 DEFAULT_CONTAINER_FASTER_REPO = "/app/third_party/FasterLivePortrait"
 DEFAULT_RUNTIME = "docker"
 DEFAULT_PARALLEL_JOBS = 1
+DEFAULT_VALIDATE_MOUTH_OPEN = True
 RUNTIME_DOCKER = "docker"
 RUNTIME_LOCAL = "local"
+DEFAULT_MOUTH_MIN_MEAN_BY_VISEME = {
+    "AA": 0.0120,
+    "E": 0.0090,
+    "I": 0.0070,
+    "O": 0.0080,
+    "U": 0.0055,
+}
+DEFAULT_MOUTH_MIN_MAX_BY_VISEME = {
+    "AA": 0.0200,
+    "E": 0.0200,
+    "I": 0.0120,
+    "O": 0.0150,
+    "U": 0.0090,
+}
 
 
 @dataclass(frozen=True)
@@ -46,6 +61,7 @@ class ClipBuildResult:
     org_duration_sec: float
     crop_duration_sec: float
     elapsed_seconds: float
+    mouth_metrics: dict[str, float]
 
 
 def parse_args() -> argparse.Namespace:
@@ -74,6 +90,28 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_PARALLEL_JOBS,
         help="Parallel workers for viseme clip rendering.",
+    )
+    parser.add_argument(
+        "--validate-mouth-open",
+        action="store_true",
+        default=DEFAULT_VALIDATE_MOUTH_OPEN,
+        help="Validate mouth openness for base vowel visemes and fail on invalid clips.",
+    )
+    parser.add_argument(
+        "--no-validate-mouth-open",
+        dest="validate_mouth_open",
+        action="store_false",
+        help="Disable mouth openness validation.",
+    )
+    parser.add_argument(
+        "--mouth-min-mean-json",
+        default="",
+        help="JSON object that overrides per-viseme minimum mouth-open mean ratios.",
+    )
+    parser.add_argument(
+        "--mouth-min-max-json",
+        default="",
+        help="JSON object that overrides per-viseme minimum mouth-open peak ratios.",
     )
     return parser.parse_args()
 
@@ -127,6 +165,96 @@ def run_command_capture(command: list[str]) -> str:
         stderr = (result.stderr or "").strip()
         raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(command)} stderr={stderr}")
     return (result.stdout or "").strip()
+
+
+def parse_threshold_override(raw_value: str, default_map: dict[str, float], field_name: str) -> dict[str, float]:
+    """Parse JSON threshold override map."""
+    if not str(raw_value).strip():
+        return dict(default_map)
+    payload = json.loads(str(raw_value))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{field_name} must be a JSON object.")
+    merged = dict(default_map)
+    for key, value in payload.items():
+        merged[str(key).strip()] = float(value)
+    return merged
+
+
+def should_validate_viseme(viseme: str, min_mean_by_viseme: dict[str, float], min_max_by_viseme: dict[str, float]) -> bool:
+    """Return True when viseme requires mouth openness validation."""
+    if "_to_" in viseme:
+        return False
+    return viseme in min_mean_by_viseme or viseme in min_max_by_viseme
+
+
+def compute_mouth_open_metrics(video_path: Path) -> dict[str, float]:
+    """Compute mouth-open ratio metrics using MediaPipe FaceMesh."""
+    try:
+        import cv2
+        import mediapipe as mp
+    except ImportError as exc:
+        raise RuntimeError("Mouth validation requires 'opencv-python' and 'mediapipe' installed on host.") from exc
+    import statistics
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Unable to open video for mouth validation: {video_path}")
+    values: list[float] = []
+    face_mesh = mp.solutions.face_mesh.FaceMesh(
+        static_image_mode=False,
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+    )
+    try:
+        while True:
+            ok, frame_bgr = cap.read()
+            if not ok:
+                break
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            result = face_mesh.process(frame_rgb)
+            if not result.multi_face_landmarks:
+                continue
+            landmarks = result.multi_face_landmarks[0].landmark
+            upper_lip = landmarks[13]
+            lower_lip = landmarks[14]
+            mouth_left = landmarks[78]
+            mouth_right = landmarks[308]
+            open_distance = ((upper_lip.x - lower_lip.x) ** 2 + (upper_lip.y - lower_lip.y) ** 2) ** 0.5
+            mouth_width = ((mouth_left.x - mouth_right.x) ** 2 + (mouth_left.y - mouth_right.y) ** 2) ** 0.5
+            if mouth_width > 1e-6:
+                values.append(open_distance / mouth_width)
+    finally:
+        cap.release()
+        face_mesh.close()
+    if not values:
+        raise RuntimeError(f"No face landmarks detected for mouth validation: {video_path}")
+    return {
+        "count": float(len(values)),
+        "mean": float(statistics.mean(values)),
+        "max": float(max(values)),
+        "min": float(min(values)),
+    }
+
+
+def validate_mouth_metrics(
+    viseme: str,
+    metrics: dict[str, float],
+    min_mean_by_viseme: dict[str, float],
+    min_max_by_viseme: dict[str, float],
+) -> None:
+    """Validate mouth metrics against per-viseme thresholds."""
+    observed_mean = float(metrics.get("mean", 0.0))
+    observed_max = float(metrics.get("max", 0.0))
+    expected_min_mean = float(min_mean_by_viseme.get(viseme, 0.0))
+    expected_min_max = float(min_max_by_viseme.get(viseme, 0.0))
+    if observed_mean < expected_min_mean or observed_max < expected_min_max:
+        raise ValueError(
+            f"mouth validation failed for {viseme}: "
+            f"mean={observed_mean:.6f} minMean={expected_min_mean:.6f} "
+            f"max={observed_max:.6f} minMax={expected_min_max:.6f}"
+        )
 
 
 def is_container_running(container_name: str) -> bool:
@@ -323,6 +451,7 @@ def write_output_manifest(
                 "orgDurationSec": round(result.org_duration_sec, 3),
                 "cropDurationSec": round(result.crop_duration_sec, 3),
                 "elapsedSec": round(result.elapsed_seconds, 3),
+                "mouthMetrics": result.mouth_metrics,
             }
             for result in results
         ],
@@ -339,6 +468,9 @@ def build_single_clip_entry(
     cfg_path: Path,
     output_dir: Path,
     source_cache_dir: Path,
+    validate_mouth_open: bool,
+    mouth_min_mean_by_viseme: dict[str, float],
+    mouth_min_max_by_viseme: dict[str, float],
 ) -> ClipBuildResult:
     """
     Render clips for one viseme entry.
@@ -358,6 +490,10 @@ def build_single_clip_entry(
     if org_clip_path.exists() and crop_clip_path.exists() and not args.overwrite:
         org_duration = get_video_duration_sec(org_clip_path)
         crop_duration = get_video_duration_sec(crop_clip_path)
+        mouth_metrics: dict[str, float] = {}
+        if validate_mouth_open and should_validate_viseme(viseme, mouth_min_mean_by_viseme, mouth_min_max_by_viseme):
+            mouth_metrics = compute_mouth_open_metrics(org_clip_path)
+            validate_mouth_metrics(viseme, mouth_metrics, mouth_min_mean_by_viseme, mouth_min_max_by_viseme)
         print(f"[skip] {viseme} clips already exist: {viseme_dir}")
         return ClipBuildResult(
             viseme=viseme,
@@ -367,6 +503,7 @@ def build_single_clip_entry(
             org_duration_sec=org_duration,
             crop_duration_sec=crop_duration,
             elapsed_seconds=0.0,
+            mouth_metrics=mouth_metrics,
         )
 
     for stale in raw_dir.glob("*"):
@@ -404,6 +541,10 @@ def build_single_clip_entry(
     shutil.copy2(generated_crop, crop_clip_path)
     org_duration = get_video_duration_sec(org_clip_path)
     crop_duration = get_video_duration_sec(crop_clip_path)
+    mouth_metrics: dict[str, float] = {}
+    if validate_mouth_open and should_validate_viseme(viseme, mouth_min_mean_by_viseme, mouth_min_max_by_viseme):
+        mouth_metrics = compute_mouth_open_metrics(org_clip_path)
+        validate_mouth_metrics(viseme, mouth_metrics, mouth_min_mean_by_viseme, mouth_min_max_by_viseme)
     elapsed = time.perf_counter() - started_at
     print(
         f"[ok] {viseme} -> {viseme_dir} "
@@ -417,6 +558,7 @@ def build_single_clip_entry(
         org_duration_sec=org_duration,
         crop_duration_sec=crop_duration,
         elapsed_seconds=elapsed,
+        mouth_metrics=mouth_metrics,
     )
 
 
@@ -431,6 +573,16 @@ def main() -> None:
     output_manifest_path = resolve_path(args.output_manifest)
     source_cache_dir = resolve_path(args.source_cache_dir)
     parallel_jobs = max(1, int(args.jobs))
+    mouth_min_mean_by_viseme = parse_threshold_override(
+        raw_value=str(args.mouth_min_mean_json),
+        default_map=DEFAULT_MOUTH_MIN_MEAN_BY_VISEME,
+        field_name="mouth-min-mean-json",
+    )
+    mouth_min_max_by_viseme = parse_threshold_override(
+        raw_value=str(args.mouth_min_max_json),
+        default_map=DEFAULT_MOUTH_MIN_MAX_BY_VISEME,
+        field_name="mouth-min-max-json",
+    )
 
     if not motion_manifest_path.exists():
         raise FileNotFoundError(f"Motion manifest not found: {motion_manifest_path}")
@@ -463,6 +615,9 @@ def main() -> None:
                     cfg_path=cfg_path,
                     output_dir=output_dir,
                     source_cache_dir=source_cache_dir,
+                    validate_mouth_open=bool(args.validate_mouth_open),
+                    mouth_min_mean_by_viseme=mouth_min_mean_by_viseme,
+                    mouth_min_max_by_viseme=mouth_min_max_by_viseme,
                 )
                 built_results.append(result)
             except Exception as exc:  # noqa: BLE001
@@ -483,6 +638,9 @@ def main() -> None:
                     cfg_path,
                     output_dir,
                     source_cache_dir,
+                    bool(args.validate_mouth_open),
+                    mouth_min_mean_by_viseme,
+                    mouth_min_max_by_viseme,
                 )
                 future_to_viseme[future] = entry["viseme"]
 
