@@ -13,7 +13,17 @@ services:
       ANIMATION_TRT_PRECISION: fp16
       ANIMATION_WARMUP_ENABLED: "1"
       ANIMATION_AUDIO_MOTION_STRIDE: "1"
+    command:
+      - /bin/bash
+      - -lc
+      - >
+        set -o pipefail &&
+        mkdir -p /app/output_fasterliveportrait &&
+        /root/miniconda3/bin/python realtime_stream_api.py --host 0.0.0.0 --port 8010 --backend trt --trt-runtime local --trt-precision fp16
+        2>&1 | tee -a /app/output_fasterliveportrait/docker_api.log;
+        exit $${PIPESTATUS[0]}
     volumes:
+      - ./inputs:/app/inputs
       - ./output:/app/output
       - ./output_fasterliveportrait:/app/output_fasterliveportrait
       - ./third_party/FasterLivePortrait/checkpoints:/app/third_party/FasterLivePortrait/checkpoints

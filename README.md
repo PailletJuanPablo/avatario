@@ -51,6 +51,7 @@ Variables útiles (en `docker-compose.yml`):
 - `ANIMATION_TRT_RUNTIME` = `local|docker`
 - `ANIMATION_TRT_PRECISION` = `fp32|fp16|int8`
 - `ANIMATION_WARMUP_ENABLED` = `0|1`
+- `ANIMATION_FIXED_SOURCE_FRAME` = ruta local de la imagen fija a precargar y reutilizar en warmup + worker persistente
 - `ANIMATION_AUDIO_MOTION_STRIDE` = `1..6`
 
 ## Limpieza de legacy/output

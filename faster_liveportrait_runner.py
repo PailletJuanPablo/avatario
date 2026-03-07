@@ -64,6 +64,7 @@ PERSISTENT_WORKER_HEARTBEAT_STALE_SEC = 8.0
 PERSISTENT_WORKER_STARTUP_TIMEOUT_SEC = 45.0
 PERSISTENT_WORKER_RESPONSE_TIMEOUT_SEC = 1200.0
 PERSISTENT_WORKER_POLL_SLEEP_SEC = 0.08
+ANIMATION_REGION_CHOICES = ("all", "exp", "lip", "eyes", "pose")
 
 
 @dataclass
@@ -96,6 +97,9 @@ class RunnerConfig:
     rebuild_driving_template: bool
     skip_trt_engine_build: bool
     paste_back: bool
+    animation_region: str
+    stitching_enabled: bool
+    relative_motion_enabled: bool
 
 
 def parse_args() -> RunnerConfig:
@@ -180,6 +184,12 @@ def parse_args() -> RunnerConfig:
     parser.add_argument("--rebuild-driving-template", action="store_true")
     parser.add_argument("--skip-trt-engine-build", action="store_true")
     parser.add_argument("--no-paste-back", action="store_true")
+    parser.add_argument("--animation-region", choices=ANIMATION_REGION_CHOICES, default="all")
+    parser.add_argument("--stitching-enabled", dest="stitching_enabled", action="store_true")
+    parser.add_argument("--no-stitching", dest="stitching_enabled", action="store_false")
+    parser.add_argument("--relative-motion-enabled", dest="relative_motion_enabled", action="store_true")
+    parser.add_argument("--no-relative-motion", dest="relative_motion_enabled", action="store_false")
+    parser.set_defaults(stitching_enabled=True, relative_motion_enabled=True)
     args = parser.parse_args()
 
     frame_step = max(1, args.frame_step)
@@ -221,6 +231,9 @@ def parse_args() -> RunnerConfig:
         rebuild_driving_template=args.rebuild_driving_template,
         skip_trt_engine_build=args.skip_trt_engine_build,
         paste_back=not args.no_paste_back,
+        animation_region=str(args.animation_region).strip().lower(),
+        stitching_enabled=bool(args.stitching_enabled),
+        relative_motion_enabled=bool(args.relative_motion_enabled),
     )
 
 
@@ -1234,6 +1247,7 @@ def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
     queue_rel = to_project_relative(queue_root, config.project_root, "Persistent worker queue")
     faster_repo_rel = to_project_relative(config.faster_repo_dir, config.project_root, "FasterLivePortrait repo")
     source_cache_rel = to_project_relative(config.source_cache_dir, config.project_root, "Source cache directory")
+    source_frame_workspace_path = to_container_workspace_path(config.source_frame, config.project_root, "Source frame")
     cfg_rel = cfg_path.relative_to(config.faster_repo_dir).as_posix()
 
     worker_command = (
@@ -1244,9 +1258,15 @@ def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
         f"--cfg {shlex.quote(cfg_rel)} "
         f"--queue_dir {shlex.quote(f'/workspace/{queue_rel}')} "
         f"--source_cache_dir {shlex.quote(f'/workspace/{source_cache_rel}')} "
+        f"--preload_source_image {shlex.quote(source_frame_workspace_path)} "
+        f"--animation_region {shlex.quote(config.animation_region)} "
     )
     if config.paste_back:
         worker_command += "--paste_back "
+    if not config.stitching_enabled:
+        worker_command += "--no_stitching "
+    if not config.relative_motion_enabled:
+        worker_command += "--no_relative_motion "
     worker_command += f"> /workspace/{queue_rel}/worker.log 2>&1 < /dev/null &"
     run_docker_shell(config, "/workspace", worker_command)
 
@@ -1289,9 +1309,17 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
         str(queue_root),
         "--source_cache_dir",
         str(config.source_cache_dir),
+        "--preload_source_image",
+        str(config.source_frame),
+        "--animation_region",
+        str(config.animation_region),
     ]
     if config.paste_back:
         worker_command.append("--paste_back")
+    if not config.stitching_enabled:
+        worker_command.append("--no_stitching")
+    if not config.relative_motion_enabled:
+        worker_command.append("--no_relative_motion")
 
     printable = " ".join(worker_command)
     print(f"\n[cmd] {printable}")
@@ -1379,11 +1407,17 @@ def run_faster_pipeline_local(
         str(cfg_path.relative_to(config.faster_repo_dir)),
         "--source_cache_dir",
         str(config.source_cache_dir),
+        "--animation_region",
+        str(config.animation_region),
     ]
     if config.stream_enabled:
         command.extend(["--stream_dir", str(config.stream_dir)])
     if config.paste_back:
         command.append("--paste_back")
+    if not config.stitching_enabled:
+        command.append("--no_stitching")
+    if not config.relative_motion_enabled:
+        command.append("--no_relative_motion")
 
     run_command(command, cwd=config.faster_repo_dir)
     output_dir = find_run_output_dir(raw_results_root, before_dirs)
@@ -1418,6 +1452,9 @@ def run_faster_pipeline_local_trt_persistent_worker(
         "saveDir": str(run_output_dir),
         "animal": False,
         "pasteBack": bool(config.paste_back),
+        "animationRegion": str(config.animation_region),
+        "stitchingEnabled": bool(config.stitching_enabled),
+        "relativeMotionEnabled": bool(config.relative_motion_enabled),
         "sourceCacheDir": str(config.source_cache_dir),
     }
     result_payload = wait_for_persistent_worker_result(
@@ -1432,6 +1469,8 @@ def run_faster_pipeline_local_trt_persistent_worker(
     result_crop = Path(str(result_payload.get("resultCrop", ""))).resolve()
     resolved_output_dir = Path(str(result_payload.get("saveDir", ""))).resolve()
     assert_path_exists(resolved_output_dir, "Worker output directory")
+    if not result_org.exists():
+        result_org = result_crop
     assert_path_exists(result_org, "Worker result org video")
     assert_path_exists(result_crop, "Worker result crop video")
     return resolved_output_dir, result_org, result_crop
@@ -1463,12 +1502,17 @@ def run_faster_pipeline_docker_trt(
         f"--src_image {shlex.quote(f'/workspace/{src_rel}')} "
         f"--dri_video {shlex.quote(f'/workspace/{driving_rel}')} "
         f"--cfg {shlex.quote(cfg_rel)} "
-        f"--source_cache_dir {shlex.quote(f'/workspace/{source_cache_rel}')}"
+        f"--source_cache_dir {shlex.quote(f'/workspace/{source_cache_rel}')} "
+        f"--animation_region {shlex.quote(config.animation_region)}"
     )
     if config.stream_enabled:
         script += f" --stream_dir {shlex.quote(f'/workspace/{stream_rel}')}"
     if config.paste_back:
         script += " --paste_back"
+    if not config.stitching_enabled:
+        script += " --no_stitching"
+    if not config.relative_motion_enabled:
+        script += " --no_relative_motion"
 
     before_dirs = list_result_dirs(raw_results_root)
     run_docker_shell(config, f"/workspace/{faster_repo_rel}", script)
@@ -1508,6 +1552,9 @@ def run_faster_pipeline_docker_trt_persistent_worker(
         "saveDir": to_container_workspace_path(run_output_dir, config.project_root, "Worker run output directory"),
         "animal": False,
         "pasteBack": bool(config.paste_back),
+        "animationRegion": str(config.animation_region),
+        "stitchingEnabled": bool(config.stitching_enabled),
+        "relativeMotionEnabled": bool(config.relative_motion_enabled),
         "sourceCacheDir": to_container_workspace_path(
             config.source_cache_dir,
             config.project_root,
@@ -1526,6 +1573,8 @@ def run_faster_pipeline_docker_trt_persistent_worker(
     result_crop = from_container_workspace_path(str(result_payload.get("resultCrop", "")), config.project_root)
     resolved_output_dir = from_container_workspace_path(str(result_payload.get("saveDir", "")), config.project_root)
     assert_path_exists(resolved_output_dir, "Worker output directory")
+    if not result_org.exists():
+        result_org = result_crop
     assert_path_exists(result_org, "Worker result org video")
     assert_path_exists(result_crop, "Worker result crop video")
     return resolved_output_dir, result_org, result_crop

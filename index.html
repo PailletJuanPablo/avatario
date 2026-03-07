@@ -117,6 +117,15 @@
       gap: 12px;
     }
 
+    .avatar-panel {
+      grid-column: 1 / -1;
+    }
+
+    .result-panel,
+    .result-control {
+      display: none;
+    }
+
     .panel-title {
       font-size: 13px;
       font-weight: 600;
@@ -124,6 +133,18 @@
       margin-bottom: 8px;
       letter-spacing: 0.2px;
       text-transform: uppercase;
+    }
+
+    .panel-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .panel-toolbar .panel-title {
+      margin-bottom: 0;
     }
 
     .media-box {
@@ -136,6 +157,107 @@
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+
+    .avatar-stage {
+      position: relative;
+      isolation: isolate;
+      border-color: rgba(73, 208, 255, 0.35);
+      background:
+        radial-gradient(circle at top, rgba(73, 208, 255, 0.12), transparent 52%),
+        linear-gradient(180deg, rgba(4, 17, 33, 0.96), rgba(1, 8, 18, 0.98));
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.34);
+      aspect-ratio: 16 / 9;
+    }
+
+    .avatar-stage.single-stream .avatar-layer.idle {
+      display: none;
+    }
+
+    .avatar-stage.single-stream .avatar-layer.talking {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .avatar-layer {
+      position: absolute;
+      inset: 0;
+      transition: opacity 180ms ease;
+    }
+
+    .avatar-layer.idle {
+      opacity: 1;
+      z-index: 1;
+    }
+
+    .avatar-layer.talking {
+      opacity: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .avatar-stage.talking-active .avatar-layer.idle {
+      opacity: 0;
+    }
+
+    .avatar-stage.talking-active .avatar-layer.talking {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .avatar-stage::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(2, 11, 22, 0.08), rgba(2, 11, 22, 0.28));
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .avatar-hud {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 4;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(73, 208, 255, 0.28);
+      background: rgba(3, 15, 29, 0.78);
+      color: var(--text);
+      font-size: 12px;
+      letter-spacing: 0.24px;
+      text-transform: uppercase;
+      backdrop-filter: blur(10px);
+    }
+
+    .avatar-hud-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(73, 208, 255, 0.18);
+      animation: avatarHudPulse 1.6s ease-in-out infinite;
+    }
+
+    .avatar-stage video {
+      object-fit: cover;
+      background: transparent;
+    }
+
+    @keyframes avatarHudPulse {
+      0%,
+      100% {
+        transform: scale(0.92);
+        box-shadow: 0 0 0 0 rgba(73, 208, 255, 0.28);
+      }
+
+      50% {
+        transform: scale(1);
+        box-shadow: 0 0 0 6px rgba(73, 208, 255, 0);
+      }
     }
 
     video,
@@ -174,6 +296,125 @@
       gap: 12px;
     }
 
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .metric-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: rgba(4, 14, 26, 0.42);
+      display: grid;
+      gap: 6px;
+      min-height: 92px;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.2px;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.05;
+      color: var(--text);
+    }
+
+    .metric-value.ok {
+      color: var(--ok);
+    }
+
+    .metric-value.warn {
+      color: var(--warn);
+    }
+
+    .metric-value.danger {
+      color: var(--danger);
+    }
+
+    .metric-help {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .status-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .status-row {
+      display: grid;
+      grid-template-columns: minmax(96px, 132px) 1fr;
+      gap: 12px;
+      align-items: start;
+      border-bottom: 1px solid rgba(31, 59, 96, 0.55);
+      padding-bottom: 8px;
+    }
+
+    .status-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .status-key {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.2px;
+    }
+
+    .status-value {
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .status-value.muted {
+      color: var(--muted);
+    }
+
+    .logs-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .log-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(4, 14, 26, 0.42);
+      overflow: hidden;
+    }
+
+    .log-head {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(31, 59, 96, 0.55);
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.2px;
+      text-transform: uppercase;
+    }
+
+    .log-view {
+      min-height: 180px;
+      max-height: 260px;
+      overflow: auto;
+      padding: 12px;
+    }
+
     @media (min-width: 1024px) {
       .row {
         grid-template-columns: 2fr 1fr;
@@ -185,13 +426,14 @@
   <main class="layout">
     <section class="card header">
       <h1 class="title">FasterLivePortrait TRT Stream Viewer</h1>
-      <p class="subtitle">Select an audio, click <strong>Generate</strong>, and watch the live stream while the video is rendered by the API.</p>
+      <p class="subtitle">Upload one audio, warm the runtime, and validate how fast the avatar reaches the first preview frame and the final rendered result.</p>
       <div class="badges">
         <span class="badge" id="statusBadge">Status: idle</span>
         <span class="badge">Job: <span id="jobBadge">none</span></span>
         <span class="badge">Source: <span id="sourceBadge">output/frames/frame_00061.png</span></span>
         <span class="badge">Driving: <span id="drivingBadge">none</span></span>
         <span class="badge">Stream: <span id="streamBadge">idle</span></span>
+        <span class="badge">Preview Start: 25% buffered</span>
       </div>
     </section>
 
@@ -205,18 +447,32 @@
         <input id="audioFileInput" type="file" accept=".wav,.mp3,.m4a,.aac,.flac,.ogg,audio/*">
       </label>
       <label>
-        Source frame
+        Source image
+        <input id="sourceImageInput" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp">
+      </label>
+      <label>
+        Source path
         <input id="sourceFrameInput" type="text" value="output/frames/frame_00061.png">
       </label>
       <label>
         Motion stride (1=best quality, 2=faster)
         <input id="motionStrideInput" type="number" min="1" max="6" step="1" value="1">
       </label>
+      <label>
+        Inference profile
+        <select id="inferenceProfileSelect">
+          <option value="quality" selected>Quality</option>
+          <option value="fastNoPaste">Fast / No paste-back</option>
+          <option value="expFast">Fast / Expression only</option>
+          <option value="lipFast">Fast / Lips only</option>
+        </select>
+      </label>
       <button class="primary" id="btnGenerate">Generate</button>
+      <button id="btnWarmup">Warmup Runtime</button>
       <button id="btnStopStream">Stop Stream</button>
       <button class="primary" id="btnPlay">Play</button>
       <button id="btnPause">Pause</button>
-      <button id="btnReset">Reset</button>
+      <button id="btnReset">Restart Runtime</button>
       <label>
         Speed
         <input id="speedRange" type="range" min="0.5" max="1.5" step="0.05" value="1.0">
@@ -224,9 +480,9 @@
       <span id="speedValue" class="badge">1.00x</span>
       <label>
         <input id="muteCheck" type="checkbox" checked>
-        Mute result
+        Mute playback
       </label>
-      <label>
+      <label class="result-control">
         View
         <select id="viewMode">
           <option value="result" selected>Result</option>
@@ -237,6 +493,14 @@
 
     <section class="row">
       <div class="card videos">
+        <article class="avatar-panel">
+          <h2 class="panel-title">Avatar Stream (idle + queued clips)</h2>
+          <div class="media-box avatar-stage single-stream" id="avatarStage">
+            
+            <video class="avatar-layer idle" id="idleVideo" loop muted autoplay playsinline preload="auto"></video>
+            <video class="avatar-layer talking" id="streamVideo" controls muted autoplay playsinline preload="auto"></video>
+          </div>
+        </article>
         <article>
           <h2 class="panel-title">Neutral Source</h2>
           <div class="media-box">
@@ -252,13 +516,7 @@
             </div>
           </div>
         </article>
-        <article>
-          <h2 class="panel-title">Live Stream (while rendering)</h2>
-          <div class="media-box">
-            <video id="streamVideo" controls muted autoplay playsinline preload="auto"></video>
-          </div>
-        </article>
-        <article>
+        <article class="result-panel">
           <h2 class="panel-title">Generated Result</h2>
           <div class="media-box">
             <video id="resultVideo" controls loop preload="auto"></video>
@@ -266,9 +524,142 @@
         </article>
       </div>
 
-      <aside class="card">
-        <h2 class="panel-title">Job Status</h2>
-        <pre id="reportText" class="mono">Idle. Select audio and click Generate.</pre>
+      <aside class="stack">
+        <section class="card">
+          <h2 class="panel-title">Benchmark Summary</h2>
+          <div class="metrics-grid">
+            <article class="metric-card">
+              <span class="metric-label">Audio</span>
+              <strong class="metric-value" id="metricAudioDuration">--</strong>
+              <span class="metric-help" id="metricAudioHelp">Select an audio file to benchmark.</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">Upload</span>
+              <strong class="metric-value" id="metricUploadSize">--</strong>
+              <span class="metric-help" id="metricUploadHelp">Stride --</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">API Ack</span>
+              <strong class="metric-value" id="metricApiAck">--</strong>
+              <span class="metric-help" id="metricApiAckHelp">Browser to job creation.</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">Queue Wait</span>
+              <strong class="metric-value" id="metricQueueWait">--</strong>
+              <span class="metric-help" id="metricQueueWaitHelp">Time until worker start.</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">First Preview</span>
+              <strong class="metric-value" id="metricFirstPreview">--</strong>
+              <span class="metric-help" id="metricFirstPreviewHelp">Click to first rendered frame.</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">Ready</span>
+              <strong class="metric-value" id="metricReady">--</strong>
+              <span class="metric-help" id="metricReadyHelp">Click to final result.</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">End-to-End</span>
+              <strong class="metric-value" id="metricEndToEndRatio">--</strong>
+              <span class="metric-help" id="metricEndToEndHelp">Audio seconds per total second.</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label">Inference</span>
+              <strong class="metric-value" id="metricInferenceRatio">--</strong>
+              <span class="metric-help" id="metricInferenceHelp">Audio seconds per inference second.</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2 class="panel-title">Timeline</h2>
+          <div class="status-list">
+            <div class="status-row">
+              <span class="status-key">Submit</span>
+              <span class="status-value muted" id="timelineSubmit">Pending</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">API Ack</span>
+              <span class="status-value muted" id="timelineApiAck">Pending</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Worker Start</span>
+              <span class="status-value muted" id="timelineWorkerStart">Pending</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">First Preview</span>
+              <span class="status-value muted" id="timelineFirstPreview">Pending</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Result Ready</span>
+              <span class="status-value muted" id="timelineResultReady">Pending</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2 class="panel-title">Runtime State</h2>
+          <div class="status-list">
+            <div class="status-row">
+              <span class="status-key">Backend</span>
+              <span class="status-value" id="runtimeBackend">--</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">TRT Runtime</span>
+              <span class="status-value" id="runtimeTrt">--</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Warmup</span>
+              <span class="status-value" id="runtimeWarmup">--</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Runtime</span>
+              <span class="status-value" id="runtimeRestarting">--</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Fixed Source</span>
+              <span class="status-value" id="runtimeFixedSource">--</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Queue Depth</span>
+              <span class="status-value" id="runtimeQueueDepth">--</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Worker</span>
+              <span class="status-value" id="runtimeWorker">--</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Running Job</span>
+              <span class="status-value" id="runtimeRunningJob">--</span>
+            </div>
+            <div class="status-row">
+              <span class="status-key">Queue Head</span>
+              <span class="status-value" id="runtimeQueuedJob">--</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2 class="panel-title">Job Status</h2>
+          <pre id="reportText" class="mono">Idle. Select audio and click Generate.</pre>
+        </section>
+
+        <section class="card">
+          <div class="panel-toolbar">
+            <h2 class="panel-title">Runtime Logs</h2>
+            <button id="btnRefreshLogs">Refresh Logs</button>
+          </div>
+          <div class="logs-grid">
+            <article class="log-card">
+              <div class="log-head">Container Stdout</div>
+              <pre id="containerLogText" class="mono log-view">Waiting for runtime logs.</pre>
+            </article>
+            <article class="log-card">
+              <div class="log-head">Persistent Worker</div>
+              <pre id="workerLogText" class="mono log-view">Waiting for worker logs.</pre>
+            </article>
+          </div>
+        </section>
       </aside>
     </section>
   </main>
@@ -276,11 +667,14 @@
   <script>
     const API_GENERATE_PATH = "/api/generate";
     const API_HEALTH_PATH = "/api/health";
+    const API_RUNTIME_LOGS_PATH = "/api/runtime/logs";
+    const API_RUNTIME_RESTART_PATH = "/api/runtime/restart";
+    const API_WARMUP_PATH = "/api/warmup";
     const DEFAULT_API_BASE_URL = (() => {
       if ((window.location.protocol === "http:" || window.location.protocol === "https:") && window.location.host) {
         return `${window.location.protocol}//${window.location.host}`;
       }
-      return "http://127.0.0.1:8011";
+      return "http://127.0.0.1:8010";
     })();
     const DEFAULT_SOURCE_FRAME = "output/frames/frame_00061.png";
     const DRIVING_MEDIA_DEFAULT_PATH = "";
@@ -289,12 +683,67 @@
     const WS_MESSAGE_STATUS = "status";
     const WS_MESSAGE_TERMINAL = "terminal";
     const WS_MESSAGE_ERROR = "error";
+    const JOB_STATE_CANCELED = "canceled";
     const JOB_STATE_DONE = "done";
     const JOB_STATE_ERROR = "error";
     const JOB_STATE_RUNNING = "running";
     const DEFAULT_MOTION_STRIDE = 1;
-    const LIVE_STREAM_MIME_TYPE = 'video/mp4; codecs="avc1.42E01E"';
-    const STREAM_MAX_QUEUE_CHUNKS = 40;
+    const VIDEO_STREAM_START_MODE = Object.freeze({
+      BUFFERED: "buffered",
+      LIVE: "live"
+    });
+    const VIDEO_STREAM_START_PROGRESS_QUERY_KEY = "startProgress";
+    const VIDEO_STREAM_START_MODE_QUERY_KEY = "startMode";
+    const BUFFERED_STREAM_START_PROGRESS_RATIO = 0.25;
+    const BUFFERED_STREAM_START_PROGRESS_PERCENT = Math.round(BUFFERED_STREAM_START_PROGRESS_RATIO * 100);
+    const INFERENCE_PROFILE = Object.freeze({
+      QUALITY: "quality",
+      FAST_NO_PASTE: "fastNoPaste",
+      EXP_FAST: "expFast",
+      LIP_FAST: "lipFast"
+    });
+    const INFERENCE_PROFILE_CONFIG = Object.freeze({
+      [INFERENCE_PROFILE.QUALITY]: {
+        animationRegion: "all",
+        stitching: true,
+        relativeMotion: true,
+        pasteBack: true,
+        label: "Quality"
+      },
+      [INFERENCE_PROFILE.FAST_NO_PASTE]: {
+        animationRegion: "all",
+        stitching: true,
+        relativeMotion: true,
+        pasteBack: false,
+        label: "Fast / No paste-back"
+      },
+      [INFERENCE_PROFILE.EXP_FAST]: {
+        animationRegion: "exp",
+        stitching: false,
+        relativeMotion: true,
+        pasteBack: false,
+        label: "Fast / Expression only"
+      },
+      [INFERENCE_PROFILE.LIP_FAST]: {
+        animationRegion: "lip",
+        stitching: false,
+        relativeMotion: true,
+        pasteBack: false,
+        label: "Fast / Lips only"
+      }
+    });
+    const RUNTIME_POLL_INTERVAL_MS = 3000;
+    const RUNTIME_LOG_LINES = 180;
+    const AVATAR_STATUS_WS_PATH = "/ws/avatar";
+    const AVATAR_VIDEO_WS_PATH = "/ws/avatar/video";
+    const UNIFIED_AVATAR_STREAM_ENABLED = true;
+    const AVATAR_MODE = Object.freeze({
+      IDLE: "idle",
+      TALKING: "talking"
+    });
+    const LIVE_STREAM_MIME_TYPE = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+    const STREAM_MAX_QUEUE_CHUNKS_LIVE = 40;
+    const STREAM_MAX_QUEUE_CHUNKS_BUFFERED = 240;
     const STREAM_MAX_BUFFERED_SECONDS = 1.8;
     const STREAM_LIVE_EDGE_TARGET_SECONDS = 0.25;
     const STREAM_SEEK_THRESHOLD_SECONDS = 2.0;
@@ -304,11 +753,39 @@
     const STREAM_NORMAL_PLAYBACK_RATE = 1.0;
     const STREAM_RATE_SWITCH_THRESHOLD_SECONDS = 0.9;
     const STREAM_HARD_SEEK_ENABLED = false;
-    const STREAM_FIRST_FRAME_READY_STATE = 2;
     const JOB_PANEL_MIN_INTERVAL_MS = 120;
-    const AUTO_PLAY_DRIVING_ON_FIRST_STREAM_FRAME = true;
-    const STATUS_AUDIO_SYNCED_TEXT = "running (audio synced to first preview frame)";
-    const STATUS_AUDIO_AUTOPLAY_BLOCKED_TEXT = "audio autoplay blocked; press Play";
+    const STATUS_PREVIEW_AUTOPLAY_BLOCKED_TEXT = "preview ready; press Play to hear audio";
+    const STATUS_AUDIO_AUTOPLAY_BLOCKED_TEXT = "audio blocked by browser; press Play";
+    const EMPTY_METRIC_VALUE = "--";
+    const EMPTY_TIMELINE_VALUE = "Pending";
+    const TIMELINE_PREFIX = "+";
+    const BYTE_UNITS = Object.freeze(["B", "KB", "MB", "GB"]);
+    const BENCHMARK_VALUE_TONE = Object.freeze({
+      OK: "ok",
+      WARN: "warn",
+      DANGER: "danger"
+    });
+    const BENCHMARK_THRESHOLD = Object.freeze({
+      REALTIME_RATIO_OK: 1,
+      REALTIME_RATIO_WARN: 0.65
+    });
+    const HEALTH_TEXT = Object.freeze({
+      ENABLED: "enabled",
+      DISABLED: "disabled",
+      RUNNING: "running",
+      IDLE: "idle",
+      READY: "ready",
+      OFFLINE: "offline",
+      RESTARTING: "restarting"
+    });
+    const RUNTIME_LOG_TARGET = Object.freeze({
+      CONTAINER: "container",
+      WORKER: "worker"
+    });
+    const LOG_PLACEHOLDER = Object.freeze({
+      CONTAINER: "Container log is not available yet.",
+      WORKER: "Worker log is not available yet."
+    });
 
     const elements = {
       statusBadge: document.getElementById("statusBadge"),
@@ -316,6 +793,8 @@
       sourceBadge: document.getElementById("sourceBadge"),
       drivingBadge: document.getElementById("drivingBadge"),
       streamBadge: document.getElementById("streamBadge"),
+      avatarStage: document.getElementById("avatarStage"),
+      idleVideo: document.getElementById("idleVideo"),
       sourcePreview: document.getElementById("sourcePreview"),
       streamVideo: document.getElementById("streamVideo"),
       reportText: document.getElementById("reportText"),
@@ -325,9 +804,13 @@
       drivingAudioWrap: document.getElementById("drivingAudioWrap"),
       apiBaseInput: document.getElementById("apiBaseInput"),
       audioFileInput: document.getElementById("audioFileInput"),
+      sourceImageInput: document.getElementById("sourceImageInput"),
       sourceFrameInput: document.getElementById("sourceFrameInput"),
       motionStrideInput: document.getElementById("motionStrideInput"),
+      inferenceProfileSelect: document.getElementById("inferenceProfileSelect"),
       btnGenerate: document.getElementById("btnGenerate"),
+      btnWarmup: document.getElementById("btnWarmup"),
+      btnRefreshLogs: document.getElementById("btnRefreshLogs"),
       btnStopStream: document.getElementById("btnStopStream"),
       btnPlay: document.getElementById("btnPlay"),
       btnPause: document.getElementById("btnPause"),
@@ -335,12 +818,103 @@
       speedRange: document.getElementById("speedRange"),
       speedValue: document.getElementById("speedValue"),
       muteCheck: document.getElementById("muteCheck"),
-      viewMode: document.getElementById("viewMode")
+      viewMode: document.getElementById("viewMode"),
+      metricAudioDuration: document.getElementById("metricAudioDuration"),
+      metricAudioHelp: document.getElementById("metricAudioHelp"),
+      metricUploadSize: document.getElementById("metricUploadSize"),
+      metricUploadHelp: document.getElementById("metricUploadHelp"),
+      metricApiAck: document.getElementById("metricApiAck"),
+      metricApiAckHelp: document.getElementById("metricApiAckHelp"),
+      metricQueueWait: document.getElementById("metricQueueWait"),
+      metricQueueWaitHelp: document.getElementById("metricQueueWaitHelp"),
+      metricFirstPreview: document.getElementById("metricFirstPreview"),
+      metricFirstPreviewHelp: document.getElementById("metricFirstPreviewHelp"),
+      metricReady: document.getElementById("metricReady"),
+      metricReadyHelp: document.getElementById("metricReadyHelp"),
+      metricEndToEndRatio: document.getElementById("metricEndToEndRatio"),
+      metricEndToEndHelp: document.getElementById("metricEndToEndHelp"),
+      metricInferenceRatio: document.getElementById("metricInferenceRatio"),
+      metricInferenceHelp: document.getElementById("metricInferenceHelp"),
+      timelineSubmit: document.getElementById("timelineSubmit"),
+      timelineApiAck: document.getElementById("timelineApiAck"),
+      timelineWorkerStart: document.getElementById("timelineWorkerStart"),
+      timelineFirstPreview: document.getElementById("timelineFirstPreview"),
+      timelineResultReady: document.getElementById("timelineResultReady"),
+      runtimeBackend: document.getElementById("runtimeBackend"),
+      runtimeTrt: document.getElementById("runtimeTrt"),
+      runtimeWarmup: document.getElementById("runtimeWarmup"),
+      runtimeRestarting: document.getElementById("runtimeRestarting"),
+      runtimeFixedSource: document.getElementById("runtimeFixedSource"),
+      runtimeQueueDepth: document.getElementById("runtimeQueueDepth"),
+      runtimeWorker: document.getElementById("runtimeWorker"),
+      runtimeRunningJob: document.getElementById("runtimeRunningJob"),
+      runtimeQueuedJob: document.getElementById("runtimeQueuedJob"),
+      containerLogText: document.getElementById("containerLogText"),
+      workerLogText: document.getElementById("workerLogText")
     };
+
+    function createEmptyBenchmarkState() {
+      return {
+        audioName: "",
+        audioSizeBytes: 0,
+        audioDurationSec: 0,
+        motionStride: DEFAULT_MOTION_STRIDE,
+        inferenceProfileLabel: "",
+        queuePosition: 0,
+        clientSubmitAtMs: 0,
+        apiAcceptedAtMs: 0,
+        serverCreatedAtMs: 0,
+        workerStartedAtMs: 0,
+        firstPreviewFrameAtMs: 0,
+        resultReadyAtMs: 0,
+        report: null
+      };
+    }
+
+    function createEmptyRuntimeState() {
+      return {
+        backend: "",
+        trtRuntime: "",
+        warmupEnabled: false,
+        warmupRunning: false,
+        runtimeRestarting: false,
+        runtimeRestartRequestedAtMs: 0,
+        processStartedAtMs: 0,
+        fixedSourceEnabled: false,
+        fixedSourceFrame: "",
+        fixedSourceError: "",
+        allowCustomSourceFrame: true,
+        runningJobId: "",
+        runningJobState: "",
+        headQueuedJobId: "",
+        jobQueueDepth: 0,
+        jobWorkerAlive: false
+      };
+    }
+
+    function createEmptyAvatarState() {
+      return {
+        mode: AVATAR_MODE.IDLE,
+        sequence: 0,
+        currentJobId: "",
+        currentJobStartedAtMs: 0,
+        currentJobEndsAtMs: 0,
+        currentJobVideoWsUrl: "",
+        currentJobStatusWsUrl: "",
+        avatarVideoWsUrl: "",
+        currentJobDrivingMediaUrl: "",
+        currentJobAudioDurationSec: 0,
+        idleVideoUrl: "",
+        idleVideoAvailable: false,
+        bufferedStartProgress: BUFFERED_STREAM_START_PROGRESS_RATIO,
+        queueDepth: 0
+      };
+    }
 
     let currentJobId = "";
     let currentJobState = "";
     let statusSocket = null;
+    let avatarStatusSocket = null;
     let streamVideoSocket = null;
     let streamMediaSource = null;
     let streamSourceBuffer = null;
@@ -349,8 +923,17 @@
     let streamVideoFrameCallbackId = null;
     let currentDrivingMediaUrl = "";
     let lastJobPanelRenderMs = 0;
-    let audioAutoStartJobId = "";
-    let audioAutoStartPending = false;
+    let sourcePreviewObjectUrl = "";
+    let firstPreviewFrameJobId = "";
+    let firstPreviewFramePending = false;
+    let benchmarkState = createEmptyBenchmarkState();
+    let runtimeState = createEmptyRuntimeState();
+    let avatarState = createEmptyAvatarState();
+    let currentStreamStartMode = VIDEO_STREAM_START_MODE.LIVE;
+    let motionStrideInitializedFromServer = false;
+    let motionStrideTouchedByUser = false;
+    let pendingAvatarStreamConnection = false;
+    let activeAvatarJobId = "";
     const streamAppendQueue = [];
     const activeVideoPaths = {
       result: "",
@@ -358,7 +941,103 @@
     };
 
     function withCacheBust(path) {
-      return `${path}?t=${Date.now()}`;
+      const separator = String(path).includes("?") ? "&" : "?";
+      return `${path}${separator}t=${Date.now()}`;
+    }
+
+    function revokeSourcePreviewObjectUrl() {
+      if (!sourcePreviewObjectUrl) {
+        return;
+      }
+      URL.revokeObjectURL(sourcePreviewObjectUrl);
+      sourcePreviewObjectUrl = "";
+    }
+
+    function getSelectedSourceImageFile() {
+      const files = elements.sourceImageInput.files;
+      return files && files[0] ? files[0] : null;
+    }
+
+    function setSourcePreviewFromPath(path) {
+      revokeSourcePreviewObjectUrl();
+      const normalizedPath = String(path || "").trim() || DEFAULT_SOURCE_FRAME;
+      elements.sourcePreview.src = withCacheBust(normalizedPath);
+    }
+
+    function setSourcePreviewFromUrl(pathOrUrl) {
+      revokeSourcePreviewObjectUrl();
+      const resolvedUrl = resolveMediaUrl(pathOrUrl);
+      if (!resolvedUrl) {
+        setSourcePreviewFromPath(DEFAULT_SOURCE_FRAME);
+        return;
+      }
+      elements.sourcePreview.src = withCacheBust(resolvedUrl);
+    }
+
+    function setSourcePreviewFromFile(file) {
+      revokeSourcePreviewObjectUrl();
+      if (!file) {
+        setSourcePreviewFromPath(elements.sourceFrameInput.value);
+        return;
+      }
+      sourcePreviewObjectUrl = URL.createObjectURL(file);
+      elements.sourcePreview.src = sourcePreviewObjectUrl;
+    }
+
+    function updateSelectedSourcePreview() {
+      const sourceImageFile = getSelectedSourceImageFile();
+      if (sourceImageFile) {
+        elements.sourceBadge.textContent = sourceImageFile.name;
+        setSourcePreviewFromFile(sourceImageFile);
+        return;
+      }
+      const sourceFrame = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim() || DEFAULT_SOURCE_FRAME;
+      elements.sourceBadge.textContent = sourceFrame;
+      setSourcePreviewFromPath(sourceFrame);
+    }
+
+    function buildIdleStreamBadge() {
+      const queueDepth = Number(avatarState.queueDepth || 0);
+      return queueDepth > 0 ? `idle (${queueDepth} queued)` : "idle";
+    }
+
+    function setAvatarDisplayMode(mode) {
+      if (!elements.avatarStage) {
+        return;
+      }
+      if (UNIFIED_AVATAR_STREAM_ENABLED) {
+        elements.avatarStage.classList.add("talking-active");
+        return;
+      }
+      elements.avatarStage.classList.toggle("talking-active", mode === AVATAR_MODE.TALKING);
+    }
+
+    function ensureIdleVideoPlayback() {
+      if (UNIFIED_AVATAR_STREAM_ENABLED) {
+        return;
+      }
+      const idleVideo = elements.idleVideo;
+      if (!idleVideo) {
+        return;
+      }
+      idleVideo.muted = true;
+      idleVideo.loop = true;
+      idleVideo.play().catch(() => {});
+    }
+
+    function syncIdleVideoSource(idleVideoUrl) {
+      if (UNIFIED_AVATAR_STREAM_ENABLED) {
+        return;
+      }
+      const resolvedUrl = resolveMediaUrl(idleVideoUrl);
+      if (!resolvedUrl) {
+        return;
+      }
+      if (elements.idleVideo.getAttribute("src") !== resolvedUrl) {
+        elements.idleVideo.src = resolvedUrl;
+        elements.idleVideo.load();
+      }
+      ensureIdleVideoPlayback();
     }
 
     function normalizeApiBase() {
@@ -369,18 +1048,22 @@
       return raw.replace(/\/+$/, "");
     }
 
+    function buildAbsoluteUrl(pathOrUrl) {
+      if (!pathOrUrl) {
+        return "";
+      }
+      if (/^(https?|wss?):\/\//i.test(pathOrUrl)) {
+        return pathOrUrl;
+      }
+      const baseUrl = new URL(`${normalizeApiBase()}/`);
+      return new URL(pathOrUrl.startsWith("/") ? pathOrUrl.slice(1) : pathOrUrl, baseUrl).toString();
+    }
+
     function buildApiUrl(pathOrUrl) {
       if (!pathOrUrl) {
         return "";
       }
-      if (/^https?:\/\//i.test(pathOrUrl)) {
-        return pathOrUrl;
-      }
-      const base = normalizeApiBase();
-      if (pathOrUrl.startsWith("/")) {
-        return `${base}${pathOrUrl}`;
-      }
-      return `${base}/${pathOrUrl}`;
+      return buildAbsoluteUrl(pathOrUrl);
     }
 
     function resolveMediaUrl(pathOrUrl) {
@@ -390,13 +1073,372 @@
       if (/^https?:\/\//i.test(pathOrUrl)) {
         return pathOrUrl;
       }
-      if (pathOrUrl.startsWith("/jobs/")) {
+      if (pathOrUrl.startsWith("/")) {
         return buildApiUrl(pathOrUrl);
       }
-      if (pathOrUrl.startsWith("/")) {
-        return `${window.location.origin}${pathOrUrl}`;
-      }
       return pathOrUrl;
+    }
+
+    /**
+     * Format a byte count using compact binary units.
+     *
+     * @param {number} byteCount - Raw byte count.
+     * @returns {string} Human-readable byte label.
+     */
+    function formatByteCount(byteCount) {
+      if (!Number.isFinite(byteCount) || byteCount <= 0) {
+        return EMPTY_METRIC_VALUE;
+      }
+      let value = byteCount;
+      let unitIndex = 0;
+      while (value >= 1024 && unitIndex < BYTE_UNITS.length - 1) {
+        value /= 1024;
+        unitIndex += 1;
+      }
+      const fractionDigits = value >= 100 || unitIndex === 0 ? 0 : 1;
+      return `${value.toFixed(fractionDigits)} ${BYTE_UNITS[unitIndex]}`;
+    }
+
+    /**
+     * Format seconds into a compact latency label.
+     *
+     * @param {number} seconds - Duration in seconds.
+     * @returns {string} Human-readable duration.
+     */
+    function formatSeconds(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) {
+        return EMPTY_METRIC_VALUE;
+      }
+      if (seconds < 1) {
+        return `${Math.round(seconds * 1000)} ms`;
+      }
+      return `${seconds.toFixed(seconds >= 10 ? 1 : 2)} s`;
+    }
+
+    /**
+     * Convert timestamps into a relative timeline label.
+     *
+     * @param {number} startAtMs - Initial benchmark timestamp.
+     * @param {number} eventAtMs - Event timestamp to display.
+     * @returns {string} Relative timeline value.
+     */
+    function formatTimelineDelta(startAtMs, eventAtMs) {
+      if (!Number.isFinite(startAtMs) || startAtMs <= 0 || !Number.isFinite(eventAtMs) || eventAtMs <= 0) {
+        return EMPTY_TIMELINE_VALUE;
+      }
+      const deltaSec = Math.max(0, (eventAtMs - startAtMs) / 1000);
+      return `${TIMELINE_PREFIX}${formatSeconds(deltaSec)}`;
+    }
+
+    /**
+     * Format benchmark throughput as audio seconds processed per runtime second.
+     *
+     * @param {number} ratio - Audio-seconds / runtime-second ratio.
+     * @returns {string} Formatted throughput ratio.
+     */
+    function formatRealtimeRatio(ratio) {
+      if (!Number.isFinite(ratio) || ratio <= 0) {
+        return EMPTY_METRIC_VALUE;
+      }
+      return `${ratio.toFixed(2)}x`;
+    }
+
+    /**
+     * Resolve color tone for a throughput metric.
+     *
+     * @param {number} ratio - Audio-seconds / runtime-second ratio.
+     * @returns {string} CSS tone token.
+     */
+    function resolveRatioTone(ratio) {
+      if (!Number.isFinite(ratio) || ratio <= 0) {
+        return "";
+      }
+      if (ratio >= BENCHMARK_THRESHOLD.REALTIME_RATIO_OK) {
+        return BENCHMARK_VALUE_TONE.OK;
+      }
+      if (ratio >= BENCHMARK_THRESHOLD.REALTIME_RATIO_WARN) {
+        return BENCHMARK_VALUE_TONE.WARN;
+      }
+      return BENCHMARK_VALUE_TONE.DANGER;
+    }
+
+    /**
+     * Render one metric card value and optional tone.
+     *
+     * @param {HTMLElement} targetElement - Metric value element.
+     * @param {string} value - Display value.
+     * @param {string} tone - Optional CSS tone token.
+     */
+    function setMetricValue(targetElement, value, tone = "") {
+      if (!targetElement) {
+        return;
+      }
+      targetElement.textContent = value;
+      targetElement.classList.remove(
+        BENCHMARK_VALUE_TONE.OK,
+        BENCHMARK_VALUE_TONE.WARN,
+        BENCHMARK_VALUE_TONE.DANGER
+      );
+      if (tone) {
+        targetElement.classList.add(tone);
+      }
+    }
+
+    function setTextContent(targetElement, value) {
+      if (!targetElement) {
+        return;
+      }
+      targetElement.textContent = value;
+    }
+
+    function getSelectedInferenceProfileId() {
+      const profileId = String(elements.inferenceProfileSelect.value || INFERENCE_PROFILE.QUALITY);
+      return Object.prototype.hasOwnProperty.call(INFERENCE_PROFILE_CONFIG, profileId)
+        ? profileId
+        : INFERENCE_PROFILE.QUALITY;
+    }
+
+    function getSelectedInferenceProfileConfig() {
+      return INFERENCE_PROFILE_CONFIG[getSelectedInferenceProfileId()];
+    }
+
+    function normalizeMotionStrideValue(rawValue) {
+      let motionStride = Number.parseInt(String(rawValue || DEFAULT_MOTION_STRIDE), 10);
+      if (!Number.isFinite(motionStride) || motionStride < 1) {
+        motionStride = DEFAULT_MOTION_STRIDE;
+      }
+      if (motionStride > 6) {
+        motionStride = 6;
+      }
+      return motionStride;
+    }
+
+    /**
+     * Clamp a number to an inclusive range.
+     *
+     * @param {number} value - Raw numeric value.
+     * @param {number} minimum - Inclusive lower bound.
+     * @param {number} maximum - Inclusive upper bound.
+     * @returns {number} Clamped numeric value.
+     */
+    function clampNumber(value, minimum, maximum) {
+      if (value < minimum) {
+        return minimum;
+      }
+      if (value > maximum) {
+        return maximum;
+      }
+      return value;
+    }
+
+    /**
+     * Resolve normalized job progress ratio from payload status fields.
+     *
+     * @param {object|null|undefined} payload - Job payload.
+     * @returns {number} Progress ratio in the inclusive [0, 1] range.
+     */
+    function resolveJobProgressRatio(payload) {
+      const streamStatus = payload && payload.status ? payload.status : null;
+      const explicitProgress = Number(streamStatus && streamStatus.progress);
+      if (Number.isFinite(explicitProgress)) {
+        return clampNumber(explicitProgress, 0, 1);
+      }
+      const frameIndex = Number(streamStatus && streamStatus.frameIndex);
+      const frameTotal = Number(streamStatus && streamStatus.frameTotal);
+      if (Number.isFinite(frameIndex) && Number.isFinite(frameTotal) && frameTotal > 0) {
+        return clampNumber(frameIndex / frameTotal, 0, 1);
+      }
+      return 0;
+    }
+
+    /**
+     * Format the buffered preview wait label while the stream is intentionally delayed.
+     *
+     * @param {number} progressRatio - Current processed ratio.
+     * @param {number} frameIndex - Latest processed frame index.
+     * @param {number} frameTotal - Total frame count when known.
+     * @returns {string} Stream status label.
+     */
+    function buildBufferedStreamBadge(progressRatio, frameIndex, frameTotal) {
+      const preparedPercent = (clampNumber(progressRatio, 0, 1) * 100).toFixed(1);
+      const totalLabel = frameTotal > 0 ? frameTotal : "?";
+      return `buffering preview ${preparedPercent}% / ${BUFFERED_STREAM_START_PROGRESS_PERCENT}% (${frameIndex}/${totalLabel})`;
+    }
+
+    function setTimelineValue(targetElement, value, isMuted = false) {
+      if (!targetElement) {
+        return;
+      }
+      targetElement.textContent = value;
+      targetElement.classList.toggle("muted", Boolean(isMuted));
+    }
+
+    /**
+     * Render runtime health details returned by the API.
+     */
+    function renderRuntimeState() {
+      const fixedSourceText = runtimeState.fixedSourceError
+        ? runtimeState.fixedSourceError
+        : (runtimeState.fixedSourceFrame || (runtimeState.fixedSourceEnabled ? HEALTH_TEXT.ENABLED : HEALTH_TEXT.DISABLED));
+      setTextContent(elements.runtimeBackend, runtimeState.backend || EMPTY_METRIC_VALUE);
+      setTextContent(elements.runtimeTrt, runtimeState.trtRuntime || EMPTY_METRIC_VALUE);
+      setTextContent(
+        elements.runtimeWarmup,
+        runtimeState.warmupEnabled
+          ? (runtimeState.warmupRunning ? HEALTH_TEXT.RUNNING : HEALTH_TEXT.READY)
+          : HEALTH_TEXT.DISABLED
+      );
+      setTextContent(
+        elements.runtimeRestarting,
+        runtimeState.runtimeRestarting ? HEALTH_TEXT.RESTARTING : HEALTH_TEXT.READY
+      );
+      setTextContent(elements.runtimeFixedSource, fixedSourceText || EMPTY_METRIC_VALUE);
+      setTextContent(elements.runtimeQueueDepth, String(runtimeState.jobQueueDepth || 0));
+      setTextContent(elements.runtimeWorker, runtimeState.jobWorkerAlive ? HEALTH_TEXT.READY : HEALTH_TEXT.OFFLINE);
+      setTextContent(
+        elements.runtimeRunningJob,
+        runtimeState.runningJobId
+          ? `${runtimeState.runningJobId} (${runtimeState.runningJobState || JOB_STATE_RUNNING})`
+          : EMPTY_METRIC_VALUE
+      );
+      setTextContent(elements.runtimeQueuedJob, runtimeState.headQueuedJobId || EMPTY_METRIC_VALUE);
+      elements.btnWarmup.disabled = runtimeState.runtimeRestarting;
+      elements.btnRefreshLogs.disabled = runtimeState.runtimeRestarting;
+      updateGenerateAvailability();
+    }
+
+    function isTerminalJobState(state) {
+      return state === JOB_STATE_DONE || state === JOB_STATE_ERROR || state === JOB_STATE_CANCELED;
+    }
+
+    function hasBusyServerState() {
+      return runtimeState.runtimeRestarting;
+    }
+
+    function updateGenerateAvailability() {
+      elements.btnGenerate.disabled = hasBusyServerState();
+      elements.btnReset.disabled = runtimeState.runtimeRestarting;
+    }
+
+    /**
+     * Render benchmark summary cards and timeline for the current run.
+     */
+    function renderBenchmarkState() {
+      const report = benchmarkState.report;
+      const reportTimings = report && report.phaseTimingsSeconds ? report.phaseTimingsSeconds : {};
+      const submitAtMs = benchmarkState.clientSubmitAtMs;
+      const apiAckSec = submitAtMs > 0 && benchmarkState.apiAcceptedAtMs > 0
+        ? Math.max(0, (benchmarkState.apiAcceptedAtMs - submitAtMs) / 1000)
+        : NaN;
+      const queueWaitSec = benchmarkState.serverCreatedAtMs > 0 && benchmarkState.workerStartedAtMs > 0
+        ? Math.max(0, (benchmarkState.workerStartedAtMs - benchmarkState.serverCreatedAtMs) / 1000)
+        : NaN;
+      const firstPreviewSec = submitAtMs > 0 && benchmarkState.firstPreviewFrameAtMs > 0
+        ? Math.max(0, (benchmarkState.firstPreviewFrameAtMs - submitAtMs) / 1000)
+        : NaN;
+      const readySec = submitAtMs > 0 && benchmarkState.resultReadyAtMs > 0
+        ? Math.max(0, (benchmarkState.resultReadyAtMs - submitAtMs) / 1000)
+        : NaN;
+      const endToEndRatio = benchmarkState.audioDurationSec > 0 && Number.isFinite(readySec) && readySec > 0
+        ? benchmarkState.audioDurationSec / readySec
+        : NaN;
+      const inferenceSec = Number(reportTimings.inference || 0);
+      const prepareInputsSec = Number(reportTimings.prepareInputs || 0);
+      const postprocessSec = Number(reportTimings.postprocess || 0);
+      const inferenceRatio = benchmarkState.audioDurationSec > 0 && inferenceSec > 0
+        ? benchmarkState.audioDurationSec / inferenceSec
+        : NaN;
+
+      setMetricValue(elements.metricAudioDuration, formatSeconds(benchmarkState.audioDurationSec > 0 ? benchmarkState.audioDurationSec : NaN));
+      setTextContent(
+        elements.metricAudioHelp,
+        benchmarkState.audioName
+          ? `${benchmarkState.audioName}`
+          : "Select an audio file to benchmark."
+      );
+      setMetricValue(elements.metricUploadSize, formatByteCount(benchmarkState.audioSizeBytes));
+      {
+        const uploadHelpParts = [`Stride ${benchmarkState.motionStride || DEFAULT_MOTION_STRIDE}`];
+        if (benchmarkState.inferenceProfileLabel) {
+          uploadHelpParts.push(benchmarkState.inferenceProfileLabel);
+        }
+        setTextContent(elements.metricUploadHelp, uploadHelpParts.join(" • "));
+      }
+      setMetricValue(elements.metricApiAck, formatSeconds(apiAckSec));
+      setMetricValue(elements.metricQueueWait, formatSeconds(queueWaitSec));
+      setTextContent(
+        elements.metricQueueWaitHelp,
+        benchmarkState.queuePosition > 0
+          ? `Queue position ${benchmarkState.queuePosition}.`
+          : "Time until worker start."
+      );
+      setMetricValue(elements.metricFirstPreview, formatSeconds(firstPreviewSec));
+      setMetricValue(elements.metricReady, formatSeconds(readySec));
+      setTextContent(
+        elements.metricReadyHelp,
+        prepareInputsSec > 0 || inferenceSec > 0 || postprocessSec > 0
+          ? `prepare ${formatSeconds(prepareInputsSec)} / inference ${formatSeconds(inferenceSec)} / post ${formatSeconds(postprocessSec)}`
+          : "Click to final result."
+      );
+      setMetricValue(
+        elements.metricEndToEndRatio,
+        formatRealtimeRatio(endToEndRatio),
+        resolveRatioTone(endToEndRatio)
+      );
+      setMetricValue(
+        elements.metricInferenceRatio,
+        formatRealtimeRatio(inferenceRatio),
+        resolveRatioTone(inferenceRatio)
+      );
+      setTextContent(
+        elements.metricEndToEndHelp,
+        Number.isFinite(readySec) ? "Audio seconds per full request second." : "Waiting for final result."
+      );
+      setTextContent(
+        elements.metricInferenceHelp,
+        Number.isFinite(inferenceSec) && inferenceSec > 0 ? "Audio seconds per inference second." : "Waiting for run report."
+      );
+      setTimelineValue(
+        elements.timelineSubmit,
+        submitAtMs > 0 ? `${TIMELINE_PREFIX}0 ms` : EMPTY_TIMELINE_VALUE,
+        submitAtMs <= 0
+      );
+      setTimelineValue(
+        elements.timelineApiAck,
+        formatTimelineDelta(submitAtMs, benchmarkState.apiAcceptedAtMs),
+        !(submitAtMs > 0 && benchmarkState.apiAcceptedAtMs > 0)
+      );
+      setTimelineValue(
+        elements.timelineWorkerStart,
+        formatTimelineDelta(submitAtMs, benchmarkState.workerStartedAtMs),
+        !(submitAtMs > 0 && benchmarkState.workerStartedAtMs > 0)
+      );
+      setTimelineValue(
+        elements.timelineFirstPreview,
+        formatTimelineDelta(submitAtMs, benchmarkState.firstPreviewFrameAtMs),
+        !(submitAtMs > 0 && benchmarkState.firstPreviewFrameAtMs > 0)
+      );
+      setTimelineValue(
+        elements.timelineResultReady,
+        formatTimelineDelta(submitAtMs, benchmarkState.resultReadyAtMs),
+        !(submitAtMs > 0 && benchmarkState.resultReadyAtMs > 0)
+      );
+    }
+
+    function resetBenchmarkState() {
+      benchmarkState = createEmptyBenchmarkState();
+      renderBenchmarkState();
+    }
+
+    function beginBenchmarkRun(file, audioDurationSec, motionStride, inferenceProfileLabel) {
+      benchmarkState = createEmptyBenchmarkState();
+      benchmarkState.audioName = file && file.name ? file.name : "";
+      benchmarkState.audioSizeBytes = file ? Number(file.size || 0) : 0;
+      benchmarkState.audioDurationSec = Number.isFinite(audioDurationSec) && audioDurationSec > 0 ? audioDurationSec : 0;
+      benchmarkState.motionStride = motionStride;
+      benchmarkState.inferenceProfileLabel = String(inferenceProfileLabel || "");
+      benchmarkState.clientSubmitAtMs = Date.now();
+      renderBenchmarkState();
     }
 
     function isAudioPath(path) {
@@ -427,6 +1469,59 @@
       elements.drivingVideo.classList.remove("hidden");
       elements.drivingVideo.src = nextPath;
       elements.drivingVideo.load();
+    }
+
+    /**
+     * Read local audio file metadata without uploading it.
+     *
+     * @param {File} file - Selected local audio file.
+     * @returns {Promise<{durationSec: number}>} Duration metadata.
+     */
+    function readLocalAudioMetadata(file) {
+      return new Promise((resolve) => {
+        if (!file) {
+          resolve({ durationSec: 0 });
+          return;
+        }
+        const audio = document.createElement("audio");
+        const objectUrl = URL.createObjectURL(file);
+        const cleanup = () => {
+          URL.revokeObjectURL(objectUrl);
+          audio.removeAttribute("src");
+        };
+        audio.preload = "metadata";
+        audio.src = objectUrl;
+        audio.onloadedmetadata = () => {
+          const durationSec = Number(audio.duration);
+          cleanup();
+          resolve({
+            durationSec: Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 0
+          });
+        };
+        audio.onerror = () => {
+          cleanup();
+          resolve({ durationSec: 0 });
+        };
+      });
+    }
+
+    /**
+     * Refresh benchmark input fields based on the selected local audio file.
+     *
+     * @returns {Promise<void>} Completion promise.
+     */
+    async function updateSelectedAudioBenchmark() {
+      const file = elements.audioFileInput.files && elements.audioFileInput.files[0];
+      if (!file) {
+        resetBenchmarkState();
+        return;
+      }
+      const metadata = await readLocalAudioMetadata(file);
+      benchmarkState.audioName = file.name || "";
+      benchmarkState.audioSizeBytes = Number(file.size || 0);
+      benchmarkState.audioDurationSec = metadata.durationSec;
+      benchmarkState.motionStride = Number.parseInt(String(elements.motionStrideInput.value || DEFAULT_MOTION_STRIDE), 10) || DEFAULT_MOTION_STRIDE;
+      renderBenchmarkState();
     }
 
     function getActiveDrivingPlayer() {
@@ -462,31 +1557,59 @@
       } catch (_error) {}
     }
 
-    /**
-     * Start driving media aligned to the selected speed.
-     */
-    function startDrivingPlaybackFromStart() {
+    function attemptDrivingPlayback(showBlockedStatus = false, resetToStart = false) {
       const player = getActiveDrivingPlayer();
       if (!player) {
         return;
       }
-      try {
-        player.currentTime = 0;
-      } catch (_error) {}
-      player.playbackRate = getSelectedPlaybackRate();
-      player.play().then(() => {
-        setStatusBadge(STATUS_AUDIO_SYNCED_TEXT, false);
-      }).catch(() => {
+      if (elements.muteCheck.checked) {
+        player.pause();
+        return;
+      }
+      if (resetToStart) {
+        player.pause();
+        try {
+          player.currentTime = 0;
+        } catch (_error) {}
+      }
+      const playPromise = player.play();
+      if (!playPromise || typeof playPromise.catch !== "function") {
+        return;
+      }
+      playPromise.catch(() => {
+        if (!showBlockedStatus) {
+          return;
+        }
         setStatusBadge(STATUS_AUDIO_AUTOPLAY_BLOCKED_TEXT, false);
       });
     }
 
+    function startAvatarDrivingAudio() {
+      attemptDrivingPlayback(true, true);
+    }
+
+    function attemptStreamPlayback(showBlockedStatus = false) {
+      elements.streamVideo.playbackRate = currentStreamStartMode === VIDEO_STREAM_START_MODE.BUFFERED
+        ? getSelectedPlaybackRate()
+        : elements.streamVideo.playbackRate || STREAM_NORMAL_PLAYBACK_RATE;
+      const playPromise = elements.streamVideo.play();
+      if (!playPromise || typeof playPromise.catch !== "function") {
+        return;
+      }
+      playPromise.catch(() => {
+        if (!showBlockedStatus || elements.streamVideo.muted) {
+          return;
+        }
+        setStatusBadge(STATUS_PREVIEW_AUTOPLAY_BLOCKED_TEXT, false);
+      });
+    }
+
     /**
-     * Clear pending first-frame audio synchronization state.
+     * Clear pending first-preview-frame tracking state.
      */
-    function clearFirstFrameAudioSync() {
-      audioAutoStartPending = false;
-      audioAutoStartJobId = "";
+    function clearFirstPreviewFrameTracking() {
+      firstPreviewFramePending = false;
+      firstPreviewFrameJobId = "";
       if (
         streamVideoFrameCallbackId !== null
         && typeof elements.streamVideo.cancelVideoFrameCallback === "function"
@@ -499,27 +1622,35 @@
     }
 
     /**
-     * Trigger audio playback when first preview frame is rendered.
+     * Mark the first preview frame once the buffered stream starts rendering.
      *
      * @param {string} trackedJobId - Job ID bound to this synchronization window.
      */
-    function armFirstFrameAudioSync(trackedJobId) {
-      clearFirstFrameAudioSync();
-      if (!AUTO_PLAY_DRIVING_ON_FIRST_STREAM_FRAME || !trackedJobId) {
+    function armFirstPreviewFrameTracking(trackedJobId) {
+      clearFirstPreviewFrameTracking();
+      if (!trackedJobId) {
         return;
       }
-      audioAutoStartPending = true;
-      audioAutoStartJobId = trackedJobId;
+      firstPreviewFramePending = true;
+      firstPreviewFrameJobId = trackedJobId;
       const streamVideo = elements.streamVideo;
       const finalizeIfEligible = () => {
-        if (!audioAutoStartPending) {
+        if (!firstPreviewFramePending) {
           return;
         }
-        if (currentJobId !== trackedJobId || audioAutoStartJobId !== trackedJobId) {
+        if (activeAvatarJobId !== trackedJobId || firstPreviewFrameJobId !== trackedJobId) {
           return;
         }
-        clearFirstFrameAudioSync();
-        startDrivingPlaybackFromStart();
+        if (currentJobId === trackedJobId && benchmarkState.firstPreviewFrameAtMs <= 0) {
+          benchmarkState.firstPreviewFrameAtMs = Date.now();
+          renderBenchmarkState();
+        }
+        clearFirstPreviewFrameTracking();
+        setAvatarDisplayMode(AVATAR_MODE.TALKING);
+        if (UNIFIED_AVATAR_STREAM_ENABLED) {
+          startAvatarDrivingAudio();
+        }
+        attemptStreamPlayback(true);
       };
       if (typeof streamVideo.requestVideoFrameCallback === "function") {
         streamVideoFrameCallbackId = streamVideo.requestVideoFrameCallback(() => {
@@ -528,7 +1659,7 @@
         return;
       }
       const onFallbackFrameReady = () => {
-        if (streamVideo.readyState >= STREAM_FIRST_FRAME_READY_STATE) {
+        if (streamVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
           finalizeIfEligible();
         }
       };
@@ -553,7 +1684,12 @@
         state: payload.state,
         running: payload.running,
         exitCode: payload.exitCode,
+        sourceFrame: payload.sourceFrame || "",
         audioMotionStride: payload.audioMotionStride || DEFAULT_MOTION_STRIDE,
+        animationRegion: payload.animationRegion || "",
+        stitchingEnabled: Boolean(payload.stitchingEnabled),
+        relativeMotionEnabled: Boolean(payload.relativeMotionEnabled),
+        pasteBackEnabled: Boolean(payload.pasteBackEnabled),
         progress: streamStatus.progress || 0,
         frameIndex: streamStatus.frameIndex || 0,
         frameTotal: streamStatus.frameTotal || 0,
@@ -578,11 +1714,18 @@
       elements.resultVideo.playbackRate = speed;
       elements.drivingVideo.playbackRate = speed;
       elements.drivingAudio.playbackRate = speed;
+      if (UNIFIED_AVATAR_STREAM_ENABLED || currentStreamStartMode === VIDEO_STREAM_START_MODE.BUFFERED) {
+        elements.streamVideo.playbackRate = speed;
+      }
       elements.speedValue.textContent = `${speed.toFixed(2)}x`;
     }
 
     function applyMute() {
       elements.resultVideo.muted = elements.muteCheck.checked;
+      elements.streamVideo.muted = elements.muteCheck.checked;
+      elements.drivingVideo.muted = elements.muteCheck.checked;
+      elements.drivingAudio.muted = elements.muteCheck.checked;
+      elements.idleVideo.muted = true;
     }
 
     function applyViewMode() {
@@ -603,28 +1746,36 @@
       }
     }
 
-    function buildWebSocketUrl(pathOrUrl) {
+    function buildWebSocketUrl(pathOrUrl, queryParams = null) {
       if (!pathOrUrl) {
         return "";
       }
+      let absoluteUrl;
       if (/^wss?:\/\//i.test(pathOrUrl)) {
-        return pathOrUrl;
+        absoluteUrl = new URL(pathOrUrl);
+      } else if (/^https?:\/\//i.test(pathOrUrl)) {
+        absoluteUrl = new URL(pathOrUrl);
+      } else {
+        absoluteUrl = new URL(buildAbsoluteUrl(pathOrUrl));
       }
-      if (/^https?:\/\//i.test(pathOrUrl)) {
-        const absolute = new URL(pathOrUrl);
-        absolute.protocol = absolute.protocol === "https:" ? WS_PROTOCOL_HTTPS : WS_PROTOCOL_HTTP;
-        return absolute.toString();
+      if (queryParams && typeof queryParams === "object") {
+        Object.entries(queryParams).forEach(([key, value]) => {
+          if (!key || value === undefined || value === null || value === "") {
+            return;
+          }
+          absoluteUrl.searchParams.set(key, String(value));
+        });
       }
-      const apiUrl = new URL(normalizeApiBase());
-      apiUrl.protocol = apiUrl.protocol === "https:" ? WS_PROTOCOL_HTTPS : WS_PROTOCOL_HTTP;
-      apiUrl.pathname = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
-      apiUrl.search = "";
-      apiUrl.hash = "";
-      return apiUrl.toString();
+      if (absoluteUrl.protocol === "https:") {
+        absoluteUrl.protocol = WS_PROTOCOL_HTTPS;
+      } else if (absoluteUrl.protocol === "http:") {
+        absoluteUrl.protocol = WS_PROTOCOL_HTTP;
+      }
+      return absoluteUrl.toString();
     }
 
     function clearStreamVideoElement() {
-      clearFirstFrameAudioSync();
+      clearFirstPreviewFrameTracking();
       elements.streamVideo.pause();
       elements.streamVideo.removeAttribute("src");
       elements.streamVideo.load();
@@ -726,6 +1877,10 @@
     }
 
     function maintainStreamLatency() {
+      if (currentStreamStartMode === VIDEO_STREAM_START_MODE.BUFFERED) {
+        trimOldStreamBuffer();
+        return;
+      }
       trimOldStreamBuffer();
       nudgeStreamToLiveEdge();
       adjustStreamPlaybackRate();
@@ -759,8 +1914,11 @@
         return;
       }
       streamAppendQueue.push(chunk);
-      if (streamAppendQueue.length > STREAM_MAX_QUEUE_CHUNKS) {
-        streamAppendQueue.splice(0, streamAppendQueue.length - STREAM_MAX_QUEUE_CHUNKS);
+      const maxQueueChunks = currentStreamStartMode === VIDEO_STREAM_START_MODE.BUFFERED
+        ? STREAM_MAX_QUEUE_CHUNKS_BUFFERED
+        : STREAM_MAX_QUEUE_CHUNKS_LIVE;
+      if (streamAppendQueue.length > maxQueueChunks) {
+        streamAppendQueue.splice(0, streamAppendQueue.length - maxQueueChunks);
       }
       appendNextStreamChunk();
     }
@@ -795,7 +1953,7 @@
           });
           startStreamLatencyController();
           appendNextStreamChunk();
-          elements.streamVideo.play().catch(() => {});
+          attemptStreamPlayback(false);
         } catch (error) {
           setStatusBadge(`source buffer error (${String(error)})`, false);
           setStreamBadge("error");
@@ -824,18 +1982,48 @@
       }
       const streamStatus = payload.status || {};
       currentJobState = String(payload.state || JOB_STATE_RUNNING);
-      const progressPercent = (Number(streamStatus.progress || 0) * 100).toFixed(1);
+      benchmarkState.queuePosition = Number(payload.queuePosition || 0);
+      if (currentJobState === JOB_STATE_RUNNING) {
+        runtimeState.runningJobId = String(payload.jobId || "");
+        runtimeState.runningJobState = currentJobState;
+      } else if (isTerminalJobState(currentJobState) && runtimeState.runningJobId === String(payload.jobId || "")) {
+        runtimeState.runningJobId = "";
+        runtimeState.runningJobState = "";
+      }
+      if (benchmarkState.queuePosition <= 0 && runtimeState.headQueuedJobId === String(payload.jobId || "")) {
+        runtimeState.headQueuedJobId = "";
+      }
+      if (!benchmarkState.serverCreatedAtMs && Number(payload.createdAtMs || 0) > 0) {
+        benchmarkState.serverCreatedAtMs = Number(payload.createdAtMs);
+      }
+      if (!benchmarkState.workerStartedAtMs && Number(payload.startedAtMs || 0) > 0) {
+        benchmarkState.workerStartedAtMs = Number(payload.startedAtMs);
+      }
+      if (!benchmarkState.resultReadyAtMs && Number(payload.finishedAtMs || 0) > 0) {
+        benchmarkState.resultReadyAtMs = Number(payload.finishedAtMs);
+      }
+      if (payload.report) {
+        benchmarkState.report = payload.report;
+      }
+      if (Number(payload.audioMotionStride || 0) > 0) {
+        benchmarkState.motionStride = Number(payload.audioMotionStride);
+      }
+      const progressPercent = (resolveJobProgressRatio(payload) * 100).toFixed(1);
       const frameIndex = Number(streamStatus.frameIndex || 0);
       const frameTotal = Number(streamStatus.frameTotal || 0);
-      const totalLabel = frameTotal > 0 ? frameTotal : "?";
       const statusText = currentJobState || JOB_STATE_RUNNING;
       const isDone = currentJobState === JOB_STATE_DONE && Number(payload.exitCode || 0) === 0;
       setStatusBadge(statusText, isDone);
-      setStreamBadge(`${statusText} ${progressPercent}% (${frameIndex}/${totalLabel})`);
 
       if (payload.drivingMediaUrl) {
         elements.drivingBadge.textContent = payload.drivingMediaUrl;
         setDrivingMedia(payload.drivingMediaUrl);
+      }
+      if (payload.sourceFrame) {
+        elements.sourceBadge.textContent = String(payload.sourceFrame);
+      }
+      if (payload.sourceFrameUrl) {
+        setSourcePreviewFromUrl(payload.sourceFrameUrl);
       }
       if (payload.resultVideoUrl) {
         activeVideoPaths.result = resolveMediaUrl(payload.resultVideoUrl);
@@ -847,6 +2035,8 @@
       const isTerminal = currentJobState === JOB_STATE_DONE || currentJobState === JOB_STATE_ERROR;
       if (isTerminal || nowMs - lastJobPanelRenderMs >= JOB_PANEL_MIN_INTERVAL_MS) {
         renderJobPanel(payload);
+        renderBenchmarkState();
+        renderRuntimeState();
         lastJobPanelRenderMs = nowMs;
       }
 
@@ -874,7 +2064,6 @@
       }
       if (messageType === WS_MESSAGE_ERROR) {
         setStatusBadge(`status stream error (${String(message.message || "unknown")})`, false);
-        setStreamBadge("error");
       }
     }
 
@@ -883,7 +2072,6 @@
       const wsUrl = buildWebSocketUrl(wsPath);
       if (!wsUrl) {
         setStatusBadge("missing status websocket url", false);
-        setStreamBadge("error");
         return;
       }
 
@@ -894,7 +2082,6 @@
         if (currentJobId !== trackedJobId) {
           return;
         }
-        setStreamBadge("status connected");
       };
       statusSocket.onmessage = handleStatusSocketMessage;
       statusSocket.onerror = () => {
@@ -902,23 +2089,185 @@
           return;
         }
         setStatusBadge("status websocket error", false);
-        setStreamBadge("error");
       };
       statusSocket.onclose = () => {
         if (currentJobId !== trackedJobId) {
           return;
         }
-        const isTerminalState = currentJobState === JOB_STATE_DONE || currentJobState === JOB_STATE_ERROR;
-        if (!isTerminalState) {
-          setStreamBadge("status disconnected");
-        }
         statusSocket = null;
       };
     }
 
-    function connectVideoStream(jobPayload) {
+    function closeAvatarStatusSocket() {
+      if (!avatarStatusSocket) {
+        return;
+      }
+      avatarStatusSocket.onopen = null;
+      avatarStatusSocket.onmessage = null;
+      avatarStatusSocket.onerror = null;
+      avatarStatusSocket.onclose = null;
+      try {
+        avatarStatusSocket.close();
+      } catch (_error) {}
+      avatarStatusSocket = null;
+    }
+
+    function stopAvatarTalkingStream() {
+      activeAvatarJobId = "";
+      pendingAvatarStreamConnection = false;
+      currentStreamStartMode = VIDEO_STREAM_START_MODE.LIVE;
+      closeStreamVideoSocket();
+      resetStreamMediaSourceState();
+      clearStreamVideoElement();
+      getActiveDrivingPlayer().pause();
+      setAvatarDisplayMode(AVATAR_MODE.IDLE);
+      ensureIdleVideoPlayback();
+    }
+
+    function connectUnifiedAvatarStream() {
+      if (!UNIFIED_AVATAR_STREAM_ENABLED) {
+        return;
+      }
+      if (streamVideoSocket && streamVideoSocket.readyState <= WebSocket.OPEN) {
+        return;
+      }
+      activeAvatarJobId = "";
+      pendingAvatarStreamConnection = false;
+      connectVideoStream(
+        {
+          jobId: "avatar",
+          videoWsUrl: avatarState.avatarVideoWsUrl || AVATAR_VIDEO_WS_PATH
+        },
+        VIDEO_STREAM_START_MODE.LIVE
+      );
+      setStreamBadge(buildIdleStreamBadge());
+    }
+
+    function applyAvatarStatusPayload(payload) {
+      if (!payload) {
+        return;
+      }
+      const previousAvatarSequence = Number(avatarState.sequence || 0);
+      const previousAvatarJobId = String(avatarState.currentJobId || "");
+      avatarState = {
+        mode: String(payload.mode || AVATAR_MODE.IDLE),
+        sequence: Number(payload.sequence || 0),
+        currentJobId: String(payload.currentJobId || ""),
+        currentJobStartedAtMs: Number(payload.currentJobStartedAtMs || 0),
+        currentJobEndsAtMs: Number(payload.currentJobEndsAtMs || 0),
+        currentJobVideoWsUrl: String(payload.currentJobVideoWsUrl || ""),
+        currentJobStatusWsUrl: String(payload.currentJobStatusWsUrl || ""),
+        avatarVideoWsUrl: String(payload.avatarVideoWsUrl || avatarState.avatarVideoWsUrl || ""),
+        currentJobDrivingMediaUrl: String(payload.currentJobDrivingMediaUrl || ""),
+        currentJobAudioDurationSec: Number(payload.currentJobAudioDurationSec || 0),
+        idleVideoUrl: String(payload.idleVideoUrl || ""),
+        idleVideoAvailable: Boolean(payload.idleVideoAvailable),
+        bufferedStartProgress: Number(payload.bufferedStartProgress || BUFFERED_STREAM_START_PROGRESS_RATIO),
+        queueDepth: Number(payload.queueDepth || 0)
+      };
+      if (avatarState.currentJobDrivingMediaUrl) {
+        setDrivingMedia(avatarState.currentJobDrivingMediaUrl);
+      }
+        if (UNIFIED_AVATAR_STREAM_ENABLED) {
+          connectUnifiedAvatarStream();
+          if (avatarState.mode === AVATAR_MODE.TALKING && avatarState.currentJobId) {
+            const currentJobChanged = avatarState.currentJobId !== previousAvatarJobId;
+            activeAvatarJobId = avatarState.currentJobId;
+            if (currentJobChanged) {
+              armFirstPreviewFrameTracking(activeAvatarJobId);
+            }
+            setStreamBadge(`talking ${avatarState.currentJobId}`);
+            return;
+          }
+        activeAvatarJobId = "";
+        setStreamBadge(buildIdleStreamBadge());
+        return;
+      }
+      syncIdleVideoSource(avatarState.idleVideoUrl);
+      if (avatarState.mode !== AVATAR_MODE.TALKING || !avatarState.currentJobId || !avatarState.currentJobVideoWsUrl) {
+        if (activeAvatarJobId || streamVideoSocket) {
+          stopAvatarTalkingStream();
+        } else {
+          setAvatarDisplayMode(AVATAR_MODE.IDLE);
+          ensureIdleVideoPlayback();
+        }
+        setStreamBadge(buildIdleStreamBadge());
+        return;
+      }
+
+      const sequenceChanged = Number(avatarState.sequence || 0) !== previousAvatarSequence;
+      const currentJobChanged = avatarState.currentJobId !== previousAvatarJobId;
+      if (sequenceChanged || currentJobChanged || activeAvatarJobId !== avatarState.currentJobId) {
+        startAvatarTalkingStream();
+        return;
+      }
+      setStreamBadge(`talking ${avatarState.currentJobId}`);
+    }
+
+    function handleAvatarStatusSocketMessage(event) {
+      let message;
+      try {
+        message = JSON.parse(event.data);
+      } catch (_error) {
+        return;
+      }
+      const messageType = message && message.type ? String(message.type) : "";
+      if (messageType === WS_MESSAGE_STATUS) {
+        applyAvatarStatusPayload(message.payload);
+        return;
+      }
+      if (messageType === WS_MESSAGE_ERROR) {
+        setStreamBadge(`avatar error (${String(message.message || "unknown")})`);
+      }
+    }
+
+    function connectAvatarStatusSocket() {
+      if (avatarStatusSocket && avatarStatusSocket.readyState <= WebSocket.OPEN) {
+        return;
+      }
+      const wsUrl = buildWebSocketUrl(AVATAR_STATUS_WS_PATH);
+      if (!wsUrl) {
+        setStreamBadge("avatar status unavailable");
+        return;
+      }
+      closeAvatarStatusSocket();
+      avatarStatusSocket = new WebSocket(wsUrl);
+      avatarStatusSocket.onopen = () => {
+        setStreamBadge(buildIdleStreamBadge());
+      };
+      avatarStatusSocket.onmessage = handleAvatarStatusSocketMessage;
+      avatarStatusSocket.onerror = () => {
+        setStreamBadge("avatar status error");
+      };
+      avatarStatusSocket.onclose = () => {
+        avatarStatusSocket = null;
+      };
+    }
+
+    function startAvatarTalkingStream() {
+      if (!avatarState.currentJobId || !avatarState.currentJobVideoWsUrl) {
+        return;
+      }
+      stopAvatarTalkingStream();
+      activeAvatarJobId = avatarState.currentJobId;
+      pendingAvatarStreamConnection = true;
+      connectVideoStream(
+        {
+          jobId: avatarState.currentJobId,
+          videoWsUrl: avatarState.currentJobVideoWsUrl
+        },
+        VIDEO_STREAM_START_MODE.BUFFERED,
+        avatarState.bufferedStartProgress
+      );
+      setStreamBadge(`buffering clip ${avatarState.currentJobId}`);
+    }
+
+    function connectVideoStream(jobPayload, startMode = VIDEO_STREAM_START_MODE.LIVE, startProgress = BUFFERED_STREAM_START_PROGRESS_RATIO) {
       const wsPath = jobPayload.videoWsUrl || `/ws/jobs/${jobPayload.jobId}/video`;
-      const wsUrl = buildWebSocketUrl(wsPath);
+      const wsUrl = buildWebSocketUrl(wsPath, {
+        [VIDEO_STREAM_START_MODE_QUERY_KEY]: startMode,
+        [VIDEO_STREAM_START_PROGRESS_QUERY_KEY]: startProgress
+      });
       if (!wsUrl) {
         setStatusBadge("missing video websocket url", false);
         setStreamBadge("error");
@@ -929,14 +2278,23 @@
       }
 
       closeStreamVideoSocket();
+      const useBufferedStart = startMode === VIDEO_STREAM_START_MODE.BUFFERED;
+      currentStreamStartMode = startMode;
+      updateSpeed();
       streamVideoSocket = new WebSocket(wsUrl);
       streamVideoSocket.binaryType = "arraybuffer";
       streamVideoSocket.onopen = () => {
-        setStreamBadge("video connected");
-        armFirstFrameAudioSync(currentJobId);
-        elements.streamVideo.play().catch(() => {});
+        if (!useBufferedStart || !pendingAvatarStreamConnection) {
+          setStreamBadge("video connected");
+        }
+        armFirstPreviewFrameTracking(activeAvatarJobId);
+        attemptStreamPlayback(false);
       };
       streamVideoSocket.onmessage = (event) => {
+        if (pendingAvatarStreamConnection) {
+          pendingAvatarStreamConnection = false;
+          setStreamBadge(`talking ${activeAvatarJobId || avatarState.currentJobId}`);
+        }
         if (event.data instanceof ArrayBuffer) {
           enqueueStreamChunk(new Uint8Array(event.data));
           return;
@@ -948,39 +2306,34 @@
         }
       };
       streamVideoSocket.onerror = () => {
-        setStatusBadge("video websocket error", false);
-        setStreamBadge("error");
+        setStreamBadge(`video websocket error (${activeAvatarJobId || "avatar"})`);
       };
       streamVideoSocket.onclose = () => {
-        clearFirstFrameAudioSync();
+        clearFirstPreviewFrameTracking();
         if (streamMediaSource && streamMediaSource.readyState === "open") {
           try {
             streamMediaSource.endOfStream();
           } catch (_error) {}
         }
         streamVideoSocket = null;
-        if (currentJobState !== JOB_STATE_DONE && currentJobState !== JOB_STATE_ERROR) {
-          setStreamBadge("video disconnected");
+        if (avatarState.mode === AVATAR_MODE.TALKING) {
+          setStreamBadge(`talking ${avatarState.currentJobId || activeAvatarJobId} disconnected`);
         }
       };
     }
 
     function stopStreamView() {
-      closeStatusSocket();
-      closeStreamVideoSocket();
-      resetStreamMediaSourceState();
-      clearStreamVideoElement();
-      setStreamBadge("stopped");
+      stopAvatarTalkingStream();
+      setStreamBadge(buildIdleStreamBadge());
     }
 
     function startJob(jobPayload) {
-      stopStreamView();
       currentJobId = jobPayload.jobId;
       currentJobState = String(jobPayload.state || JOB_STATE_RUNNING);
       lastJobPanelRenderMs = 0;
       elements.jobBadge.textContent = currentJobId;
       setStatusBadge(currentJobState || JOB_STATE_RUNNING, false);
-      setStreamBadge("connecting");
+      updateGenerateAvailability();
       if (jobPayload.drivingMediaUrl) {
         elements.drivingBadge.textContent = jobPayload.drivingMediaUrl;
         setDrivingMedia(jobPayload.drivingMediaUrl);
@@ -988,7 +2341,6 @@
       resetDrivingPlaybackToStart();
       applyStatusPayload(jobPayload);
       connectStatusSocket(jobPayload);
-      connectVideoStream(jobPayload);
     }
 
     async function createJob() {
@@ -997,27 +2349,33 @@
         setStatusBadge("select an audio file first", false);
         return;
       }
-      const sourceFrame = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim();
-      let motionStride = Number.parseInt(String(elements.motionStrideInput.value || DEFAULT_MOTION_STRIDE), 10);
-      if (!Number.isFinite(motionStride) || motionStride < 1) {
-        motionStride = DEFAULT_MOTION_STRIDE;
-      }
-      if (motionStride > 6) {
-        motionStride = 6;
-      }
+      const sourceFrame = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim() || DEFAULT_SOURCE_FRAME;
+      const sourceImageFile = getSelectedSourceImageFile();
+      const motionStride = normalizeMotionStrideValue(elements.motionStrideInput.value);
+      const inferenceProfileConfig = getSelectedInferenceProfileConfig();
+      const inferenceProfileLabel = String(inferenceProfileConfig.label || "");
+      await checkApiHealth();
+      const audioMetadata = await readLocalAudioMetadata(file);
       elements.motionStrideInput.value = String(motionStride);
-      elements.sourceBadge.textContent = sourceFrame;
-      elements.sourcePreview.src = withCacheBust(sourceFrame);
+      updateSelectedSourcePreview();
+      beginBenchmarkRun(file, audioMetadata.durationSec, motionStride, inferenceProfileLabel);
 
       const formData = new FormData();
       formData.append("audio", file, file.name);
       formData.append("source_frame", sourceFrame);
+      if (sourceImageFile) {
+        formData.append("source_image", sourceImageFile, sourceImageFile.name);
+      }
       formData.append("mode", "preview");
       formData.append("motion_stride", String(motionStride));
+      formData.append("animation_region", inferenceProfileConfig.animationRegion);
+      formData.append("stitching", inferenceProfileConfig.stitching ? "true" : "false");
+      formData.append("relative_motion", inferenceProfileConfig.relativeMotion ? "true" : "false");
+      formData.append("paste_back", inferenceProfileConfig.pasteBack ? "true" : "false");
 
       elements.btnGenerate.disabled = true;
       setStatusBadge("submitting job", false);
-      setStreamBadge("starting");
+      setStreamBadge(buildIdleStreamBadge());
       try {
         const response = await fetch(buildApiUrl(API_GENERATE_PATH), {
           method: "POST",
@@ -1028,59 +2386,345 @@
           throw new Error(`HTTP ${response.status}: ${text}`);
         }
         const payload = await response.json();
+        benchmarkState.apiAcceptedAtMs = Date.now();
+        benchmarkState.serverCreatedAtMs = Number(payload.createdAtMs || 0);
+        benchmarkState.motionStride = Number(payload.audioMotionStride || motionStride);
+        benchmarkState.queuePosition = Number(payload.queuePosition || 0);
+        renderBenchmarkState();
+        setStatusBadge(`queued ${payload.jobId}`, false);
         startJob(payload);
       } catch (error) {
         setStatusBadge(`generate error (${String(error)})`, false);
-        setStreamBadge("error");
+        setStreamBadge(buildIdleStreamBadge());
       } finally {
-        elements.btnGenerate.disabled = false;
+        updateGenerateAvailability();
       }
     }
 
-    async function checkApiHealth() {
+    /**
+     * Build a runtime log endpoint URL for a specific target.
+     *
+     * @param {string} target - Runtime log target token.
+     * @param {number} maxLines - Number of tail lines to fetch.
+     * @returns {string} Absolute runtime log URL.
+     */
+    function buildRuntimeLogUrl(target, maxLines) {
+      const url = new URL(buildApiUrl(API_RUNTIME_LOGS_PATH));
+      url.searchParams.set("target", target);
+      url.searchParams.set("lines", String(maxLines));
+      return url.toString();
+    }
+
+    /**
+     * Render one runtime log response into its panel.
+     *
+     * @param {HTMLElement} targetElement - Log output element.
+     * @param {{available?: boolean, content?: string}|null} payload - Runtime log payload.
+     * @param {string} placeholder - Placeholder text when log content is missing.
+     */
+    function renderRuntimeLog(targetElement, payload, placeholder) {
+      if (!targetElement) {
+        return;
+      }
+      if (!payload || !payload.available) {
+        targetElement.textContent = placeholder;
+        return;
+      }
+      const content = String(payload.content || "").trim();
+      targetElement.textContent = content || placeholder;
+    }
+
+    /**
+     * Poll the backend until the restarted runtime becomes reachable again.
+     *
+     * @param {number} timeoutMs - Maximum wait time.
+     * @returns {Promise<void>} Completion promise once the runtime is back.
+     */
+    async function waitForRuntimeRecovery(timeoutMs = 120000) {
+      const deadlineMs = Date.now() + timeoutMs;
+      while (Date.now() < deadlineMs) {
+        const isHealthy = await checkApiHealth(false);
+        if (isHealthy && !runtimeState.runtimeRestarting) {
+          return;
+        }
+        await refreshRuntimeLogs(false);
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, 1500);
+        });
+      }
+      throw new Error("runtime restart timed out");
+    }
+
+    /**
+     * Refresh container and persistent worker logs from the API.
+     *
+     * @param {boolean} showStatusBadge - Whether errors should update the top status badge.
+     * @returns {Promise<void>} Completion promise.
+     */
+    async function refreshRuntimeLogs(showStatusBadge = true) {
+      try {
+        const [containerResult, workerResult] = await Promise.allSettled([
+          fetch(buildRuntimeLogUrl(RUNTIME_LOG_TARGET.CONTAINER, RUNTIME_LOG_LINES), { cache: "no-store" }),
+          fetch(buildRuntimeLogUrl(RUNTIME_LOG_TARGET.WORKER, RUNTIME_LOG_LINES), { cache: "no-store" })
+        ]);
+
+        if (containerResult.status === "fulfilled" && containerResult.value.ok) {
+          renderRuntimeLog(elements.containerLogText, await containerResult.value.json(), LOG_PLACEHOLDER.CONTAINER);
+        } else {
+          renderRuntimeLog(elements.containerLogText, null, LOG_PLACEHOLDER.CONTAINER);
+        }
+
+        if (workerResult.status === "fulfilled" && workerResult.value.ok) {
+          renderRuntimeLog(elements.workerLogText, await workerResult.value.json(), LOG_PLACEHOLDER.WORKER);
+        } else {
+          renderRuntimeLog(elements.workerLogText, null, LOG_PLACEHOLDER.WORKER);
+        }
+      } catch (error) {
+        renderRuntimeLog(elements.containerLogText, null, LOG_PLACEHOLDER.CONTAINER);
+        renderRuntimeLog(elements.workerLogText, null, LOG_PLACEHOLDER.WORKER);
+        if (showStatusBadge) {
+          setStatusBadge(`log refresh error (${String(error)})`, false);
+        }
+      }
+    }
+
+    /**
+     * Restart the full runtime container so every job, queue item, and worker process is rebuilt from scratch.
+     *
+     * @returns {Promise<void>} Completion promise.
+     */
+    async function restartRuntime() {
+      const confirmed = window.confirm("Restart the runtime container, drop the active queue, and run warmup again?");
+      if (!confirmed) {
+        return;
+      }
+
+      stopStreamView();
+      closeStatusSocket();
+      closeAvatarStatusSocket();
+      currentJobId = "";
+      currentJobState = "";
+      elements.jobBadge.textContent = "none";
+      elements.reportText.textContent = "Runtime restart requested. Waiting for container restart and warmup.";
+      runtimeState.runtimeRestarting = true;
+      updateGenerateAvailability();
+      setStatusBadge("requesting runtime restart", false);
+      setStreamBadge("runtime restart");
+
+      try {
+        const response = await fetch(buildApiUrl(API_RUNTIME_RESTART_PATH), {
+          method: "POST"
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`HTTP ${response.status}: ${text}`);
+        }
+        const payload = await response.json();
+        runtimeState.runtimeRestarting = true;
+        runtimeState.runtimeRestartRequestedAtMs = Number(payload.requestedAtMs || Date.now());
+        renderRuntimeState();
+        renderRuntimeLog(elements.containerLogText, null, "Waiting for container restart...");
+        renderRuntimeLog(elements.workerLogText, null, "Waiting for worker restart...");
+        await waitForRuntimeRecovery();
+        connectAvatarStatusSocket();
+        connectUnifiedAvatarStream();
+        await updateSelectedAudioBenchmark();
+        await refreshRuntimeLogs(false);
+        elements.reportText.textContent = runtimeState.warmupEnabled && runtimeState.warmupRunning
+          ? "Runtime restarted. Warmup is running again."
+          : "Runtime restarted and ready.";
+        setStatusBadge(
+          runtimeState.warmupEnabled && runtimeState.warmupRunning
+            ? "runtime restarted; warmup running"
+            : "runtime restarted",
+          true
+        );
+      } catch (error) {
+        runtimeState.runtimeRestarting = false;
+        setStatusBadge(`runtime restart error (${String(error)})`, false);
+      } finally {
+        renderRuntimeState();
+        updateGenerateAvailability();
+      }
+    }
+
+    async function triggerWarmup() {
+      elements.btnWarmup.disabled = true;
+      try {
+        const response = await fetch(buildApiUrl(API_WARMUP_PATH), {
+          method: "POST"
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`HTTP ${response.status}: ${text}`);
+        }
+        const payload = await response.json();
+        setStatusBadge(`warmup ${String(payload.status || HEALTH_TEXT.RUNNING)}`, payload.status === "started");
+        await checkApiHealth();
+      } catch (error) {
+        setStatusBadge(`warmup error (${String(error)})`, false);
+      } finally {
+        elements.btnWarmup.disabled = false;
+      }
+    }
+
+    async function checkApiHealth(showStatusBadge = true) {
       try {
         const response = await fetch(buildApiUrl(API_HEALTH_PATH), { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
         const data = await response.json();
-        setStatusBadge(`api ${data.status}`, data.status === "ok");
-        const serverStride = Number.parseInt(String(data.defaultAudioMotionStride || DEFAULT_MOTION_STRIDE), 10);
-        if (Number.isFinite(serverStride) && serverStride >= 1 && serverStride <= 6) {
-          elements.motionStrideInput.value = String(serverStride);
+        runtimeState = {
+          backend: String(data.backend || ""),
+          trtRuntime: String(data.trtRuntime || ""),
+          warmupEnabled: Boolean(data.warmupEnabled),
+          warmupRunning: Boolean(data.warmupRunning),
+          runtimeRestarting: Boolean(data.runtimeRestarting),
+          runtimeRestartRequestedAtMs: Number(data.runtimeRestartRequestedAtMs || 0),
+          processStartedAtMs: Number(data.processStartedAtMs || 0),
+          fixedSourceEnabled: Boolean(data.fixedSourceEnabled),
+          fixedSourceFrame: String(data.fixedSourceFrame || ""),
+          fixedSourceError: String(data.fixedSourceError || ""),
+          allowCustomSourceFrame: Boolean(data.allowCustomSourceFrame),
+          runningJobId: String(data.runningJobId || ""),
+          runningJobState: String(data.runningJobState || ""),
+          headQueuedJobId: String(data.headQueuedJobId || ""),
+          jobQueueDepth: Number(data.jobQueueDepth || 0),
+          jobWorkerAlive: Boolean(data.jobWorkerAlive)
+        };
+        avatarState.mode = String(data.avatarMode || avatarState.mode || AVATAR_MODE.IDLE);
+        avatarState.sequence = Number(data.avatarSequence || avatarState.sequence || 0);
+        avatarState.currentJobId = String(data.avatarCurrentJobId || avatarState.currentJobId || "");
+        avatarState.currentJobStartedAtMs = Number(data.avatarCurrentJobStartedAtMs || avatarState.currentJobStartedAtMs || 0);
+        avatarState.currentJobEndsAtMs = Number(data.avatarCurrentJobEndsAtMs || avatarState.currentJobEndsAtMs || 0);
+        avatarState.avatarVideoWsUrl = String(data.avatarVideoWsUrl || avatarState.avatarVideoWsUrl || AVATAR_VIDEO_WS_PATH);
+        avatarState.idleVideoUrl = String(data.avatarIdleVideoUrl || avatarState.idleVideoUrl || "");
+        avatarState.bufferedStartProgress = Number(data.avatarBufferedStartProgress || avatarState.bufferedStartProgress || BUFFERED_STREAM_START_PROGRESS_RATIO);
+        avatarState.queueDepth = Number(data.jobQueueDepth || avatarState.queueDepth || 0);
+        if (showStatusBadge) {
+          setStatusBadge(`api ${data.status}`, data.status === "ok");
         }
+        const serverStride = Number.parseInt(String(data.defaultAudioMotionStride || DEFAULT_MOTION_STRIDE), 10);
+        if (
+          !motionStrideTouchedByUser
+          && !motionStrideInitializedFromServer
+          && Number.isFinite(serverStride)
+          && serverStride >= 1
+          && serverStride <= 6
+        ) {
+          elements.motionStrideInput.value = String(serverStride);
+          motionStrideInitializedFromServer = true;
+        }
+        if (!runtimeState.allowCustomSourceFrame && runtimeState.fixedSourceFrame) {
+          elements.sourceImageInput.value = "";
+          elements.sourceFrameInput.value = runtimeState.fixedSourceFrame;
+          elements.sourceImageInput.disabled = true;
+          elements.sourceFrameInput.disabled = true;
+          elements.sourceBadge.textContent = runtimeState.fixedSourceFrame;
+          setSourcePreviewFromPath(runtimeState.fixedSourceFrame);
+        } else {
+          elements.sourceImageInput.disabled = false;
+          elements.sourceFrameInput.disabled = false;
+        }
+        if (UNIFIED_AVATAR_STREAM_ENABLED) {
+          connectUnifiedAvatarStream();
+          if (avatarState.mode === AVATAR_MODE.IDLE && !activeAvatarJobId) {
+            setStreamBadge(buildIdleStreamBadge());
+          }
+        } else {
+          syncIdleVideoSource(avatarState.idleVideoUrl);
+          if (avatarState.mode === AVATAR_MODE.IDLE && !activeAvatarJobId) {
+            setAvatarDisplayMode(AVATAR_MODE.IDLE);
+            ensureIdleVideoPlayback();
+            setStreamBadge(buildIdleStreamBadge());
+          }
+        }
+        renderRuntimeState();
+        renderBenchmarkState();
+        return true;
       } catch (error) {
-        setStatusBadge(`api unavailable (${String(error)})`, false);
+        const restartPending = runtimeState.runtimeRestarting;
+        runtimeState = createEmptyRuntimeState();
+        runtimeState.runtimeRestarting = restartPending;
+        avatarState = createEmptyAvatarState();
+        elements.sourceImageInput.disabled = false;
+        elements.sourceFrameInput.disabled = false;
+        if (showStatusBadge) {
+          setStatusBadge(`api unavailable (${String(error)})`, false);
+        }
+        renderRuntimeState();
+        return false;
       }
     }
 
     elements.btnPlay.addEventListener("click", () => {
+      if (UNIFIED_AVATAR_STREAM_ENABLED) {
+        connectUnifiedAvatarStream();
+        attemptStreamPlayback(true);
+        if (avatarState.mode === AVATAR_MODE.TALKING || avatarState.currentJobDrivingMediaUrl) {
+          attemptDrivingPlayback(true, false);
+        }
+        return;
+      }
+      ensureIdleVideoPlayback();
+      if (avatarState.mode === AVATAR_MODE.TALKING || streamObjectUrl) {
+        attemptStreamPlayback(true);
+        return;
+      }
       elements.resultVideo.play().catch(() => {});
-      getActiveDrivingPlayer().play().catch(() => {});
     });
 
     elements.btnPause.addEventListener("click", () => {
+      if (!UNIFIED_AVATAR_STREAM_ENABLED) {
+        elements.idleVideo.pause();
+      }
+      elements.streamVideo.pause();
       elements.resultVideo.pause();
       getActiveDrivingPlayer().pause();
     });
 
-    elements.btnReset.addEventListener("click", () => {
-      elements.resultVideo.currentTime = 0;
-      getActiveDrivingPlayer().currentTime = 0;
-    });
-
     elements.btnGenerate.addEventListener("click", createJob);
+    elements.btnRefreshLogs.addEventListener("click", () => {
+      refreshRuntimeLogs().catch(() => {});
+    });
+    elements.btnReset.addEventListener("click", () => {
+      restartRuntime().catch(() => {});
+    });
+    elements.btnWarmup.addEventListener("click", triggerWarmup);
     elements.btnStopStream.addEventListener("click", stopStreamView);
 
     elements.speedRange.addEventListener("input", updateSpeed);
-    elements.muteCheck.addEventListener("change", applyMute);
-    elements.viewMode.addEventListener("change", applyViewMode);
-    elements.sourceFrameInput.addEventListener("change", () => {
-      const value = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim();
-      elements.sourceBadge.textContent = value;
-      elements.sourcePreview.src = withCacheBust(value);
+    elements.muteCheck.addEventListener("change", () => {
+      applyMute();
+      if (UNIFIED_AVATAR_STREAM_ENABLED && !elements.muteCheck.checked && (avatarState.mode === AVATAR_MODE.TALKING || avatarState.currentJobDrivingMediaUrl)) {
+        attemptDrivingPlayback(true, false);
+      }
     });
-    elements.apiBaseInput.addEventListener("change", checkApiHealth);
+    elements.viewMode.addEventListener("change", applyViewMode);
+    elements.audioFileInput.addEventListener("change", () => {
+      updateSelectedAudioBenchmark().catch(() => {});
+    });
+    elements.sourceImageInput.addEventListener("change", updateSelectedSourcePreview);
+    elements.sourceFrameInput.addEventListener("change", () => {
+      updateSelectedSourcePreview();
+    });
+    function handleMotionStrideInputChange() {
+      motionStrideTouchedByUser = true;
+      elements.motionStrideInput.value = String(normalizeMotionStrideValue(elements.motionStrideInput.value));
+      benchmarkState.motionStride = Number.parseInt(String(elements.motionStrideInput.value || DEFAULT_MOTION_STRIDE), 10) || DEFAULT_MOTION_STRIDE;
+      renderBenchmarkState();
+    }
+
+    elements.motionStrideInput.addEventListener("input", handleMotionStrideInputChange);
+    elements.motionStrideInput.addEventListener("change", handleMotionStrideInputChange);
+    elements.apiBaseInput.addEventListener("change", () => {
+      stopStreamView();
+      checkApiHealth().catch(() => {});
+      connectAvatarStatusSocket();
+      connectUnifiedAvatarStream();
+      refreshRuntimeLogs(false).catch(() => {});
+    });
 
     if (activeVideoPaths.result) {
       elements.resultVideo.src = activeVideoPaths.result;
@@ -1088,13 +2732,25 @@
     elements.apiBaseInput.value = DEFAULT_API_BASE_URL;
     elements.sourceFrameInput.value = DEFAULT_SOURCE_FRAME;
     elements.motionStrideInput.value = String(DEFAULT_MOTION_STRIDE);
-    elements.sourceBadge.textContent = DEFAULT_SOURCE_FRAME;
-    elements.sourcePreview.src = withCacheBust(DEFAULT_SOURCE_FRAME);
+    updateSelectedSourcePreview();
     setDrivingMedia("");
+    setAvatarDisplayMode(AVATAR_MODE.IDLE);
     clearStreamVideoElement();
     updateSpeed();
     applyMute();
+    updateGenerateAvailability();
+    renderRuntimeState();
+    renderBenchmarkState();
     checkApiHealth();
+    connectAvatarStatusSocket();
+    connectUnifiedAvatarStream();
+    refreshRuntimeLogs().catch(() => {});
+    window.setInterval(() => {
+      checkApiHealth(false).catch(() => {});
+      connectAvatarStatusSocket();
+      connectUnifiedAvatarStream();
+      refreshRuntimeLogs(false).catch(() => {});
+    }, RUNTIME_POLL_INTERVAL_MS);
   </script>
 </body>
 </html>

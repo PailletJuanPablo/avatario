@@ -100,6 +100,37 @@
         gap: 8px;
       }
 
+      .tuning-section {
+        border: 1px solid #2b436d;
+        border-radius: 10px;
+        background: #0c1628;
+        padding: 8px;
+      }
+
+      .tuning-section summary {
+        cursor: pointer;
+        color: #dbe7ff;
+        font-size: 12px;
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+
+      .tuning-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .tuning-grid-3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+      }
+
+      .small-textarea {
+        min-height: 62px;
+      }
+
       .range-value {
         font-size: 11px;
         color: var(--muted);
@@ -242,6 +273,152 @@
             <input id="loop-count" type="number" min="1" max="9" step="1" value="1" />
           </div>
         </div>
+
+        <details class="field tuning-section" open>
+          <summary>Tuning Avanzado (realismo)</summary>
+
+          <div class="field tuning-grid">
+            <div>
+              <label for="continuity-enabled">Continuity Planner</label>
+              <select id="continuity-enabled">
+                <option value="1" selected>Enabled</option>
+                <option value="0">Disabled (random)</option>
+              </select>
+            </div>
+            <div>
+              <label for="mouth-bias-enabled">Mouth Bias</label>
+              <select id="mouth-bias-enabled">
+                <option value="1" selected>Enabled</option>
+                <option value="0">Disabled</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field tuning-grid-3">
+            <div>
+              <label for="beam-width">Beam Width</label>
+              <input id="beam-width" type="number" min="1" max="128" step="1" value="28" />
+            </div>
+            <div>
+              <label for="max-candidates">Max Candidates</label>
+              <input id="max-candidates" type="number" min="12" max="600" step="1" value="180" />
+            </div>
+            <div>
+              <label for="fallback-random-prob">Fallback Random Prob</label>
+              <input id="fallback-random-prob" type="number" min="0" max="1" step="0.01" value="0.00" />
+            </div>
+          </div>
+
+          <div class="field tuning-grid-3">
+            <div>
+              <label for="position-weight">Position Weight</label>
+              <input id="position-weight" type="number" min="0" max="6" step="0.01" value="1.00" />
+            </div>
+            <div>
+              <label for="velocity-weight">Velocity Weight</label>
+              <input id="velocity-weight" type="number" min="0" max="8" step="0.01" value="1.70" />
+            </div>
+            <div>
+              <label for="edge-weight">Edge Velocity Weight</label>
+              <input id="edge-weight" type="number" min="0" max="4" step="0.01" value="0.42" />
+            </div>
+          </div>
+
+          <div class="field tuning-grid-3">
+            <div>
+              <label for="dataset-switch-penalty">Dataset Switch Penalty</label>
+              <input id="dataset-switch-penalty" type="number" min="0" max="6" step="0.01" value="0.45" />
+            </div>
+            <div>
+              <label for="same-segment-penalty">Same Entry Gap Penalty</label>
+              <input id="same-segment-penalty" type="number" min="0" max="1" step="0.001" value="0.012" />
+            </div>
+            <div>
+              <label for="reuse-penalty">Immediate Reuse Penalty</label>
+              <input id="reuse-penalty" type="number" min="0" max="4" step="0.01" value="0.25" />
+            </div>
+          </div>
+
+          <div class="field tuning-grid-3">
+            <div>
+              <label for="initial-velocity-weight">Initial Velocity Weight</label>
+              <input id="initial-velocity-weight" type="number" min="0" max="4" step="0.01" value="0.20" />
+            </div>
+            <div>
+              <label for="global-hold-ms">Global Hold (ms)</label>
+              <input id="global-hold-ms" type="number" min="0" max="1200" step="5" value="0" />
+            </div>
+            <div>
+              <label for="mouth-threshold">Mouth Threshold (0..1)</label>
+              <input id="mouth-threshold" type="number" min="0" max="1" step="0.01" value="0.00" />
+            </div>
+          </div>
+
+          <div class="field tuning-grid-3">
+            <div>
+              <label for="mouth-candidate-weight">Mouth Candidate Weight</label>
+              <input id="mouth-candidate-weight" type="number" min="0" max="2" step="0.01" value="0.24" />
+            </div>
+            <div>
+              <label for="mouth-transition-weight">Mouth Transition Weight</label>
+              <input id="mouth-transition-weight" type="number" min="0" max="2" step="0.01" value="0.28" />
+            </div>
+            <div>
+              <label for="mouth-fallback-score">Mouth Fallback Score</label>
+              <input id="mouth-fallback-score" type="number" min="0" max="1" step="0.01" value="0.50" />
+            </div>
+          </div>
+
+          <div class="field tuning-grid-3">
+            <div>
+              <label for="mouth-axis-x">Mouth Axis X</label>
+              <input id="mouth-axis-x" type="number" min="0" max="3" step="0.01" value="0.20" />
+            </div>
+            <div>
+              <label for="mouth-axis-y">Mouth Axis Y</label>
+              <input id="mouth-axis-y" type="number" min="0" max="3" step="0.01" value="1.00" />
+            </div>
+            <div>
+              <label for="mouth-axis-z">Mouth Axis Z</label>
+              <input id="mouth-axis-z" type="number" min="0" max="3" step="0.01" value="0.85" />
+            </div>
+          </div>
+
+          <div class="field tuning-grid-3">
+            <div>
+              <label for="priority-a">Priority A</label>
+              <input id="priority-a" type="number" min="0" max="2" step="0.01" value="1.00" />
+            </div>
+            <div>
+              <label for="priority-e">Priority E</label>
+              <input id="priority-e" type="number" min="0" max="2" step="0.01" value="0.95" />
+            </div>
+            <div>
+              <label for="priority-i">Priority I</label>
+              <input id="priority-i" type="number" min="0" max="2" step="0.01" value="0.85" />
+            </div>
+          </div>
+
+          <div class="field tuning-grid-3">
+            <div>
+              <label for="priority-o">Priority O</label>
+              <input id="priority-o" type="number" min="0" max="2" step="0.01" value="0.95" />
+            </div>
+            <div>
+              <label for="priority-u">Priority U</label>
+              <input id="priority-u" type="number" min="0" max="2" step="0.01" value="0.90" />
+            </div>
+            <div>
+              <label for="priority-default">Priority Default</label>
+              <input id="priority-default" type="number" min="0" max="2" step="0.01" value="0.00" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="hold-overrides">Hold Overrides por visema en ms (ej: A=80, E=40, REST=120, A_to_E=25)</label>
+            <textarea id="hold-overrides" class="small-textarea" placeholder="A=60, O=45, REST=120"></textarea>
+          </div>
+        </details>
 
         <div class="field">
           <label for="render-mode">Render Mode</label>
@@ -425,6 +602,110 @@
         fallback: 1.0,
       });
 
+      const MOUTH_ARTICULATION_SELECTION = Object.freeze({
+        enabledByDefault: true,
+        expressionIndices: Object.freeze([14, 17, 19, 20]),
+        axisWeights: Object.freeze({
+          x: 0.2,
+          y: 1.0,
+          z: 0.85,
+        }),
+        targetVisemePriority: Object.freeze({
+          A: 1.0,
+          E: 0.95,
+          I: 0.85,
+          O: 0.95,
+          U: 0.9,
+        }),
+        defaultTargetPriority: 0.0,
+        scoreRangeEpsilon: 1e-6,
+        fallbackNormalizedScore: 0.5,
+        candidateRewardWeight: 0.24,
+        transitionRewardWeight: 0.28,
+      });
+
+      const MOUTH_ARTICULATION_EXPRESSION_INDEX_SET = new Set(
+        MOUTH_ARTICULATION_SELECTION.expressionIndices
+      );
+
+      const RUNTIME_TUNING_LIMITS = Object.freeze({
+        beamWidth: Object.freeze({ min: 1, max: 128, fallback: CONTINUITY_SELECTION.beamWidth }),
+        maxCandidatesPerStep: Object.freeze({
+          min: 12,
+          max: 600,
+          fallback: CONTINUITY_SELECTION.maxCandidatesPerStep,
+        }),
+        fallbackRandomProbability: Object.freeze({
+          min: 0,
+          max: 1,
+          fallback: CONTINUITY_SELECTION.fallbackRandomProbability,
+        }),
+        initialVelocityPenaltyWeight: Object.freeze({
+          min: 0,
+          max: 4,
+          fallback: CONTINUITY_SELECTION.initialVelocityPenaltyWeight,
+        }),
+        positionDistanceWeight: Object.freeze({
+          min: 0,
+          max: 6,
+          fallback: CONTINUITY_SELECTION.positionDistanceWeight,
+        }),
+        velocityDistanceWeight: Object.freeze({
+          min: 0,
+          max: 8,
+          fallback: CONTINUITY_SELECTION.velocityDistanceWeight,
+        }),
+        edgeVelocityPenaltyWeight: Object.freeze({
+          min: 0,
+          max: 4,
+          fallback: CONTINUITY_SELECTION.edgeVelocityPenaltyWeight,
+        }),
+        datasetSwitchPenalty: Object.freeze({
+          min: 0,
+          max: 6,
+          fallback: CONTINUITY_SELECTION.datasetSwitchPenalty,
+        }),
+        sameEntrySegmentGapPenalty: Object.freeze({
+          min: 0,
+          max: 1,
+          fallback: CONTINUITY_SELECTION.sameEntrySegmentGapPenalty,
+        }),
+        immediateClipReusePenalty: Object.freeze({
+          min: 0,
+          max: 4,
+          fallback: CONTINUITY_SELECTION.immediateClipReusePenalty,
+        }),
+        missingDistancePenalty: Object.freeze({
+          min: 1,
+          max: 5000,
+          fallback: CONTINUITY_SELECTION.missingDistancePenalty,
+        }),
+        mouthThreshold: Object.freeze({ min: 0, max: 1, fallback: 0 }),
+        mouthCandidateWeight: Object.freeze({
+          min: 0,
+          max: 2,
+          fallback: MOUTH_ARTICULATION_SELECTION.candidateRewardWeight,
+        }),
+        mouthTransitionWeight: Object.freeze({
+          min: 0,
+          max: 2,
+          fallback: MOUTH_ARTICULATION_SELECTION.transitionRewardWeight,
+        }),
+        mouthFallbackScore: Object.freeze({
+          min: 0,
+          max: 1,
+          fallback: MOUTH_ARTICULATION_SELECTION.fallbackNormalizedScore,
+        }),
+        mouthAxisWeight: Object.freeze({ min: 0, max: 3, fallback: 1 }),
+        mouthTargetPriority: Object.freeze({ min: 0, max: 2, fallback: 0 }),
+        globalHoldMs: Object.freeze({ min: 0, max: 1200, fallback: 0 }),
+        holdMs: Object.freeze({ min: 0, max: 2000, fallback: 0 }),
+      });
+
+      const HOLD_OVERRIDE_SPLIT_REGEX = /[\n,;]+/g;
+      const HOLD_OVERRIDE_ASSIGN_REGEX = /^\s*([A-Za-z0-9_]+)\s*[:=]\s*(-?\d+(?:\.\d+)?)\s*$/;
+      const HOLD_OVERRIDE_TRANSITION_SEPARATOR = "_TO_";
+
       const RENDER_MODES = Object.freeze({
         pixi: "pixi",
         three: "three",
@@ -603,6 +884,8 @@
         renderMode: DEFAULT_RENDER_MODE,
         visualConfig: Object.assign({}, VISUAL_PRESETS.neutral),
         continuityStats: null,
+        mouthArticulationModel: null,
+        runtimeTuning: null,
         threeRuntime: null,
         pixiResizeHandler: null,
       };
@@ -614,6 +897,33 @@
         baseSequence: document.getElementById("base-sequence"),
         playbackRate: document.getElementById("playback-rate"),
         loopCount: document.getElementById("loop-count"),
+        continuityEnabled: document.getElementById("continuity-enabled"),
+        mouthBiasEnabled: document.getElementById("mouth-bias-enabled"),
+        beamWidth: document.getElementById("beam-width"),
+        maxCandidates: document.getElementById("max-candidates"),
+        fallbackRandomProb: document.getElementById("fallback-random-prob"),
+        positionWeight: document.getElementById("position-weight"),
+        velocityWeight: document.getElementById("velocity-weight"),
+        edgeWeight: document.getElementById("edge-weight"),
+        datasetSwitchPenalty: document.getElementById("dataset-switch-penalty"),
+        sameSegmentPenalty: document.getElementById("same-segment-penalty"),
+        reusePenalty: document.getElementById("reuse-penalty"),
+        initialVelocityWeight: document.getElementById("initial-velocity-weight"),
+        globalHoldMs: document.getElementById("global-hold-ms"),
+        holdOverrides: document.getElementById("hold-overrides"),
+        mouthThreshold: document.getElementById("mouth-threshold"),
+        mouthCandidateWeight: document.getElementById("mouth-candidate-weight"),
+        mouthTransitionWeight: document.getElementById("mouth-transition-weight"),
+        mouthFallbackScore: document.getElementById("mouth-fallback-score"),
+        mouthAxisX: document.getElementById("mouth-axis-x"),
+        mouthAxisY: document.getElementById("mouth-axis-y"),
+        mouthAxisZ: document.getElementById("mouth-axis-z"),
+        priorityA: document.getElementById("priority-a"),
+        priorityE: document.getElementById("priority-e"),
+        priorityI: document.getElementById("priority-i"),
+        priorityO: document.getElementById("priority-o"),
+        priorityU: document.getElementById("priority-u"),
+        priorityDefault: document.getElementById("priority-default"),
         loadBtn: document.getElementById("load-btn"),
         applyBtn: document.getElementById("apply-btn"),
         playBtn: document.getElementById("play-btn"),
@@ -663,6 +973,36 @@
         zoomValue: elements.zoomValueValue,
       });
 
+      const tuningInputElements = Object.freeze([
+        elements.continuityEnabled,
+        elements.mouthBiasEnabled,
+        elements.beamWidth,
+        elements.maxCandidates,
+        elements.fallbackRandomProb,
+        elements.positionWeight,
+        elements.velocityWeight,
+        elements.edgeWeight,
+        elements.datasetSwitchPenalty,
+        elements.sameSegmentPenalty,
+        elements.reusePenalty,
+        elements.initialVelocityWeight,
+        elements.globalHoldMs,
+        elements.holdOverrides,
+        elements.mouthThreshold,
+        elements.mouthCandidateWeight,
+        elements.mouthTransitionWeight,
+        elements.mouthFallbackScore,
+        elements.mouthAxisX,
+        elements.mouthAxisY,
+        elements.mouthAxisZ,
+        elements.priorityA,
+        elements.priorityE,
+        elements.priorityI,
+        elements.priorityO,
+        elements.priorityU,
+        elements.priorityDefault,
+      ]);
+
       function setStatus(text) {
         elements.status.textContent = String(text || "");
       }
@@ -703,6 +1043,512 @@
         const numericValue = Number(rawValue);
         const safeValue = Number.isFinite(numericValue) ? numericValue : Number(fallbackValue);
         return Math.min(Number(maxValue), Math.max(Number(minValue), safeValue));
+      }
+
+      function clampInteger(rawValue, minValue, maxValue, fallbackValue) {
+        const clampedValue = clampNumber(rawValue, minValue, maxValue, fallbackValue);
+        return Math.floor(clampedValue);
+      }
+
+      function normalizeToggleValue(rawValue, fallbackValue) {
+        const normalizedValue = String(rawValue ?? "").trim();
+        if (normalizedValue === "0") {
+          return false;
+        }
+        if (normalizedValue === "1") {
+          return true;
+        }
+        return Boolean(fallbackValue);
+      }
+
+      function normalizeHoldOverrideKey(rawKey) {
+        const cleaned = String(rawKey || "").trim();
+        if (!cleaned) {
+          return "";
+        }
+        const normalized = cleaned.toUpperCase().replace(/\s+/g, "");
+        const transitionParts = normalized.split(HOLD_OVERRIDE_TRANSITION_SEPARATOR);
+        if (transitionParts.length === 2) {
+          const fromToken = toBaseVisemeToken(transitionParts[0]);
+          const toToken = toBaseVisemeToken(transitionParts[1]);
+          if (!fromToken || !toToken) {
+            return "";
+          }
+          return `${fromToken}_to_${toToken}`;
+        }
+        return toBaseVisemeToken(normalized);
+      }
+
+      function parseHoldOverrideMap(rawValue) {
+        const holdByClipKeyMs = new Map();
+        const tokens = String(rawValue || "").split(HOLD_OVERRIDE_SPLIT_REGEX);
+        for (const token of tokens) {
+          const match = HOLD_OVERRIDE_ASSIGN_REGEX.exec(String(token || ""));
+          if (!match) {
+            continue;
+          }
+          const clipKey = normalizeHoldOverrideKey(match[1]);
+          if (!clipKey) {
+            continue;
+          }
+          const holdMs = clampNumber(
+            Number(match[2]),
+            RUNTIME_TUNING_LIMITS.holdMs.min,
+            RUNTIME_TUNING_LIMITS.holdMs.max,
+            RUNTIME_TUNING_LIMITS.holdMs.fallback
+          );
+          holdByClipKeyMs.set(clipKey, holdMs);
+        }
+        return holdByClipKeyMs;
+      }
+
+      function createDefaultRuntimeTuning() {
+        return {
+          continuityEnabled: Boolean(CONTINUITY_SELECTION.enabledByDefault),
+          beamWidth: Number(CONTINUITY_SELECTION.beamWidth),
+          maxCandidatesPerStep: Number(CONTINUITY_SELECTION.maxCandidatesPerStep),
+          fallbackRandomProbability: Number(CONTINUITY_SELECTION.fallbackRandomProbability),
+          initialVelocityPenaltyWeight: Number(CONTINUITY_SELECTION.initialVelocityPenaltyWeight),
+          positionDistanceWeight: Number(CONTINUITY_SELECTION.positionDistanceWeight),
+          velocityDistanceWeight: Number(CONTINUITY_SELECTION.velocityDistanceWeight),
+          edgeVelocityPenaltyWeight: Number(CONTINUITY_SELECTION.edgeVelocityPenaltyWeight),
+          datasetSwitchPenalty: Number(CONTINUITY_SELECTION.datasetSwitchPenalty),
+          sameEntrySegmentGapPenalty: Number(CONTINUITY_SELECTION.sameEntrySegmentGapPenalty),
+          immediateClipReusePenalty: Number(CONTINUITY_SELECTION.immediateClipReusePenalty),
+          missingDistancePenalty: Number(CONTINUITY_SELECTION.missingDistancePenalty),
+          mouthBiasEnabled: Boolean(MOUTH_ARTICULATION_SELECTION.enabledByDefault),
+          mouthThreshold: Number(RUNTIME_TUNING_LIMITS.mouthThreshold.fallback),
+          mouthCandidateWeight: Number(MOUTH_ARTICULATION_SELECTION.candidateRewardWeight),
+          mouthTransitionWeight: Number(MOUTH_ARTICULATION_SELECTION.transitionRewardWeight),
+          mouthFallbackScore: Number(MOUTH_ARTICULATION_SELECTION.fallbackNormalizedScore),
+          mouthAxisWeights: {
+            x: Number(MOUTH_ARTICULATION_SELECTION.axisWeights.x),
+            y: Number(MOUTH_ARTICULATION_SELECTION.axisWeights.y),
+            z: Number(MOUTH_ARTICULATION_SELECTION.axisWeights.z),
+          },
+          mouthTargetPriority: {
+            A: Number(MOUTH_ARTICULATION_SELECTION.targetVisemePriority.A),
+            E: Number(MOUTH_ARTICULATION_SELECTION.targetVisemePriority.E),
+            I: Number(MOUTH_ARTICULATION_SELECTION.targetVisemePriority.I),
+            O: Number(MOUTH_ARTICULATION_SELECTION.targetVisemePriority.O),
+            U: Number(MOUTH_ARTICULATION_SELECTION.targetVisemePriority.U),
+            default: Number(MOUTH_ARTICULATION_SELECTION.defaultTargetPriority),
+          },
+          globalHoldMs: Number(RUNTIME_TUNING_LIMITS.globalHoldMs.fallback),
+          holdOverridesRaw: "",
+          holdByClipKeyMs: new Map(),
+        };
+      }
+
+      function getRuntimeContinuitySelection() {
+        const runtimeTuning = state.runtimeTuning || createDefaultRuntimeTuning();
+        return {
+          enabledByDefault: Boolean(runtimeTuning.continuityEnabled),
+          plannerMode: CONTINUITY_SELECTION.plannerMode,
+          beamWidth: clampInteger(
+            runtimeTuning.beamWidth,
+            RUNTIME_TUNING_LIMITS.beamWidth.min,
+            RUNTIME_TUNING_LIMITS.beamWidth.max,
+            RUNTIME_TUNING_LIMITS.beamWidth.fallback
+          ),
+          maxCandidatesPerStep: clampInteger(
+            runtimeTuning.maxCandidatesPerStep,
+            RUNTIME_TUNING_LIMITS.maxCandidatesPerStep.min,
+            RUNTIME_TUNING_LIMITS.maxCandidatesPerStep.max,
+            RUNTIME_TUNING_LIMITS.maxCandidatesPerStep.fallback
+          ),
+          fallbackRandomProbability: clampNumber(
+            runtimeTuning.fallbackRandomProbability,
+            RUNTIME_TUNING_LIMITS.fallbackRandomProbability.min,
+            RUNTIME_TUNING_LIMITS.fallbackRandomProbability.max,
+            RUNTIME_TUNING_LIMITS.fallbackRandomProbability.fallback
+          ),
+          initialVelocityPenaltyWeight: clampNumber(
+            runtimeTuning.initialVelocityPenaltyWeight,
+            RUNTIME_TUNING_LIMITS.initialVelocityPenaltyWeight.min,
+            RUNTIME_TUNING_LIMITS.initialVelocityPenaltyWeight.max,
+            RUNTIME_TUNING_LIMITS.initialVelocityPenaltyWeight.fallback
+          ),
+          positionDistanceWeight: clampNumber(
+            runtimeTuning.positionDistanceWeight,
+            RUNTIME_TUNING_LIMITS.positionDistanceWeight.min,
+            RUNTIME_TUNING_LIMITS.positionDistanceWeight.max,
+            RUNTIME_TUNING_LIMITS.positionDistanceWeight.fallback
+          ),
+          velocityDistanceWeight: clampNumber(
+            runtimeTuning.velocityDistanceWeight,
+            RUNTIME_TUNING_LIMITS.velocityDistanceWeight.min,
+            RUNTIME_TUNING_LIMITS.velocityDistanceWeight.max,
+            RUNTIME_TUNING_LIMITS.velocityDistanceWeight.fallback
+          ),
+          edgeVelocityPenaltyWeight: clampNumber(
+            runtimeTuning.edgeVelocityPenaltyWeight,
+            RUNTIME_TUNING_LIMITS.edgeVelocityPenaltyWeight.min,
+            RUNTIME_TUNING_LIMITS.edgeVelocityPenaltyWeight.max,
+            RUNTIME_TUNING_LIMITS.edgeVelocityPenaltyWeight.fallback
+          ),
+          datasetSwitchPenalty: clampNumber(
+            runtimeTuning.datasetSwitchPenalty,
+            RUNTIME_TUNING_LIMITS.datasetSwitchPenalty.min,
+            RUNTIME_TUNING_LIMITS.datasetSwitchPenalty.max,
+            RUNTIME_TUNING_LIMITS.datasetSwitchPenalty.fallback
+          ),
+          sameEntrySegmentGapPenalty: clampNumber(
+            runtimeTuning.sameEntrySegmentGapPenalty,
+            RUNTIME_TUNING_LIMITS.sameEntrySegmentGapPenalty.min,
+            RUNTIME_TUNING_LIMITS.sameEntrySegmentGapPenalty.max,
+            RUNTIME_TUNING_LIMITS.sameEntrySegmentGapPenalty.fallback
+          ),
+          immediateClipReusePenalty: clampNumber(
+            runtimeTuning.immediateClipReusePenalty,
+            RUNTIME_TUNING_LIMITS.immediateClipReusePenalty.min,
+            RUNTIME_TUNING_LIMITS.immediateClipReusePenalty.max,
+            RUNTIME_TUNING_LIMITS.immediateClipReusePenalty.fallback
+          ),
+          minimumStdEpsilon: CONTINUITY_SELECTION.minimumStdEpsilon,
+          missingDistancePenalty: clampNumber(
+            runtimeTuning.missingDistancePenalty,
+            RUNTIME_TUNING_LIMITS.missingDistancePenalty.min,
+            RUNTIME_TUNING_LIMITS.missingDistancePenalty.max,
+            RUNTIME_TUNING_LIMITS.missingDistancePenalty.fallback
+          ),
+        };
+      }
+
+      function getRuntimeMouthSelection() {
+        const runtimeTuning = state.runtimeTuning || createDefaultRuntimeTuning();
+        return {
+          enabledByDefault: Boolean(runtimeTuning.mouthBiasEnabled),
+          expressionIndices: Array.from(MOUTH_ARTICULATION_SELECTION.expressionIndices),
+          axisWeights: {
+            x: clampNumber(
+              runtimeTuning.mouthAxisWeights?.x,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.min,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.max,
+              MOUTH_ARTICULATION_SELECTION.axisWeights.x
+            ),
+            y: clampNumber(
+              runtimeTuning.mouthAxisWeights?.y,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.min,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.max,
+              MOUTH_ARTICULATION_SELECTION.axisWeights.y
+            ),
+            z: clampNumber(
+              runtimeTuning.mouthAxisWeights?.z,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.min,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.max,
+              MOUTH_ARTICULATION_SELECTION.axisWeights.z
+            ),
+          },
+          targetVisemePriority: {
+            A: clampNumber(
+              runtimeTuning.mouthTargetPriority?.A,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.targetVisemePriority.A
+            ),
+            E: clampNumber(
+              runtimeTuning.mouthTargetPriority?.E,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.targetVisemePriority.E
+            ),
+            I: clampNumber(
+              runtimeTuning.mouthTargetPriority?.I,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.targetVisemePriority.I
+            ),
+            O: clampNumber(
+              runtimeTuning.mouthTargetPriority?.O,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.targetVisemePriority.O
+            ),
+            U: clampNumber(
+              runtimeTuning.mouthTargetPriority?.U,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.targetVisemePriority.U
+            ),
+          },
+          defaultTargetPriority: clampNumber(
+            runtimeTuning.mouthTargetPriority?.default,
+            RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+            RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+            MOUTH_ARTICULATION_SELECTION.defaultTargetPriority
+          ),
+          scoreRangeEpsilon: MOUTH_ARTICULATION_SELECTION.scoreRangeEpsilon,
+          fallbackNormalizedScore: clampNumber(
+            runtimeTuning.mouthFallbackScore,
+            RUNTIME_TUNING_LIMITS.mouthFallbackScore.min,
+            RUNTIME_TUNING_LIMITS.mouthFallbackScore.max,
+            RUNTIME_TUNING_LIMITS.mouthFallbackScore.fallback
+          ),
+          candidateRewardWeight: clampNumber(
+            runtimeTuning.mouthCandidateWeight,
+            RUNTIME_TUNING_LIMITS.mouthCandidateWeight.min,
+            RUNTIME_TUNING_LIMITS.mouthCandidateWeight.max,
+            RUNTIME_TUNING_LIMITS.mouthCandidateWeight.fallback
+          ),
+          transitionRewardWeight: clampNumber(
+            runtimeTuning.mouthTransitionWeight,
+            RUNTIME_TUNING_LIMITS.mouthTransitionWeight.min,
+            RUNTIME_TUNING_LIMITS.mouthTransitionWeight.max,
+            RUNTIME_TUNING_LIMITS.mouthTransitionWeight.fallback
+          ),
+          threshold: clampNumber(
+            runtimeTuning.mouthThreshold,
+            RUNTIME_TUNING_LIMITS.mouthThreshold.min,
+            RUNTIME_TUNING_LIMITS.mouthThreshold.max,
+            RUNTIME_TUNING_LIMITS.mouthThreshold.fallback
+          ),
+        };
+      }
+
+      function resolveStepExtraHoldMs(clipKey) {
+        const runtimeTuning = state.runtimeTuning || createDefaultRuntimeTuning();
+        const globalHoldMs = clampNumber(
+          runtimeTuning.globalHoldMs,
+          RUNTIME_TUNING_LIMITS.globalHoldMs.min,
+          RUNTIME_TUNING_LIMITS.globalHoldMs.max,
+          RUNTIME_TUNING_LIMITS.globalHoldMs.fallback
+        );
+        const holdMap = runtimeTuning.holdByClipKeyMs instanceof Map ? runtimeTuning.holdByClipKeyMs : null;
+        if (!holdMap || !holdMap.size) {
+          return globalHoldMs;
+        }
+        const normalizedKey = normalizeHoldOverrideKey(clipKey);
+        if (normalizedKey && holdMap.has(normalizedKey)) {
+          return holdMap.get(normalizedKey);
+        }
+        const targetViseme = resolveTargetVisemeFromClipKey(clipKey);
+        if (targetViseme && holdMap.has(targetViseme)) {
+          return holdMap.get(targetViseme);
+        }
+        return globalHoldMs;
+      }
+
+      function delayMs(rawDurationMs) {
+        const durationMs = Math.max(0, Number(rawDurationMs) || 0);
+        if (!(durationMs > 0)) {
+          return Promise.resolve();
+        }
+        return new Promise((resolve) => {
+          setTimeout(resolve, durationMs);
+        });
+      }
+
+      function rebuildMouthArticulationModelIfReady() {
+        if (!state.continuityStats || !(state.clipEntriesByKey instanceof Map) || !state.clipEntriesByKey.size) {
+          state.mouthArticulationModel = null;
+          return;
+        }
+        state.mouthArticulationModel = buildMouthArticulationModel(
+          state.clipEntriesByKey,
+          state.continuityStats
+        );
+      }
+
+      function applyRuntimeTuningToInputs(runtimeTuning) {
+        const tuning = runtimeTuning || createDefaultRuntimeTuning();
+        elements.continuityEnabled.value = tuning.continuityEnabled ? "1" : "0";
+        elements.mouthBiasEnabled.value = tuning.mouthBiasEnabled ? "1" : "0";
+        elements.beamWidth.value = String(tuning.beamWidth);
+        elements.maxCandidates.value = String(tuning.maxCandidatesPerStep);
+        elements.fallbackRandomProb.value = String(tuning.fallbackRandomProbability);
+        elements.positionWeight.value = String(tuning.positionDistanceWeight);
+        elements.velocityWeight.value = String(tuning.velocityDistanceWeight);
+        elements.edgeWeight.value = String(tuning.edgeVelocityPenaltyWeight);
+        elements.datasetSwitchPenalty.value = String(tuning.datasetSwitchPenalty);
+        elements.sameSegmentPenalty.value = String(tuning.sameEntrySegmentGapPenalty);
+        elements.reusePenalty.value = String(tuning.immediateClipReusePenalty);
+        elements.initialVelocityWeight.value = String(tuning.initialVelocityPenaltyWeight);
+        elements.globalHoldMs.value = String(tuning.globalHoldMs);
+        elements.holdOverrides.value = String(tuning.holdOverridesRaw || "");
+        elements.mouthThreshold.value = String(tuning.mouthThreshold);
+        elements.mouthCandidateWeight.value = String(tuning.mouthCandidateWeight);
+        elements.mouthTransitionWeight.value = String(tuning.mouthTransitionWeight);
+        elements.mouthFallbackScore.value = String(tuning.mouthFallbackScore);
+        elements.mouthAxisX.value = String(tuning.mouthAxisWeights.x);
+        elements.mouthAxisY.value = String(tuning.mouthAxisWeights.y);
+        elements.mouthAxisZ.value = String(tuning.mouthAxisWeights.z);
+        elements.priorityA.value = String(tuning.mouthTargetPriority.A);
+        elements.priorityE.value = String(tuning.mouthTargetPriority.E);
+        elements.priorityI.value = String(tuning.mouthTargetPriority.I);
+        elements.priorityO.value = String(tuning.mouthTargetPriority.O);
+        elements.priorityU.value = String(tuning.mouthTargetPriority.U);
+        elements.priorityDefault.value = String(tuning.mouthTargetPriority.default);
+      }
+
+      function readRuntimeTuningFromInputs() {
+        const nextHoldOverridesRaw = String(elements.holdOverrides?.value || "");
+        return {
+          continuityEnabled: normalizeToggleValue(
+            elements.continuityEnabled?.value,
+            CONTINUITY_SELECTION.enabledByDefault
+          ),
+          beamWidth: clampInteger(
+            elements.beamWidth?.value,
+            RUNTIME_TUNING_LIMITS.beamWidth.min,
+            RUNTIME_TUNING_LIMITS.beamWidth.max,
+            RUNTIME_TUNING_LIMITS.beamWidth.fallback
+          ),
+          maxCandidatesPerStep: clampInteger(
+            elements.maxCandidates?.value,
+            RUNTIME_TUNING_LIMITS.maxCandidatesPerStep.min,
+            RUNTIME_TUNING_LIMITS.maxCandidatesPerStep.max,
+            RUNTIME_TUNING_LIMITS.maxCandidatesPerStep.fallback
+          ),
+          fallbackRandomProbability: clampNumber(
+            elements.fallbackRandomProb?.value,
+            RUNTIME_TUNING_LIMITS.fallbackRandomProbability.min,
+            RUNTIME_TUNING_LIMITS.fallbackRandomProbability.max,
+            RUNTIME_TUNING_LIMITS.fallbackRandomProbability.fallback
+          ),
+          initialVelocityPenaltyWeight: clampNumber(
+            elements.initialVelocityWeight?.value,
+            RUNTIME_TUNING_LIMITS.initialVelocityPenaltyWeight.min,
+            RUNTIME_TUNING_LIMITS.initialVelocityPenaltyWeight.max,
+            RUNTIME_TUNING_LIMITS.initialVelocityPenaltyWeight.fallback
+          ),
+          positionDistanceWeight: clampNumber(
+            elements.positionWeight?.value,
+            RUNTIME_TUNING_LIMITS.positionDistanceWeight.min,
+            RUNTIME_TUNING_LIMITS.positionDistanceWeight.max,
+            RUNTIME_TUNING_LIMITS.positionDistanceWeight.fallback
+          ),
+          velocityDistanceWeight: clampNumber(
+            elements.velocityWeight?.value,
+            RUNTIME_TUNING_LIMITS.velocityDistanceWeight.min,
+            RUNTIME_TUNING_LIMITS.velocityDistanceWeight.max,
+            RUNTIME_TUNING_LIMITS.velocityDistanceWeight.fallback
+          ),
+          edgeVelocityPenaltyWeight: clampNumber(
+            elements.edgeWeight?.value,
+            RUNTIME_TUNING_LIMITS.edgeVelocityPenaltyWeight.min,
+            RUNTIME_TUNING_LIMITS.edgeVelocityPenaltyWeight.max,
+            RUNTIME_TUNING_LIMITS.edgeVelocityPenaltyWeight.fallback
+          ),
+          datasetSwitchPenalty: clampNumber(
+            elements.datasetSwitchPenalty?.value,
+            RUNTIME_TUNING_LIMITS.datasetSwitchPenalty.min,
+            RUNTIME_TUNING_LIMITS.datasetSwitchPenalty.max,
+            RUNTIME_TUNING_LIMITS.datasetSwitchPenalty.fallback
+          ),
+          sameEntrySegmentGapPenalty: clampNumber(
+            elements.sameSegmentPenalty?.value,
+            RUNTIME_TUNING_LIMITS.sameEntrySegmentGapPenalty.min,
+            RUNTIME_TUNING_LIMITS.sameEntrySegmentGapPenalty.max,
+            RUNTIME_TUNING_LIMITS.sameEntrySegmentGapPenalty.fallback
+          ),
+          immediateClipReusePenalty: clampNumber(
+            elements.reusePenalty?.value,
+            RUNTIME_TUNING_LIMITS.immediateClipReusePenalty.min,
+            RUNTIME_TUNING_LIMITS.immediateClipReusePenalty.max,
+            RUNTIME_TUNING_LIMITS.immediateClipReusePenalty.fallback
+          ),
+          missingDistancePenalty: CONTINUITY_SELECTION.missingDistancePenalty,
+          mouthBiasEnabled: normalizeToggleValue(
+            elements.mouthBiasEnabled?.value,
+            MOUTH_ARTICULATION_SELECTION.enabledByDefault
+          ),
+          mouthThreshold: clampNumber(
+            elements.mouthThreshold?.value,
+            RUNTIME_TUNING_LIMITS.mouthThreshold.min,
+            RUNTIME_TUNING_LIMITS.mouthThreshold.max,
+            RUNTIME_TUNING_LIMITS.mouthThreshold.fallback
+          ),
+          mouthCandidateWeight: clampNumber(
+            elements.mouthCandidateWeight?.value,
+            RUNTIME_TUNING_LIMITS.mouthCandidateWeight.min,
+            RUNTIME_TUNING_LIMITS.mouthCandidateWeight.max,
+            RUNTIME_TUNING_LIMITS.mouthCandidateWeight.fallback
+          ),
+          mouthTransitionWeight: clampNumber(
+            elements.mouthTransitionWeight?.value,
+            RUNTIME_TUNING_LIMITS.mouthTransitionWeight.min,
+            RUNTIME_TUNING_LIMITS.mouthTransitionWeight.max,
+            RUNTIME_TUNING_LIMITS.mouthTransitionWeight.fallback
+          ),
+          mouthFallbackScore: clampNumber(
+            elements.mouthFallbackScore?.value,
+            RUNTIME_TUNING_LIMITS.mouthFallbackScore.min,
+            RUNTIME_TUNING_LIMITS.mouthFallbackScore.max,
+            RUNTIME_TUNING_LIMITS.mouthFallbackScore.fallback
+          ),
+          mouthAxisWeights: {
+            x: clampNumber(
+              elements.mouthAxisX?.value,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.min,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.max,
+              MOUTH_ARTICULATION_SELECTION.axisWeights.x
+            ),
+            y: clampNumber(
+              elements.mouthAxisY?.value,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.min,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.max,
+              MOUTH_ARTICULATION_SELECTION.axisWeights.y
+            ),
+            z: clampNumber(
+              elements.mouthAxisZ?.value,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.min,
+              RUNTIME_TUNING_LIMITS.mouthAxisWeight.max,
+              MOUTH_ARTICULATION_SELECTION.axisWeights.z
+            ),
+          },
+          mouthTargetPriority: {
+            A: clampNumber(
+              elements.priorityA?.value,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.targetVisemePriority.A
+            ),
+            E: clampNumber(
+              elements.priorityE?.value,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.targetVisemePriority.E
+            ),
+            I: clampNumber(
+              elements.priorityI?.value,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.targetVisemePriority.I
+            ),
+            O: clampNumber(
+              elements.priorityO?.value,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.targetVisemePriority.O
+            ),
+            U: clampNumber(
+              elements.priorityU?.value,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.targetVisemePriority.U
+            ),
+            default: clampNumber(
+              elements.priorityDefault?.value,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.min,
+              RUNTIME_TUNING_LIMITS.mouthTargetPriority.max,
+              MOUTH_ARTICULATION_SELECTION.defaultTargetPriority
+            ),
+          },
+          globalHoldMs: clampNumber(
+            elements.globalHoldMs?.value,
+            RUNTIME_TUNING_LIMITS.globalHoldMs.min,
+            RUNTIME_TUNING_LIMITS.globalHoldMs.max,
+            RUNTIME_TUNING_LIMITS.globalHoldMs.fallback
+          ),
+          holdOverridesRaw: nextHoldOverridesRaw,
+          holdByClipKeyMs: parseHoldOverrideMap(nextHoldOverridesRaw),
+        };
+      }
+
+      function applyRuntimeTuningFromInputs() {
+        state.runtimeTuning = readRuntimeTuningFromInputs();
+        rebuildMouthArticulationModelIfReady();
       }
 
       function getPresetVisualConfig(presetKey) {
@@ -1096,9 +1942,15 @@
         return featureOrder;
       }
 
-      function parseExpressionIndex(featureName) {
+      /**
+       * Parse expression feature descriptor.
+       *
+       * @param {string} featureName - Feature name as stored in continuity payload.
+       * @returns {{expressionIndex: number, axisName: string} | null} Parsed descriptor.
+       */
+      function parseExpressionFeatureDescriptor(featureName) {
         const normalizedName = String(featureName || "").trim();
-        const match = /^exp_(\d+)_/i.exec(normalizedName);
+        const match = /^exp_(\d+)_([xyz])$/i.exec(normalizedName);
         if (!match) {
           return null;
         }
@@ -1106,8 +1958,22 @@
         if (parsedIndex === null) {
           return null;
         }
-        const integerIndex = Math.floor(parsedIndex);
-        return integerIndex >= 0 ? integerIndex : null;
+        const expressionIndex = Math.floor(parsedIndex);
+        if (expressionIndex < 0) {
+          return null;
+        }
+        return {
+          expressionIndex,
+          axisName: String(match[2] || "").toLowerCase(),
+        };
+      }
+
+      function parseExpressionIndex(featureName) {
+        const descriptor = parseExpressionFeatureDescriptor(featureName);
+        if (!descriptor) {
+          return null;
+        }
+        return descriptor.expressionIndex;
       }
 
       function resolveFeatureWeight(featureName) {
@@ -1176,6 +2042,257 @@
           stateStd: safeStateStd,
           velocityStd: safeVelocityStd,
         };
+      }
+
+      /**
+       * Resolve final viseme target represented by a clip key.
+       *
+       * @param {string} clipKey - Base viseme key or transition key (FROM_to_TO).
+       * @returns {string} Final target viseme token in uppercase.
+       */
+      function resolveTargetVisemeFromClipKey(clipKey) {
+        const normalizedKey = String(clipKey || "").trim().toUpperCase();
+        if (!normalizedKey) {
+          return "";
+        }
+        const transitionSeparator = "_TO_";
+        const transitionIndex = normalizedKey.lastIndexOf(transitionSeparator);
+        if (transitionIndex < 0) {
+          return normalizedKey;
+        }
+        return normalizedKey.slice(transitionIndex + transitionSeparator.length).trim();
+      }
+
+      /**
+       * Resolve target mouth-articulation priority for one sequence step key.
+       *
+       * @param {string} clipKey - Sequence clip key.
+       * @returns {number} Priority in range [0, +inf).
+       */
+      function resolveTargetMouthPriority(clipKey) {
+        const targetViseme = resolveTargetVisemeFromClipKey(clipKey);
+        if (!targetViseme) {
+          return 0;
+        }
+        const mouthSelection = getRuntimeMouthSelection();
+        const explicitPriority = toFiniteNumber(
+          mouthSelection.targetVisemePriority[targetViseme]
+        );
+        if (explicitPriority !== null) {
+          return Math.max(0, explicitPriority);
+        }
+        return Math.max(0, Number(mouthSelection.defaultTargetPriority) || 0);
+      }
+
+      /**
+       * Resolve per-axis weight used by mouth-articulation scoring.
+       *
+       * @param {string} axisName - Axis token (x, y, z).
+       * @returns {number} Non-negative axis weight.
+       */
+      function resolveMouthAxisWeight(axisName) {
+        const normalizedAxis = String(axisName || "").trim().toLowerCase();
+        const mouthSelection = getRuntimeMouthSelection();
+        const explicitWeight = toFiniteNumber(mouthSelection.axisWeights[normalizedAxis]);
+        if (explicitWeight === null) {
+          return 0;
+        }
+        return Math.max(0, explicitWeight);
+      }
+
+      /**
+       * Build continuity feature profile used by mouth-articulation scoring.
+       *
+       * @param {string[]} featureOrder - Ordered continuity feature names.
+       * @returns {Array<{featureIndex: number, axisWeight: number}>} Feature profile.
+       */
+      function buildMouthArticulationFeatureProfile(featureOrder) {
+        if (!Array.isArray(featureOrder) || !featureOrder.length) {
+          return [];
+        }
+        const profile = [];
+        for (let featureIndex = 0; featureIndex < featureOrder.length; featureIndex += 1) {
+          const featureName = featureOrder[featureIndex];
+          const descriptor = parseExpressionFeatureDescriptor(featureName);
+          if (!descriptor) {
+            continue;
+          }
+          if (!MOUTH_ARTICULATION_EXPRESSION_INDEX_SET.has(descriptor.expressionIndex)) {
+            continue;
+          }
+          const axisWeight = resolveMouthAxisWeight(descriptor.axisName);
+          if (!(axisWeight > 0)) {
+            continue;
+          }
+          profile.push({
+            featureIndex,
+            axisWeight,
+          });
+        }
+        return profile;
+      }
+
+      /**
+       * Build stable identity for a clip entry.
+       *
+       * @param {object} clipEntry - Manifest clip entry.
+       * @returns {string} Stable identifier for runtime caches.
+       */
+      function buildClipEntryIdentity(clipEntry) {
+        const datasetIndex = String(clipEntry?.datasetIndex ?? "").trim();
+        const entryId = String(clipEntry?.id ?? "").trim();
+        const segmentIndex = String(clipEntry?.segmentIndex ?? "").trim();
+        const clipOrg = String(clipEntry?.clipOrg || "").trim();
+        const clipCrop = String(clipEntry?.clipCrop || "").trim();
+        const fallbackPath = clipOrg || clipCrop;
+        if (fallbackPath) {
+          return fallbackPath;
+        }
+        return `${datasetIndex}::${entryId}::${segmentIndex}`;
+      }
+
+      /**
+       * Compute raw mouth-articulation score for one clip entry.
+       *
+       * @param {object} clipEntry - Clip entry candidate.
+       * @param {object} continuityStats - Normalized continuity metadata.
+       * @param {Array<{featureIndex: number, axisWeight: number}>} featureProfile - Mouth feature profile.
+       * @returns {number | null} Raw articulation score or null when unavailable.
+       */
+      function computeRawMouthArticulationScore(clipEntry, continuityStats, featureProfile) {
+        if (!clipEntry || !continuityStats || !Array.isArray(featureProfile) || !featureProfile.length) {
+          return null;
+        }
+        const startState = getEntryContinuityVector(clipEntry, CONTINUITY_FIELDS.startState);
+        const endState = getEntryContinuityVector(clipEntry, CONTINUITY_FIELDS.endState);
+        if (!startState || !endState) {
+          return null;
+        }
+        const featureCount = continuityStats.featureCount;
+        if (startState.length !== featureCount || endState.length !== featureCount) {
+          return null;
+        }
+        let weightedScore = 0;
+        let weightSum = 0;
+        for (const featureSpec of featureProfile) {
+          const featureIndex = Number(featureSpec?.featureIndex);
+          const axisWeight = Math.max(0, Number(featureSpec?.axisWeight) || 0);
+          if (!(axisWeight > 0) || !Number.isInteger(featureIndex) || featureIndex < 0) {
+            continue;
+          }
+          if (featureIndex >= featureCount) {
+            continue;
+          }
+          const safeStd = Math.max(
+            CONTINUITY_SELECTION.minimumStdEpsilon,
+            Number(continuityStats.stateStd[featureIndex]) || CONTINUITY_SELECTION.minimumStdEpsilon
+          );
+          const startMagnitude = Math.abs(Number(startState[featureIndex]) || 0) / safeStd;
+          const endMagnitude = Math.abs(Number(endState[featureIndex]) || 0) / safeStd;
+          const featureMagnitude = (startMagnitude + endMagnitude) * 0.5;
+          weightedScore += featureMagnitude * axisWeight;
+          weightSum += axisWeight;
+        }
+        if (!(weightSum > 0)) {
+          return null;
+        }
+        return weightedScore / weightSum;
+      }
+
+      /**
+       * Build normalized mouth-articulation model from loaded clip entries.
+       *
+       * @param {Map<string, Array<object>>} clipEntriesByKey - Runtime clip entries grouped by key.
+       * @param {object} continuityStats - Normalized continuity metadata.
+       * @returns {{normalizedScoreByEntryId: Map<string, number>, totalScoredEntries: number} | null} Model payload.
+       */
+      function buildMouthArticulationModel(clipEntriesByKey, continuityStats) {
+        const mouthSelection = getRuntimeMouthSelection();
+        if (!mouthSelection.enabledByDefault) {
+          return null;
+        }
+        if (!(clipEntriesByKey instanceof Map) || !clipEntriesByKey.size || !continuityStats) {
+          return null;
+        }
+        const featureProfile = buildMouthArticulationFeatureProfile(continuityStats.featureOrder);
+        if (!featureProfile.length) {
+          return null;
+        }
+        const normalizedScoreByEntryId = new Map();
+        for (const [clipKey, entries] of clipEntriesByKey.entries()) {
+          const targetPriority = resolveTargetMouthPriority(clipKey);
+          if (!(targetPriority > 0)) {
+            continue;
+          }
+          const rawScores = [];
+          const entriesWithScores = [];
+          const safeEntries = Array.isArray(entries) ? entries : [];
+          for (const entry of safeEntries) {
+            const rawScore = computeRawMouthArticulationScore(entry, continuityStats, featureProfile);
+            if (rawScore === null) {
+              continue;
+            }
+            const entryId = buildClipEntryIdentity(entry);
+            if (!entryId) {
+              continue;
+            }
+            rawScores.push(rawScore);
+            entriesWithScores.push({
+              entryId,
+              rawScore,
+            });
+          }
+          if (!entriesWithScores.length) {
+            continue;
+          }
+          const minScore = Math.min(...rawScores);
+          const maxScore = Math.max(...rawScores);
+          const scoreRange = Math.max(mouthSelection.scoreRangeEpsilon, maxScore - minScore);
+          for (const scoreEntry of entriesWithScores) {
+            const normalizedScore = Math.min(
+              1,
+              Math.max(0, (scoreEntry.rawScore - minScore) / scoreRange)
+            );
+            normalizedScoreByEntryId.set(scoreEntry.entryId, normalizedScore);
+          }
+        }
+        return {
+          normalizedScoreByEntryId,
+          totalScoredEntries: normalizedScoreByEntryId.size,
+        };
+      }
+
+      /**
+       * Resolve normalized mouth-articulation reward for one candidate entry.
+       *
+       * @param {object} clipEntry - Candidate clip entry.
+       * @param {string} clipKey - Sequence key for the current step.
+       * @returns {number} Reward in range [0, 1].
+       */
+      function resolveEntryMouthArticulationReward(clipEntry, clipKey) {
+        const mouthSelection = getRuntimeMouthSelection();
+        const targetPriority = resolveTargetMouthPriority(clipKey);
+        if (!mouthSelection.enabledByDefault || !(targetPriority > 0)) {
+          return 0;
+        }
+        const model = state.mouthArticulationModel;
+        if (!model || !(model.normalizedScoreByEntryId instanceof Map)) {
+          return mouthSelection.fallbackNormalizedScore * targetPriority;
+        }
+        const entryId = buildClipEntryIdentity(clipEntry);
+        if (!entryId || !model.normalizedScoreByEntryId.has(entryId)) {
+          return mouthSelection.fallbackNormalizedScore * targetPriority;
+        }
+        const normalizedScore = Math.min(
+          1,
+          Math.max(0, Number(model.normalizedScoreByEntryId.get(entryId)) || 0)
+        );
+        const threshold = Math.min(1, Math.max(0, Number(mouthSelection.threshold) || 0));
+        if (normalizedScore <= threshold) {
+          return 0;
+        }
+        const normalizedAboveThreshold = (normalizedScore - threshold) / Math.max(1e-6, 1 - threshold);
+        return normalizedAboveThreshold * targetPriority;
       }
 
       function getEntryClipPath(clipEntry, clipFieldName) {
@@ -1266,10 +2383,13 @@
         previousClipEntry,
         nextClipEntry,
         continuityStats,
-        clipFieldName
+        clipFieldName,
+        nextClipKey = ""
       ) {
+        const continuitySelection = getRuntimeContinuitySelection();
+        const mouthSelection = getRuntimeMouthSelection();
         if (!previousClipEntry || !nextClipEntry || !continuityStats) {
-          return CONTINUITY_SELECTION.missingDistancePenalty;
+          return continuitySelection.missingDistancePenalty;
         }
         const previousEndState = getEntryContinuityVector(previousClipEntry, CONTINUITY_FIELDS.endState);
         const nextStartState = getEntryContinuityVector(nextClipEntry, CONTINUITY_FIELDS.startState);
@@ -1289,33 +2409,37 @@
         );
         const nextEdgeVelocityCost = computeEntryEdgeVelocityCost(nextClipEntry, continuityStats);
         if (stateDistance === null || velocityDistance === null || nextEdgeVelocityCost === null) {
-          return CONTINUITY_SELECTION.missingDistancePenalty;
+          return continuitySelection.missingDistancePenalty;
         }
         let transitionCost =
-          stateDistance * CONTINUITY_SELECTION.positionDistanceWeight +
-          velocityDistance * CONTINUITY_SELECTION.velocityDistanceWeight +
-          nextEdgeVelocityCost * CONTINUITY_SELECTION.edgeVelocityPenaltyWeight;
+          stateDistance * continuitySelection.positionDistanceWeight +
+          velocityDistance * continuitySelection.velocityDistanceWeight +
+          nextEdgeVelocityCost * continuitySelection.edgeVelocityPenaltyWeight;
 
         const previousClipPath = getEntryClipPath(previousClipEntry, clipFieldName);
         const nextClipPath = getEntryClipPath(nextClipEntry, clipFieldName);
         if (previousClipPath && nextClipPath && previousClipPath === nextClipPath) {
-          transitionCost += CONTINUITY_SELECTION.immediateClipReusePenalty;
+          transitionCost += continuitySelection.immediateClipReusePenalty;
         }
 
         const previousEntryId = String(previousClipEntry?.id || "").trim();
         const nextEntryId = String(nextClipEntry?.id || "").trim();
         if (previousEntryId && nextEntryId) {
           if (previousEntryId !== nextEntryId) {
-            transitionCost += CONTINUITY_SELECTION.datasetSwitchPenalty;
+            transitionCost += continuitySelection.datasetSwitchPenalty;
           } else {
             const previousSegmentIndex = Number(previousClipEntry?.segmentIndex);
             const nextSegmentIndex = Number(nextClipEntry?.segmentIndex);
             if (Number.isFinite(previousSegmentIndex) && Number.isFinite(nextSegmentIndex)) {
               transitionCost +=
                 Math.abs(previousSegmentIndex - nextSegmentIndex) *
-                CONTINUITY_SELECTION.sameEntrySegmentGapPenalty;
+                continuitySelection.sameEntrySegmentGapPenalty;
             }
           }
+        }
+        const mouthReward = resolveEntryMouthArticulationReward(nextClipEntry, nextClipKey);
+        if (mouthReward > 0) {
+          transitionCost -= mouthReward * mouthSelection.transitionRewardWeight;
         }
         return transitionCost;
       }
@@ -1385,7 +2509,8 @@
         previousClipEntry,
         candidateEntries,
         continuityStats,
-        clipFieldName
+        clipFieldName,
+        clipKey = ""
       ) {
         const playableEntries = Array.isArray(candidateEntries) ? candidateEntries : [];
         if (!playableEntries.length) {
@@ -1401,7 +2526,8 @@
             previousClipEntry,
             candidateEntry,
             continuityStats,
-            clipFieldName
+            clipFieldName,
+            clipKey
           );
           if (transitionCost < bestCost) {
             bestCost = transitionCost;
@@ -1420,6 +2546,8 @@
       }
 
       function listStepCandidates(sequenceKeys, clipFieldName, continuityStats) {
+        const continuitySelection = getRuntimeContinuitySelection();
+        const mouthSelection = getRuntimeMouthSelection();
         const stepCandidates = [];
         for (const clipKey of sequenceKeys) {
           const clipEntries = state.clipEntriesByKey.get(clipKey);
@@ -1430,23 +2558,27 @@
           if (!playableEntries.length) {
             throw new Error(`Viseme '${clipKey}' has no clip path in '${clipFieldName}'.`);
           }
-          if (!continuityStats || playableEntries.length <= CONTINUITY_SELECTION.maxCandidatesPerStep) {
+          if (!continuityStats || playableEntries.length <= continuitySelection.maxCandidatesPerStep) {
             stepCandidates.push(playableEntries);
             continue;
           }
           const scoredEntries = playableEntries
             .map((entry) => {
               const edgeVelocityCost = computeEntryEdgeVelocityCost(entry, continuityStats);
+              const mouthReward = resolveEntryMouthArticulationReward(entry, clipKey);
               return {
                 entry,
                 intrinsicCost:
-                  edgeVelocityCost === null ? CONTINUITY_SELECTION.missingDistancePenalty : edgeVelocityCost,
+                  (edgeVelocityCost === null
+                    ? continuitySelection.missingDistancePenalty
+                    : edgeVelocityCost) -
+                  mouthReward * mouthSelection.candidateRewardWeight,
               };
             })
             .sort((left, right) => left.intrinsicCost - right.intrinsicCost);
           stepCandidates.push(
             scoredEntries
-              .slice(0, CONTINUITY_SELECTION.maxCandidatesPerStep)
+              .slice(0, continuitySelection.maxCandidatesPerStep)
               .map((scoredEntry) => scoredEntry.entry)
           );
         }
@@ -1471,37 +2603,45 @@
       }
 
       function buildPlaybackPlan(sequenceKeys, clipFieldName, loopCount, startAnchorEntry) {
+        const continuitySelection = getRuntimeContinuitySelection();
+        const mouthSelection = getRuntimeMouthSelection();
         const expandedSequenceKeys = expandSequenceByLoops(sequenceKeys, loopCount);
         if (!expandedSequenceKeys.length) {
           return [];
         }
         const continuityAvailable =
-          CONTINUITY_SELECTION.enabledByDefault &&
+          continuitySelection.enabledByDefault &&
           state.continuityStats &&
-          Math.random() >= CONTINUITY_SELECTION.fallbackRandomProbability;
+          Math.random() >= continuitySelection.fallbackRandomProbability;
         if (!continuityAvailable) {
           return selectRandomPlaybackPlan(expandedSequenceKeys, clipFieldName);
         }
 
         const continuityStats = state.continuityStats;
         const stepCandidates = listStepCandidates(expandedSequenceKeys, clipFieldName, continuityStats);
-        const beamWidth = Math.max(1, Math.floor(CONTINUITY_SELECTION.beamWidth));
+        const beamWidth = Math.max(1, Math.floor(continuitySelection.beamWidth));
         let beamStates = stepCandidates[0]
           .map((entry) => {
+            const initialClipKey = expandedSequenceKeys[0];
             const anchorTransitionCost = startAnchorEntry
               ? computeContinuityTransitionCost(
                   startAnchorEntry,
                   entry,
                   continuityStats,
-                  clipFieldName
+                  clipFieldName,
+                  initialClipKey
                 )
               : 0;
             const initialEdgeVelocityCost = computeEntryEdgeVelocityCost(entry, continuityStats);
             const initialVelocityCost =
               initialEdgeVelocityCost === null
-                ? CONTINUITY_SELECTION.missingDistancePenalty
-                : initialEdgeVelocityCost * CONTINUITY_SELECTION.initialVelocityPenaltyWeight;
-            const initialCost = anchorTransitionCost + initialVelocityCost;
+                ? continuitySelection.missingDistancePenalty
+                : initialEdgeVelocityCost * continuitySelection.initialVelocityPenaltyWeight;
+            const initialMouthReward = resolveEntryMouthArticulationReward(entry, initialClipKey);
+            const initialCost =
+              anchorTransitionCost +
+              initialVelocityCost -
+              initialMouthReward * mouthSelection.transitionRewardWeight;
             return {
               cost: initialCost,
               entry,
@@ -1517,12 +2657,14 @@
           for (const candidateEntry of currentCandidates) {
             let bestCost = Number.POSITIVE_INFINITY;
             let bestParent = null;
+            const currentClipKey = expandedSequenceKeys[stepIndex];
             for (const previousState of beamStates) {
               const transitionCost = computeContinuityTransitionCost(
                 previousState.entry,
                 candidateEntry,
                 continuityStats,
-                clipFieldName
+                clipFieldName,
+                currentClipKey
               );
               const totalCost = previousState.cost + transitionCost;
               if (totalCost < bestCost) {
@@ -2000,7 +3142,8 @@
           transitionAnchorEntry || null,
           playableEntries,
           state.continuityStats,
-          clipFieldName
+          clipFieldName,
+          idleKey
         );
         const media = await ensureVideoTexture(idleKey, selectedEntry, clipFieldName);
         if (!state.sprite) {
@@ -2067,7 +3210,15 @@
         });
       }
 
-      async function playOneViseme(playStep, clipFieldName, playbackRate, runId, stepIndex, stepCount) {
+      async function playOneViseme(
+        playStep,
+        clipFieldName,
+        playbackRate,
+        runId,
+        stepIndex,
+        stepCount,
+        extraHoldMs
+      ) {
         const visemeKey = String(playStep?.key || "").trim();
         const media = await ensureVideoTexture(visemeKey, playStep?.entry, clipFieldName);
         if (runId !== state.playRunId) {
@@ -2105,6 +3256,7 @@
             `clip=${clipLabel}`,
             `variant=${clipFieldName}`,
             `playbackRate=${playbackRate.toFixed(2)}`,
+            `extraHoldMs=${Math.round(Math.max(0, Number(extraHoldMs) || 0))}`,
           ].join("\n")
         );
 
@@ -2127,6 +3279,12 @@
           video.addEventListener("ended", finish, { once: true });
           setTimeout(finish, expectedDurationMs + 220);
         });
+        if (runId !== state.playRunId) {
+          return;
+        }
+        if ((Number(extraHoldMs) || 0) > 0) {
+          await delayMs(extraHoldMs);
+        }
       }
 
       async function playSequence(playbackPlan, clipFieldName, playbackRate) {
@@ -2139,13 +3297,15 @@
           if (runId !== state.playRunId) {
             return;
           }
+          const stepHoldMs = resolveStepExtraHoldMs(playbackPlan[stepIndex]?.key);
           await playOneViseme(
             playbackPlan[stepIndex],
             clipFieldName,
             playbackRate,
             runId,
             stepIndex,
-            playbackPlan.length
+            playbackPlan.length,
+            stepHoldMs
           );
         }
         if (runId === state.playRunId) {
@@ -2160,6 +3320,7 @@
       }
 
       async function loadManifestFromUi() {
+        applyRuntimeTuningFromInputs();
         const rawManifestPath = String(elements.manifestPath.value || "").trim();
         if (!rawManifestPath) {
           throw new Error("Manifest path is empty.");
@@ -2175,18 +3336,32 @@
         state.manifest = manifestPayload;
         state.clipEntriesByKey = clipEntriesByKey;
         state.continuityStats = normalizeContinuityStats(manifestPayload?.continuity);
+        state.mouthArticulationModel = buildMouthArticulationModel(
+          clipEntriesByKey,
+          state.continuityStats
+        );
         state.mediaCacheBustToken = Date.now();
         destroyCachedMedia();
         ensureAppReady();
         applyRenderMode(elements.renderMode.value);
         const transitionKeyCount = countTransitionKeys(clipEntriesByKey);
+        const mouthScoredEntries =
+          Number(state.mouthArticulationModel?.totalScoredEntries) || 0;
+        const runtimeContinuity = getRuntimeContinuitySelection();
+        const runtimeMouth = getRuntimeMouthSelection();
         setStatus(
           [
             "status=ready",
             `manifest=${manifestPath}`,
             `keys=${clipEntriesByKey.size}`,
             `transitionKeys=${transitionKeyCount}`,
-            `continuity=${state.continuityStats ? CONTINUITY_SELECTION.plannerMode : "fallback-random"}`,
+            `continuity=${
+              state.continuityStats && runtimeContinuity.enabledByDefault
+                ? runtimeContinuity.plannerMode
+                : "fallback-random"
+            }`,
+            `mouthBias=${mouthScoredEntries > 0 ? `enabled (${mouthScoredEntries})` : "disabled"}`,
+            `mouthThreshold=${runtimeMouth.threshold.toFixed(2)}`,
           ].join("\n")
         );
         void playIdleLoopIfAvailable("manifest_loaded").catch((error) => {
@@ -2195,6 +3370,7 @@
       }
 
       async function playDemoFromUi() {
+        applyRuntimeTuningFromInputs();
         if (!state.manifest) {
           await loadManifestFromUi();
         }
@@ -2216,6 +3392,14 @@
           loopCount,
           startAnchorEntry
         );
+        const runtimeContinuity = getRuntimeContinuitySelection();
+        const runtimeMouth = getRuntimeMouthSelection();
+        const globalHoldMs = clampNumber(
+          state.runtimeTuning?.globalHoldMs,
+          RUNTIME_TUNING_LIMITS.globalHoldMs.min,
+          RUNTIME_TUNING_LIMITS.globalHoldMs.max,
+          RUNTIME_TUNING_LIMITS.globalHoldMs.fallback
+        );
 
         setStatus(
           [
@@ -2224,7 +3408,13 @@
             `expandedCount=${playbackSequence.length}`,
             `loops=${loopCount}`,
             `steps=${playbackPlan.length}`,
-            `continuity=${state.continuityStats ? CONTINUITY_SELECTION.plannerMode : "fallback-random"}`,
+            `continuity=${
+              state.continuityStats && runtimeContinuity.enabledByDefault
+                ? runtimeContinuity.plannerMode
+                : "fallback-random"
+            }`,
+            `mouthBias=${runtimeMouth.enabledByDefault ? "enabled" : "disabled"}`,
+            `globalHoldMs=${Math.round(globalHoldMs)}`,
           ].join("\n")
         );
 
@@ -2266,6 +3456,18 @@
         applyVisualPreset(elements.visualPreset.value);
       });
 
+      for (const tuningInputElement of tuningInputElements) {
+        if (!tuningInputElement) {
+          continue;
+        }
+        tuningInputElement.addEventListener("input", () => {
+          applyRuntimeTuningFromInputs();
+        });
+        tuningInputElement.addEventListener("change", () => {
+          applyRuntimeTuningFromInputs();
+        });
+      }
+
       for (const visualControlKey of VISUAL_CONTROL_KEYS) {
         const inputElement = visualInputByKey[visualControlKey];
         if (!inputElement) {
@@ -2276,6 +3478,9 @@
         });
       }
 
+      state.runtimeTuning = createDefaultRuntimeTuning();
+      applyRuntimeTuningToInputs(state.runtimeTuning);
+      applyRuntimeTuningFromInputs();
       applySelectedPreset();
       applyVisualPreset(elements.visualPreset.value);
       applyRenderMode(elements.renderMode.value);
