@@ -86,6 +86,113 @@ def terminate_process_tree(process: asyncio.subprocess.Process | None) -> None:
 FFMPEG_BINARY = resolve_media_tool_binary("ffmpeg")
 FFPROBE_BINARY = resolve_media_tool_binary("ffprobe")
 
+
+def ffmpeg_supports_encoder(encoder_name: str) -> bool:
+    """
+    Check whether the configured FFmpeg build exposes one specific encoder.
+    """
+    safe_encoder_name = str(encoder_name or "").strip().lower()
+    if not safe_encoder_name:
+        return False
+    cached_value = FFMPEG_ENCODER_SUPPORT_CACHE.get(safe_encoder_name)
+    if cached_value is not None:
+        return cached_value
+    try:
+        completed = subprocess.run(
+            [FFMPEG_BINARY, "-hide_banner", "-encoders"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        FFMPEG_ENCODER_SUPPORT_CACHE[safe_encoder_name] = False
+        return False
+    support_detected = completed.returncode == 0 and safe_encoder_name in completed.stdout.lower()
+    FFMPEG_ENCODER_SUPPORT_CACHE[safe_encoder_name] = support_detected
+    return support_detected
+
+
+def resolve_stream_video_encoder_name() -> str:
+    """
+    Resolve the concrete FFmpeg encoder name used by websocket/avatar stream encoders.
+    """
+    if DEFAULT_VIDEO_ENCODER == VIDEO_ENCODER_CPU:
+        return FFMPEG_LIBX264
+    if ffmpeg_supports_encoder(FFMPEG_H264_NVENC):
+        return FFMPEG_H264_NVENC
+    if DEFAULT_VIDEO_ENCODER == VIDEO_ENCODER_NVENC:
+        print("[warn] requested NVENC stream encoder is unavailable; falling back to libx264")
+    return FFMPEG_LIBX264
+
+
+def build_stream_video_codec_args() -> list[str]:
+    """
+    Build encoder-specific FFmpeg arguments for fragmented MP4 stream outputs.
+    """
+    codec_name = resolve_stream_video_encoder_name()
+    if codec_name == FFMPEG_H264_NVENC:
+        return [
+            "-c:v",
+            codec_name,
+            "-preset",
+            "p3",
+            "-tune",
+            "ll",
+            "-rc",
+            "cbr",
+            "-profile:v",
+            "baseline",
+            "-level",
+            "3.1",
+            "-zerolatency",
+            "1",
+            "-bf",
+            "0",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            VIDEO_STREAM_GOP,
+            "-keyint_min",
+            VIDEO_STREAM_KEYINT_MIN,
+            "-b:v",
+            VIDEO_STREAM_BITRATE,
+            "-maxrate",
+            VIDEO_STREAM_MAXRATE,
+            "-bufsize",
+            VIDEO_STREAM_BUFSIZE,
+        ]
+    return [
+        "-c:v",
+        codec_name,
+        "-preset",
+        VIDEO_STREAM_X264_PRESET,
+        "-tune",
+        "zerolatency",
+        "-profile:v",
+        "baseline",
+        "-level",
+        "3.1",
+        "-bf",
+        "0",
+        "-refs",
+        "1",
+        "-pix_fmt",
+        "yuv420p",
+        "-g",
+        VIDEO_STREAM_GOP,
+        "-keyint_min",
+        VIDEO_STREAM_KEYINT_MIN,
+        "-sc_threshold",
+        "0",
+        "-b:v",
+        VIDEO_STREAM_BITRATE,
+        "-maxrate",
+        VIDEO_STREAM_MAXRATE,
+        "-bufsize",
+        VIDEO_STREAM_BUFSIZE,
+    ]
+
 DEFAULT_SOURCE_FRAME = "output/frames/frame_00061.png"
 FIXED_SOURCE_FRAME_ENV_KEY = "ANIMATION_FIXED_SOURCE_FRAME"
 FIXED_SOURCE_FRAME = os.getenv(FIXED_SOURCE_FRAME_ENV_KEY, "").strip()
@@ -114,6 +221,34 @@ DEFAULT_AUDIO_MOTION_STRIDE = max(
     1,
     int(os.getenv("ANIMATION_AUDIO_MOTION_STRIDE", "1").strip() or "1"),
 )
+DEFAULT_RENDER_BATCH_SIZE = max(
+    1,
+    int(os.getenv("ANIMATION_RENDER_BATCH_SIZE", "4").strip() or "4"),
+)
+DEFAULT_TRT_ENGINE_BATCH_SIZE = max(
+    DEFAULT_RENDER_BATCH_SIZE,
+    int(
+        os.getenv(
+            "ANIMATION_TRT_ENGINE_BATCH_SIZE",
+            str(DEFAULT_RENDER_BATCH_SIZE),
+        ).strip()
+        or str(DEFAULT_RENDER_BATCH_SIZE)
+    ),
+)
+VIDEO_ENCODER_AUTO = "auto"
+VIDEO_ENCODER_NVENC = "nvenc"
+VIDEO_ENCODER_CPU = "cpu"
+VIDEO_ENCODER_CHOICES = {
+    VIDEO_ENCODER_AUTO,
+    VIDEO_ENCODER_NVENC,
+    VIDEO_ENCODER_CPU,
+}
+FFMPEG_H264_NVENC = "h264_nvenc"
+FFMPEG_LIBX264 = "libx264"
+DEFAULT_VIDEO_ENCODER = os.getenv("ANIMATION_VIDEO_ENCODER", VIDEO_ENCODER_AUTO).strip().lower() or VIDEO_ENCODER_AUTO
+if DEFAULT_VIDEO_ENCODER not in VIDEO_ENCODER_CHOICES:
+    DEFAULT_VIDEO_ENCODER = VIDEO_ENCODER_AUTO
+FFMPEG_ENCODER_SUPPORT_CACHE: dict[str, bool] = {}
 DEFAULT_ANIMATION_REGION = os.getenv("ANIMATION_ANIMATION_REGION", "all").strip().lower() or "all"
 if DEFAULT_ANIMATION_REGION not in ANIMATION_REGION_CHOICES:
     DEFAULT_ANIMATION_REGION = "all"
@@ -936,36 +1071,7 @@ def build_video_stream_command(
             ]
         )
     command.extend(
-        [
-            "-c:v",
-            "libx264",
-            "-preset",
-            VIDEO_STREAM_X264_PRESET,
-            "-tune",
-            "zerolatency",
-            "-profile:v",
-            "baseline",
-            "-level",
-            "3.1",
-            "-bf",
-            "0",
-            "-refs",
-            "1",
-            "-pix_fmt",
-            "yuv420p",
-            "-g",
-            VIDEO_STREAM_GOP,
-            "-keyint_min",
-            VIDEO_STREAM_KEYINT_MIN,
-            "-sc_threshold",
-            "0",
-            "-b:v",
-            VIDEO_STREAM_BITRATE,
-            "-maxrate",
-            VIDEO_STREAM_MAXRATE,
-            "-bufsize",
-            VIDEO_STREAM_BUFSIZE,
-        ]
+        build_stream_video_codec_args()
     )
     if has_audio_input or include_silent_audio:
         command.extend(
@@ -1102,36 +1208,7 @@ def build_avatar_stream_command(
             ]
         )
     command.extend(
-        [
-            "-c:v",
-            "libx264",
-            "-preset",
-            VIDEO_STREAM_X264_PRESET,
-            "-tune",
-            "zerolatency",
-            "-profile:v",
-            "baseline",
-            "-level",
-            "3.1",
-            "-bf",
-            "0",
-            "-refs",
-            "1",
-            "-pix_fmt",
-            "yuv420p",
-            "-g",
-            VIDEO_STREAM_GOP,
-            "-keyint_min",
-            VIDEO_STREAM_KEYINT_MIN,
-            "-sc_threshold",
-            "0",
-            "-b:v",
-            VIDEO_STREAM_BITRATE,
-            "-maxrate",
-            VIDEO_STREAM_MAXRATE,
-            "-bufsize",
-            VIDEO_STREAM_BUFSIZE,
-        ]
+        build_stream_video_codec_args()
     )
     if has_audio_pipe or has_audio_input or include_silent_audio:
         command.extend(
@@ -2649,6 +2726,12 @@ def build_runner_command(job: JobRecord) -> list[str]:
         normalize_rel_path(str(job.audio_input_rel)),
         "--audio-motion-stride",
         str(job.audio_motion_stride),
+        "--render-batch-size",
+        str(DEFAULT_RENDER_BATCH_SIZE),
+        "--trt-engine-batch-size",
+        str(DEFAULT_TRT_ENGINE_BATCH_SIZE),
+        "--video-encoder",
+        DEFAULT_VIDEO_ENCODER,
         "--output-dir",
         normalize_rel_path(str(job.output_rel)),
         "--stream-dir",
@@ -3255,6 +3338,12 @@ def build_warmup_command(audio_rel_path: Path) -> list[str]:
         normalize_rel_path(str(audio_rel_path)),
         "--audio-motion-stride",
         str(DEFAULT_AUDIO_MOTION_STRIDE),
+        "--render-batch-size",
+        str(DEFAULT_RENDER_BATCH_SIZE),
+        "--trt-engine-batch-size",
+        str(DEFAULT_TRT_ENGINE_BATCH_SIZE),
+        "--video-encoder",
+        DEFAULT_VIDEO_ENCODER,
         "--output-dir",
         normalize_rel_path(str(output_root_rel)),
         "--stream-dir",
@@ -3478,10 +3567,13 @@ def create_app() -> FastAPI:
             "trtPrecision": DEFAULT_TRT_PRECISION,
             "skipTrtEngineBuild": DEFAULT_SKIP_TRT_ENGINE_BUILD,
             "defaultAudioMotionStride": DEFAULT_AUDIO_MOTION_STRIDE,
+            "defaultRenderBatchSize": DEFAULT_RENDER_BATCH_SIZE,
+            "defaultTrtEngineBatchSize": DEFAULT_TRT_ENGINE_BATCH_SIZE,
             "defaultAnimationRegion": DEFAULT_ANIMATION_REGION,
             "defaultStitchingEnabled": DEFAULT_STITCHING_ENABLED,
             "defaultRelativeMotionEnabled": DEFAULT_RELATIVE_MOTION_ENABLED,
             "defaultPasteBackEnabled": DEFAULT_PASTE_BACK_ENABLED,
+            "defaultVideoEncoder": DEFAULT_VIDEO_ENCODER,
             "fixedSourceEnabled": bool(FIXED_SOURCE_FRAME),
             "fixedSourceFrame": fixed_source_frame_arg,
             "fixedSourceError": fixed_source_error,

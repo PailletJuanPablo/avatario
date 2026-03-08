@@ -56,6 +56,7 @@ DEFAULT_SOURCE_CACHE_DIR = "output_fasterliveportrait/source_preprocess_cache"
 DEFAULT_PERSISTENT_WORKER_QUEUE_DIR = "output_fasterliveportrait/worker_queue"
 DEFAULT_AUDIO_MOTION_STRIDE_FPS_BOOST = 1.28
 ENGINE_PRECISION_MARKER_SUFFIX = ".precision.txt"
+ENGINE_BATCH_MARKER_SUFFIX = ".batch.txt"
 TRT_INT8_CALIBRATION_BATCHES = 12
 TRT_INT8_CALIBRATION_CACHE_SUFFIX = ".int8.cache"
 PERSISTENT_WORKER_HEARTBEAT_FILE_NAME = "worker_heartbeat.json"
@@ -66,6 +67,30 @@ PERSISTENT_WORKER_STARTUP_TIMEOUT_SEC = 45.0
 PERSISTENT_WORKER_RESPONSE_TIMEOUT_SEC = 1200.0
 PERSISTENT_WORKER_POLL_SLEEP_SEC = 0.08
 ANIMATION_REGION_CHOICES = ("all", "exp", "lip", "eyes", "pose")
+VIDEO_ENCODER_AUTO = "auto"
+VIDEO_ENCODER_NVENC = "nvenc"
+VIDEO_ENCODER_CPU = "cpu"
+VIDEO_ENCODER_CHOICES = (VIDEO_ENCODER_AUTO, VIDEO_ENCODER_NVENC, VIDEO_ENCODER_CPU)
+FFMPEG_H264_NVENC = "h264_nvenc"
+FFMPEG_LIBX264 = "libx264"
+DEFAULT_RENDER_BATCH_SIZE = max(
+    1,
+    int(os.getenv("ANIMATION_RENDER_BATCH_SIZE", "4").strip() or "4"),
+)
+DEFAULT_TRT_ENGINE_BATCH_SIZE = max(
+    DEFAULT_RENDER_BATCH_SIZE,
+    int(
+        os.getenv(
+            "ANIMATION_TRT_ENGINE_BATCH_SIZE",
+            str(DEFAULT_RENDER_BATCH_SIZE),
+        ).strip()
+        or str(DEFAULT_RENDER_BATCH_SIZE)
+    ),
+)
+DEFAULT_VIDEO_ENCODER = os.getenv("ANIMATION_VIDEO_ENCODER", VIDEO_ENCODER_AUTO).strip().lower() or VIDEO_ENCODER_AUTO
+if DEFAULT_VIDEO_ENCODER not in VIDEO_ENCODER_CHOICES:
+    DEFAULT_VIDEO_ENCODER = VIDEO_ENCODER_AUTO
+FFMPEG_ENCODER_SUPPORT_CACHE: dict[str, bool] = {}
 
 
 @dataclass
@@ -91,12 +116,15 @@ class RunnerConfig:
     use_persistent_trt_worker: bool
     driving_audio: Path | None
     audio_motion_stride: int
+    render_batch_size: int
+    trt_engine_batch_size: int
     stream_dir: Path
     stream_enabled: bool
     frame_step: int
     skip_driving_video_build: bool
     rebuild_driving_template: bool
     skip_trt_engine_build: bool
+    video_encoder: str
     paste_back: bool
     animation_region: str
     stitching_enabled: bool
@@ -120,6 +148,18 @@ def parse_args() -> RunnerConfig:
         type=int,
         default=1,
         help="Audio motion frame decimation factor. 1 keeps full motion, 2 uses ~half frames, etc.",
+    )
+    parser.add_argument(
+        "--render-batch-size",
+        type=int,
+        default=DEFAULT_RENDER_BATCH_SIZE,
+        help="Mini-batch size used when rendering precomputed .pkl motion.",
+    )
+    parser.add_argument(
+        "--trt-engine-batch-size",
+        type=int,
+        default=DEFAULT_TRT_ENGINE_BATCH_SIZE,
+        help="Maximum dynamic batch size for TensorRT engines used by batched render paths.",
     )
     parser.add_argument("--stream-dir", default="output_fasterliveportrait/stream")
     parser.add_argument("--disable-stream", action="store_true")
@@ -184,6 +224,7 @@ def parse_args() -> RunnerConfig:
     parser.add_argument("--skip-driving-video-build", action="store_true")
     parser.add_argument("--rebuild-driving-template", action="store_true")
     parser.add_argument("--skip-trt-engine-build", action="store_true")
+    parser.add_argument("--video-encoder", choices=VIDEO_ENCODER_CHOICES, default=DEFAULT_VIDEO_ENCODER)
     parser.add_argument("--no-paste-back", action="store_true")
     parser.add_argument("--animation-region", choices=ANIMATION_REGION_CHOICES, default="all")
     parser.add_argument("--stitching-enabled", dest="stitching_enabled", action="store_true")
@@ -196,6 +237,8 @@ def parse_args() -> RunnerConfig:
     frame_step = max(1, args.frame_step)
     if args.mode == MODE_FULL:
         frame_step = 1
+    render_batch_size = max(1, int(args.render_batch_size))
+    trt_engine_batch_size = max(render_batch_size, int(args.trt_engine_batch_size))
 
     project_root = Path(__file__).resolve().parent
     driving_audio = (project_root / args.driving_audio).resolve() if args.driving_audio else None
@@ -225,12 +268,15 @@ def parse_args() -> RunnerConfig:
         use_persistent_trt_worker=not args.disable_persistent_trt_worker,
         driving_audio=driving_audio,
         audio_motion_stride=max(1, int(args.audio_motion_stride)),
+        render_batch_size=render_batch_size,
+        trt_engine_batch_size=trt_engine_batch_size,
         stream_dir=(project_root / args.stream_dir).resolve(),
         stream_enabled=not args.disable_stream,
         frame_step=frame_step,
         skip_driving_video_build=args.skip_driving_video_build,
         rebuild_driving_template=args.rebuild_driving_template,
         skip_trt_engine_build=args.skip_trt_engine_build,
+        video_encoder=str(args.video_encoder).strip().lower(),
         paste_back=not args.no_paste_back,
         animation_region=str(args.animation_region).strip().lower(),
         stitching_enabled=bool(args.stitching_enabled),
@@ -638,6 +684,82 @@ def compute_file_sha1(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return hasher.hexdigest()
 
 
+def ffmpeg_supports_encoder(encoder_name: str) -> bool:
+    """
+    Check whether the local FFmpeg build exposes one specific video encoder.
+    """
+    safe_encoder_name = str(encoder_name or "").strip().lower()
+    if not safe_encoder_name:
+        return False
+    cached_value = FFMPEG_ENCODER_SUPPORT_CACHE.get(safe_encoder_name)
+    if cached_value is not None:
+        return cached_value
+    try:
+        completed = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=build_runtime_env(),
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        FFMPEG_ENCODER_SUPPORT_CACHE[safe_encoder_name] = False
+        return False
+    support_detected = completed.returncode == 0 and safe_encoder_name in completed.stdout.lower()
+    FFMPEG_ENCODER_SUPPORT_CACHE[safe_encoder_name] = support_detected
+    return support_detected
+
+
+def resolve_ffmpeg_video_encoder_name(video_encoder: str) -> str:
+    """
+    Resolve the concrete FFmpeg video codec name with NVENC auto fallback.
+    """
+    safe_video_encoder = str(video_encoder or VIDEO_ENCODER_AUTO).strip().lower()
+    if safe_video_encoder not in VIDEO_ENCODER_CHOICES:
+        safe_video_encoder = VIDEO_ENCODER_AUTO
+    if safe_video_encoder == VIDEO_ENCODER_CPU:
+        return FFMPEG_LIBX264
+    if ffmpeg_supports_encoder(FFMPEG_H264_NVENC):
+        return FFMPEG_H264_NVENC
+    if safe_video_encoder == VIDEO_ENCODER_NVENC:
+        print("[warn] requested NVENC video encoder is unavailable; falling back to libx264")
+    return FFMPEG_LIBX264
+
+
+def build_ffmpeg_video_encode_args(video_encoder: str, quality_value: int | str) -> list[str]:
+    """
+    Build FFmpeg codec arguments for browser-compatible H.264 output.
+    """
+    codec_name = resolve_ffmpeg_video_encoder_name(video_encoder)
+    quality_text = str(quality_value)
+    if codec_name == FFMPEG_H264_NVENC:
+        return [
+            "-c:v",
+            codec_name,
+            "-preset",
+            "p4",
+            "-tune",
+            "hq",
+            "-rc",
+            "vbr",
+            "-cq",
+            quality_text,
+            "-pix_fmt",
+            "yuv420p",
+        ]
+    return [
+        "-c:v",
+        codec_name,
+        "-preset",
+        "veryfast",
+        "-crf",
+        quality_text,
+        "-pix_fmt",
+        "yuv420p",
+    ]
+
+
 def normalize_audio_for_joyvasa(input_audio_path: Path, output_wav_path: Path) -> None:
     """
     Convert audio to 16k mono PCM WAV for robust JoyVASA loading.
@@ -793,12 +915,7 @@ def build_driving_video(config: RunnerConfig, driving_video: Path, source_fps: f
         str(config.frames_dir / FRAME_PATTERN),
         "-vf",
         video_filter,
-        "-c:v",
-        "libx264",
-        "-crf",
-        "16",
-        "-pix_fmt",
-        "yuv420p",
+        *build_ffmpeg_video_encode_args(config.video_encoder, 16),
         "-movflags",
         "+faststart",
         "-r",
@@ -893,7 +1010,7 @@ def build_driving_template_from_audio(
     build_driving_template_from_audio_local(config, driving_audio, output_template)
 
 
-def mux_audio_into_video(video_path: Path, audio_path: Path) -> Path:
+def mux_audio_into_video(video_path: Path, audio_path: Path, video_encoder: str) -> Path:
     """
     Add audio track and normalize to browser-compatible H.264/AAC.
     """
@@ -909,14 +1026,7 @@ def mux_audio_into_video(video_path: Path, audio_path: Path) -> Path:
         "0:v:0",
         "-map",
         "1:a:0",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "20",
-        "-pix_fmt",
-        "yuv420p",
+        *build_ffmpeg_video_encode_args(video_encoder, 20),
         "-movflags",
         "+faststart",
         "-c:a",
@@ -957,7 +1067,7 @@ def read_primary_video_codec(video_path: Path) -> str:
     return completed.stdout.strip().lower()
 
 
-def ensure_browser_compatible_video(video_path: Path) -> Path:
+def ensure_browser_compatible_video(video_path: Path, video_encoder: str) -> Path:
     """
     Ensure output video uses browser-compatible H.264 video.
     """
@@ -975,14 +1085,7 @@ def ensure_browser_compatible_video(video_path: Path) -> Path:
         "0:v:0",
         "-map",
         "0:a:0?",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "20",
-        "-pix_fmt",
-        "yuv420p",
+        *build_ffmpeg_video_encode_args(video_encoder, 20),
         "-movflags",
         "+faststart",
         "-c:a",
@@ -1063,6 +1166,13 @@ def resolve_engine_precision_marker_path(engine_path: Path) -> Path:
     return engine_path.with_suffix(engine_path.suffix + ENGINE_PRECISION_MARKER_SUFFIX)
 
 
+def resolve_engine_batch_marker_path(engine_path: Path) -> Path:
+    """
+    Resolve marker file path that tracks engine batch capacity.
+    """
+    return engine_path.with_suffix(engine_path.suffix + ENGINE_BATCH_MARKER_SUFFIX)
+
+
 def read_engine_precision_marker(engine_path: Path) -> str:
     """
     Read precision marker for an existing TRT engine.
@@ -1076,6 +1186,23 @@ def read_engine_precision_marker(engine_path: Path) -> str:
         return ""
 
 
+def read_engine_batch_marker(engine_path: Path) -> int:
+    """
+    Read batch marker for an existing TRT engine.
+    """
+    marker_path = resolve_engine_batch_marker_path(engine_path)
+    if not marker_path.exists():
+        return 1
+    try:
+        marker_text = marker_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return 1
+    try:
+        return max(1, int(marker_text))
+    except ValueError:
+        return 1
+
+
 def write_engine_precision_marker(engine_path: Path, precision: str) -> None:
     """
     Persist precision marker for TRT engine.
@@ -1084,35 +1211,46 @@ def write_engine_precision_marker(engine_path: Path, precision: str) -> None:
     marker_path.write_text(precision, encoding="utf-8")
 
 
+def write_engine_batch_marker(engine_path: Path, batch_size: int) -> None:
+    """
+    Persist batch marker for TRT engine.
+    """
+    marker_path = resolve_engine_batch_marker_path(engine_path)
+    marker_path.write_text(str(max(1, int(batch_size))), encoding="utf-8")
+
+
 def ensure_trt_engines(config: RunnerConfig) -> None:
     """
     Ensure required TensorRT engines exist for trt_infer config.
     """
-    engine_jobs: tuple[tuple[str, str | None], ...] = (
+    engine_jobs: tuple[tuple[str, str | None, int], ...] = (
         # warping_spade includes custom plugin path and is kept on FP16 for stability.
-        ("warping_spade-fix.onnx", TRT_PRECISION_FP16),
-        ("landmark.onnx", None),
-        ("motion_extractor.onnx", TRT_PRECISION_FP32),
-        ("retinaface_det_static.onnx", None),
-        ("face_2dpose_106_static.onnx", None),
-        ("appearance_feature_extractor.onnx", None),
-        ("stitching.onnx", None),
-        ("stitching_eye.onnx", None),
-        ("stitching_lip.onnx", None),
+        ("warping_spade-fix.onnx", TRT_PRECISION_FP16, config.trt_engine_batch_size),
+        ("landmark.onnx", None, 1),
+        ("motion_extractor.onnx", TRT_PRECISION_FP32, 1),
+        ("retinaface_det_static.onnx", None, 1),
+        ("face_2dpose_106_static.onnx", None, 1),
+        ("appearance_feature_extractor.onnx", None, 1),
+        ("stitching.onnx", None, config.trt_engine_batch_size),
+        ("stitching_eye.onnx", None, config.trt_engine_batch_size),
+        ("stitching_lip.onnx", None, config.trt_engine_batch_size),
     )
     checkpoints_dir = config.faster_repo_dir / "checkpoints" / "liveportrait_onnx"
     build_jobs: list[dict[str, str]] = []
-    for onnx_name, precision_override in engine_jobs:
+    for onnx_name, precision_override, target_batch_size in engine_jobs:
         target_precision = precision_override or config.trt_precision
         engine_name = onnx_name.replace(".onnx", ".trt")
         engine_path = checkpoints_dir / engine_name
         precision_marker = read_engine_precision_marker(engine_path)
+        batch_marker = read_engine_batch_marker(engine_path)
         requires_rebuild = not engine_path.exists()
         if not requires_rebuild:
             if target_precision == TRT_PRECISION_FP16 and precision_marker in {"", TRT_PRECISION_FP16}:
                 requires_rebuild = False
             else:
                 requires_rebuild = precision_marker != target_precision
+        if not requires_rebuild:
+            requires_rebuild = batch_marker != max(1, int(target_batch_size))
 
         if not requires_rebuild:
             continue
@@ -1124,6 +1262,7 @@ def ensure_trt_engines(config: RunnerConfig) -> None:
                 "onnx_path": source_onnx_path.as_posix(),
                 "engine_path": engine_path.as_posix(),
                 "precision": target_precision,
+                "max_batch_size": str(max(1, int(target_batch_size))),
             }
         )
 
@@ -1132,36 +1271,69 @@ def ensure_trt_engines(config: RunnerConfig) -> None:
         return
 
     print(f"[info] building TRT engines: {len(build_jobs)} (target={config.trt_precision})")
-    faster_repo_rel = to_project_relative(
-        config.faster_repo_dir,
-        config.project_root,
-        "FasterLivePortrait repo",
-    )
-    commands: list[str] = []
-    for build_job in build_jobs:
-        onnx_rel = to_project_relative(Path(build_job["onnx_path"]), config.faster_repo_dir, "TRT source ONNX")
-        engine_rel = to_project_relative(Path(build_job["engine_path"]), config.faster_repo_dir, "TRT engine output")
-        convert_cmd = (
-            f"{DEFAULT_TRT_DOCKER_PYTHON} scripts/onnx2trt.py "
-            f"-o {shlex.quote(onnx_rel)} "
-            f"-e {shlex.quote(engine_rel)} "
-            f"-p {shlex.quote(build_job['precision'])}"
+    if config.trt_runtime == TRT_RUNTIME_DOCKER:
+        faster_repo_rel = to_project_relative(
+            config.faster_repo_dir,
+            config.project_root,
+            "FasterLivePortrait repo",
         )
-        if build_job["precision"] == TRT_PRECISION_INT8:
-            calibration_cache_rel = f"{engine_rel}{TRT_INT8_CALIBRATION_CACHE_SUFFIX}"
-            convert_cmd += (
-                f" --calibration-cache {shlex.quote(calibration_cache_rel)}"
-                f" --calibration-batches {TRT_INT8_CALIBRATION_BATCHES}"
+        commands: list[str] = []
+        for build_job in build_jobs:
+            onnx_rel = to_project_relative(Path(build_job["onnx_path"]), config.faster_repo_dir, "TRT source ONNX")
+            engine_rel = to_project_relative(Path(build_job["engine_path"]), config.faster_repo_dir, "TRT engine output")
+            convert_cmd = (
+                f"{DEFAULT_TRT_DOCKER_PYTHON} scripts/onnx2trt.py "
+                f"-o {shlex.quote(onnx_rel)} "
+                f"-e {shlex.quote(engine_rel)} "
+                f"-p {shlex.quote(build_job['precision'])} "
+                f"--max-batch-size {shlex.quote(build_job['max_batch_size'])}"
             )
-        commands.append(convert_cmd)
+            if build_job["precision"] == TRT_PRECISION_INT8:
+                calibration_cache_rel = f"{engine_rel}{TRT_INT8_CALIBRATION_CACHE_SUFFIX}"
+                convert_cmd += (
+                    f" --calibration-cache {shlex.quote(calibration_cache_rel)}"
+                    f" --calibration-batches {TRT_INT8_CALIBRATION_BATCHES}"
+                )
+            commands.append(convert_cmd)
 
-    script = (
-        f"export LD_LIBRARY_PATH={DEFAULT_TRT_DOCKER_LD_PATH}:$LD_LIBRARY_PATH; "
-        + " && ".join(commands)
-    )
-    run_docker_shell(config, f"/workspace/{faster_repo_rel}", script)
+        script = (
+            f"export LD_LIBRARY_PATH={DEFAULT_TRT_DOCKER_LD_PATH}:$LD_LIBRARY_PATH; "
+            + " && ".join(commands)
+        )
+        run_docker_shell(config, f"/workspace/{faster_repo_rel}", script)
+    else:
+        onnx2trt_script = config.faster_repo_dir / "scripts" / "onnx2trt.py"
+        assert_path_exists(onnx2trt_script, "TensorRT build script")
+        for build_job in build_jobs:
+            onnx_rel = to_project_relative(Path(build_job["onnx_path"]), config.faster_repo_dir, "TRT source ONNX")
+            engine_rel = to_project_relative(Path(build_job["engine_path"]), config.faster_repo_dir, "TRT engine output")
+            command = [
+                str(config.python_executable),
+                "scripts/onnx2trt.py",
+                "-o",
+                onnx_rel,
+                "-e",
+                engine_rel,
+                "-p",
+                build_job["precision"],
+                "--max-batch-size",
+                build_job["max_batch_size"],
+            ]
+            if build_job["precision"] == TRT_PRECISION_INT8:
+                calibration_cache_rel = f"{engine_rel}{TRT_INT8_CALIBRATION_CACHE_SUFFIX}"
+                command.extend(
+                    [
+                        "--calibration-cache",
+                        calibration_cache_rel,
+                        "--calibration-batches",
+                        str(TRT_INT8_CALIBRATION_BATCHES),
+                    ]
+                )
+            run_command(command, cwd=config.faster_repo_dir)
     for build_job in build_jobs:
-        write_engine_precision_marker(Path(build_job["engine_path"]), build_job["precision"])
+        engine_path = Path(build_job["engine_path"])
+        write_engine_precision_marker(engine_path, build_job["precision"])
+        write_engine_batch_marker(engine_path, int(build_job["max_batch_size"]))
 
 
 def to_container_workspace_path(path: Path, project_root: Path, label: str) -> str:
@@ -1272,6 +1444,7 @@ def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
         f"--queue_dir {shlex.quote(f'/workspace/{queue_rel}')} "
         f"--source_cache_dir {shlex.quote(f'/workspace/{source_cache_rel}')} "
         f"--preload_source_image {shlex.quote(source_frame_workspace_path)} "
+        f"--render_batch_size {int(config.render_batch_size)} "
         f"--animation_region {shlex.quote(config.animation_region)} "
     )
     if config.paste_back:
@@ -1324,6 +1497,8 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
         str(config.source_cache_dir),
         "--preload_source_image",
         str(config.source_frame),
+        "--render_batch_size",
+        str(int(config.render_batch_size)),
         "--animation_region",
         str(config.animation_region),
     ]
@@ -1420,6 +1595,10 @@ def run_faster_pipeline_local(
         str(cfg_path.relative_to(config.faster_repo_dir)),
         "--source_cache_dir",
         str(config.source_cache_dir),
+        "--render_batch_size",
+        str(int(config.render_batch_size)),
+        "--video_encoder",
+        str(config.video_encoder),
         "--animation_region",
         str(config.animation_region),
     ]
@@ -1464,6 +1643,7 @@ def run_faster_pipeline_local_trt_persistent_worker(
         "streamDir": str(config.stream_dir) if config.stream_enabled else "",
         "saveDir": str(run_output_dir),
         "animal": False,
+        "renderBatchSize": int(config.render_batch_size),
         "pasteBack": bool(config.paste_back),
         "animationRegion": str(config.animation_region),
         "stitchingEnabled": bool(config.stitching_enabled),
@@ -1516,6 +1696,8 @@ def run_faster_pipeline_docker_trt(
         f"--dri_video {shlex.quote(f'/workspace/{driving_rel}')} "
         f"--cfg {shlex.quote(cfg_rel)} "
         f"--source_cache_dir {shlex.quote(f'/workspace/{source_cache_rel}')} "
+        f"--render_batch_size {int(config.render_batch_size)} "
+        f"--video_encoder {shlex.quote(config.video_encoder)} "
         f"--animation_region {shlex.quote(config.animation_region)}"
     )
     if config.stream_enabled:
@@ -1564,6 +1746,7 @@ def run_faster_pipeline_docker_trt_persistent_worker(
         ),
         "saveDir": to_container_workspace_path(run_output_dir, config.project_root, "Worker run output directory"),
         "animal": False,
+        "renderBatchSize": int(config.render_batch_size),
         "pasteBack": bool(config.paste_back),
         "animationRegion": str(config.animation_region),
         "stitchingEnabled": bool(config.stitching_enabled),
@@ -1746,11 +1929,14 @@ def main() -> None:
     audio_template_input_wav = resolve_audio_template_input_wav_path(config)
     target_driving_fps = source_fps / config.frame_step if config.frame_step > 1 else source_fps
     print(
-        "[info] backend={} trt_runtime={} trt_precision={} mode={} source_fps={:.6f} target_driving_fps={:.6f}".format(
+        "[info] backend={} trt_runtime={} trt_precision={} mode={} render_batch_size={} trt_engine_batch_size={} video_encoder={} source_fps={:.6f} target_driving_fps={:.6f}".format(
             config.backend,
             config.trt_runtime,
             config.trt_precision,
             config.mode,
+            config.render_batch_size,
+            config.trt_engine_batch_size,
+            config.video_encoder,
             source_fps,
             target_driving_fps,
         )
@@ -1854,11 +2040,7 @@ def main() -> None:
         driving_media = driving_video
     phase_prepare_inputs_seconds = time.time() - phase_started_at
 
-    if (
-        config.backend == BACKEND_TRT
-        and config.trt_runtime == TRT_RUNTIME_DOCKER
-        and not config.skip_trt_engine_build
-    ):
+    if config.backend == BACKEND_TRT and not config.skip_trt_engine_build:
         ensure_trt_engines(config)
 
     raw_results_root = config.faster_repo_dir / "results"
@@ -1873,10 +2055,10 @@ def main() -> None:
         if template_written:
             print(f"[ok] cached template -> {driving_template}")
     if driving_audio is not None:
-        result_org = mux_audio_into_video(result_org, driving_audio)
-        result_crop = mux_audio_into_video(result_crop, driving_audio)
-    result_org = ensure_browser_compatible_video(result_org)
-    result_crop = ensure_browser_compatible_video(result_crop)
+        result_org = mux_audio_into_video(result_org, driving_audio, config.video_encoder)
+        result_crop = mux_audio_into_video(result_crop, driving_audio, config.video_encoder)
+    result_org = ensure_browser_compatible_video(result_org, config.video_encoder)
+    result_crop = ensure_browser_compatible_video(result_crop, config.video_encoder)
 
     driving_public, result_public, result_concat_public = copy_public_outputs(
         output_dir=config.output_dir,
