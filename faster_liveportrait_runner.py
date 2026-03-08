@@ -54,6 +54,7 @@ AUDIO_TEMPLATE_META_NAME = "audio_template_meta.json"
 DEFAULT_AUDIO_TEMPLATE_CACHE_DIR = "output_fasterliveportrait/audio_template_cache"
 DEFAULT_SOURCE_CACHE_DIR = "output_fasterliveportrait/source_preprocess_cache"
 DEFAULT_PERSISTENT_WORKER_QUEUE_DIR = "output_fasterliveportrait/worker_queue"
+DEFAULT_AUDIO_MOTION_STRIDE_FPS_BOOST = 1.28
 ENGINE_PRECISION_MARKER_SUFFIX = ".precision.txt"
 TRT_INT8_CALIBRATION_BATCHES = 12
 TRT_INT8_CALIBRATION_CACHE_SUFFIX = ".int8.cache"
@@ -303,6 +304,18 @@ def build_motion_sample_indices(source_count: int, target_count: int) -> list[in
     return indices
 
 
+def resolve_motion_stride_target_fps(source_fps: float, motion_stride: int) -> int:
+    """
+    Resolve one slightly boosted target FPS for reduced-motion audio templates.
+    """
+    if motion_stride <= 1:
+        return max(1, int(round(float(source_fps))))
+    base_target_fps = float(source_fps) / float(motion_stride)
+    boosted_target_fps = base_target_fps * DEFAULT_AUDIO_MOTION_STRIDE_FPS_BOOST
+    capped_target_fps = min(float(source_fps), boosted_target_fps)
+    return max(1, int(round(capped_target_fps)))
+
+
 def build_strided_audio_template(
     source_template_path: Path,
     output_template_path: Path,
@@ -334,7 +347,7 @@ def build_strided_audio_template(
         source_fps = int(DEFAULT_FPS)
 
     source_duration_sec = float(source_frame_count) / float(source_fps)
-    target_fps = max(1, int(round(float(source_fps) / float(motion_stride))))
+    target_fps = resolve_motion_stride_target_fps(source_fps, motion_stride)
     target_frame_count = max(1, int(round(source_duration_sec * float(target_fps))))
     sample_indices = build_motion_sample_indices(source_frame_count, target_frame_count)
     if not sample_indices:

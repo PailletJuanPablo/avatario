@@ -12,6 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Runtime dependencies installed once at image build time.
 RUN /root/miniconda3/bin/pip install --no-cache-dir \
+    aiortc==1.14.0 \
     colorama \
     transformers==4.40.2 \
     fastapi \
