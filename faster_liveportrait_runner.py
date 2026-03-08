@@ -54,7 +54,6 @@ AUDIO_TEMPLATE_META_NAME = "audio_template_meta.json"
 DEFAULT_AUDIO_TEMPLATE_CACHE_DIR = "output_fasterliveportrait/audio_template_cache"
 DEFAULT_SOURCE_CACHE_DIR = "output_fasterliveportrait/source_preprocess_cache"
 DEFAULT_PERSISTENT_WORKER_QUEUE_DIR = "output_fasterliveportrait/worker_queue"
-DEFAULT_AUDIO_MOTION_STRIDE_FPS_BOOST = 1.28
 ENGINE_PRECISION_MARKER_SUFFIX = ".precision.txt"
 ENGINE_BATCH_MARKER_SUFFIX = ".batch.txt"
 TRT_INT8_CALIBRATION_BATCHES = 12
@@ -352,13 +351,12 @@ def build_motion_sample_indices(source_count: int, target_count: int) -> list[in
 
 def resolve_motion_stride_target_fps(source_fps: float, motion_stride: int) -> int:
     """
-    Resolve one slightly boosted target FPS for reduced-motion audio templates.
+    Resolve one target FPS for reduced-motion audio templates.
     """
     if motion_stride <= 1:
         return max(1, int(round(float(source_fps))))
     base_target_fps = float(source_fps) / float(motion_stride)
-    boosted_target_fps = base_target_fps * DEFAULT_AUDIO_MOTION_STRIDE_FPS_BOOST
-    capped_target_fps = min(float(source_fps), boosted_target_fps)
+    capped_target_fps = min(float(source_fps), base_target_fps)
     return max(1, int(round(capped_target_fps)))
 
 
@@ -686,7 +684,7 @@ def compute_file_sha1(path: Path, chunk_size: int = 1024 * 1024) -> str:
 
 def ffmpeg_supports_encoder(encoder_name: str) -> bool:
     """
-    Check whether the local FFmpeg build exposes one specific video encoder.
+    Check whether the local FFmpeg runtime can actually initialize one specific video encoder.
     """
     safe_encoder_name = str(encoder_name or "").strip().lower()
     if not safe_encoder_name:
@@ -696,7 +694,25 @@ def ffmpeg_supports_encoder(encoder_name: str) -> bool:
         return cached_value
     try:
         completed = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-encoders"],
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=16x16:r=1",
+                "-frames:v",
+                "1",
+                "-c:v",
+                safe_encoder_name,
+                "-pix_fmt",
+                "yuv420p",
+                "-f",
+                "null",
+                "-",
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -706,7 +722,7 @@ def ffmpeg_supports_encoder(encoder_name: str) -> bool:
     except (OSError, subprocess.SubprocessError):
         FFMPEG_ENCODER_SUPPORT_CACHE[safe_encoder_name] = False
         return False
-    support_detected = completed.returncode == 0 and safe_encoder_name in completed.stdout.lower()
+    support_detected = completed.returncode == 0
     FFMPEG_ENCODER_SUPPORT_CACHE[safe_encoder_name] = support_detected
     return support_detected
 
@@ -738,9 +754,7 @@ def build_ffmpeg_video_encode_args(video_encoder: str, quality_value: int | str)
             "-c:v",
             codec_name,
             "-preset",
-            "p4",
-            "-tune",
-            "hq",
+            "fast",
             "-rc",
             "vbr",
             "-cq",
@@ -1572,6 +1586,63 @@ def wait_for_persistent_worker_result(
     return result_payload
 
 
+def build_local_driving_args(config: RunnerConfig, driving_input: Path) -> list[str]:
+    """
+    Build local run.py driving arguments using one single audio/video contract.
+    """
+    if config.driving_audio is not None:
+        return [
+            "--driving_audio",
+            str(driving_input),
+            "--motion_stride",
+            str(int(config.audio_motion_stride)),
+        ]
+    return [
+        "--dri_video",
+        str(driving_input),
+    ]
+
+
+def build_docker_driving_args(config: RunnerConfig, driving_workspace_path: str) -> str:
+    """
+    Build docker run.py driving arguments using one single audio/video contract.
+    """
+    if config.driving_audio is not None:
+        return (
+            f"--driving_audio {shlex.quote(driving_workspace_path)} "
+            f"--motion_stride {int(config.audio_motion_stride)} "
+        )
+    return f"--dri_video {shlex.quote(driving_workspace_path)} "
+
+
+def build_worker_driving_payload(config: RunnerConfig, driving_input: Path, containerized: bool) -> dict[str, str | int]:
+    """
+    Build persistent worker driving payload fields using one single audio/video contract.
+    """
+    if config.driving_audio is None:
+        driving_value = (
+            to_container_workspace_path(driving_input, config.project_root, "Driving input")
+            if containerized
+            else str(driving_input)
+        )
+        return {
+            "driVideo": driving_value,
+            "drivingAudio": "",
+            "motionStride": 1,
+        }
+
+    driving_value = (
+        to_container_workspace_path(driving_input, config.project_root, "Driving audio")
+        if containerized
+        else str(driving_input)
+    )
+    return {
+        "driVideo": "",
+        "drivingAudio": driving_value,
+        "motionStride": int(config.audio_motion_stride),
+    }
+
+
 def run_faster_pipeline_local(
     config: RunnerConfig,
     driving_input: Path,
@@ -1589,8 +1660,6 @@ def run_faster_pipeline_local(
         "run.py",
         "--src_image",
         str(config.source_frame),
-        "--dri_video",
-        str(driving_input),
         "--cfg",
         str(cfg_path.relative_to(config.faster_repo_dir)),
         "--source_cache_dir",
@@ -1602,6 +1671,7 @@ def run_faster_pipeline_local(
         "--animation_region",
         str(config.animation_region),
     ]
+    command.extend(build_local_driving_args(config, driving_input))
     if config.stream_enabled:
         command.extend(["--stream_dir", str(config.stream_dir)])
     if config.paste_back:
@@ -1639,7 +1709,6 @@ def run_faster_pipeline_local_trt_persistent_worker(
     request_payload = {
         "requestId": request_id,
         "srcImage": str(config.source_frame),
-        "driVideo": str(driving_input),
         "streamDir": str(config.stream_dir) if config.stream_enabled else "",
         "saveDir": str(run_output_dir),
         "animal": False,
@@ -1650,6 +1719,7 @@ def run_faster_pipeline_local_trt_persistent_worker(
         "relativeMotionEnabled": bool(config.relative_motion_enabled),
         "sourceCacheDir": str(config.source_cache_dir),
     }
+    request_payload.update(build_worker_driving_payload(config, driving_input, containerized=False))
     result_payload = wait_for_persistent_worker_result(
         request_id=request_id,
         request_path=request_path,
@@ -1693,13 +1763,13 @@ def run_faster_pipeline_docker_trt(
         f"{DEFAULT_TRT_DOCKER_PYTHON} -c \"import colorama\"; "
         f"{DEFAULT_TRT_DOCKER_PYTHON} run.py "
         f"--src_image {shlex.quote(f'/workspace/{src_rel}')} "
-        f"--dri_video {shlex.quote(f'/workspace/{driving_rel}')} "
         f"--cfg {shlex.quote(cfg_rel)} "
         f"--source_cache_dir {shlex.quote(f'/workspace/{source_cache_rel}')} "
         f"--render_batch_size {int(config.render_batch_size)} "
         f"--video_encoder {shlex.quote(config.video_encoder)} "
         f"--animation_region {shlex.quote(config.animation_region)}"
     )
+    script += " " + build_docker_driving_args(config, f"/workspace/{driving_rel}").strip()
     if config.stream_enabled:
         script += f" --stream_dir {shlex.quote(f'/workspace/{stream_rel}')}"
     if config.paste_back:
@@ -1738,7 +1808,6 @@ def run_faster_pipeline_docker_trt_persistent_worker(
     request_payload = {
         "requestId": request_id,
         "srcImage": to_container_workspace_path(config.source_frame, config.project_root, "Source frame"),
-        "driVideo": to_container_workspace_path(driving_input, config.project_root, "Driving input"),
         "streamDir": (
             to_container_workspace_path(config.stream_dir, config.project_root, "Stream directory")
             if config.stream_enabled
@@ -1757,6 +1826,7 @@ def run_faster_pipeline_docker_trt_persistent_worker(
             "Source cache directory",
         ),
     }
+    request_payload.update(build_worker_driving_payload(config, driving_input, containerized=True))
     result_payload = wait_for_persistent_worker_result(
         request_id=request_id,
         request_path=request_path,
@@ -1945,81 +2015,13 @@ def main() -> None:
     driving_audio = config.driving_audio
     if driving_audio is not None:
         assert_path_exists(driving_audio, "Driving audio")
-        audio_signature = build_audio_signature(driving_audio)
-        global_audio_template, global_audio_meta = resolve_global_audio_cache_paths(config, audio_signature)
+        print(f"[info] normalizing driving audio for progressive render: {driving_audio}")
+        normalize_audio_for_joyvasa(driving_audio, audio_template_input_wav)
+        assert_path_exists(audio_template_input_wav, "Normalized driving audio")
         template_used = False
-
-        local_cache_hit = (
-            not config.rebuild_driving_template
-            and is_audio_template_cache_hit(audio_template, audio_template_meta, audio_signature)
-        )
-        global_cache_hit = (
-            not config.rebuild_driving_template
-            and is_audio_template_cache_hit(global_audio_template, global_audio_meta, audio_signature)
-        )
-
-        if local_cache_hit:
-            template_used = True
-            print(f"[info] using local cached audio template: {audio_template}")
-        elif global_cache_hit:
-            audio_template.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(global_audio_template, audio_template)
-            local_meta_payload = build_audio_template_meta_payload(
-                audio_signature=audio_signature,
-                template_path=audio_template,
-                config=config,
-                normalized_audio_path=audio_template_input_wav,
-            )
-            write_audio_template_meta(audio_template_meta, local_meta_payload)
-            template_used = True
-            print(f"[info] restored audio template from global cache: {global_audio_template}")
-        else:
-            print(f"[info] building audio template from: {driving_audio}")
-            normalize_audio_for_joyvasa(driving_audio, audio_template_input_wav)
-            build_driving_template_from_audio(config, audio_template_input_wav, audio_template)
-            local_meta_payload = build_audio_template_meta_payload(
-                audio_signature=audio_signature,
-                template_path=audio_template,
-                config=config,
-                normalized_audio_path=audio_template_input_wav,
-            )
-            write_audio_template_meta(audio_template_meta, local_meta_payload)
-            global_audio_template.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(audio_template, global_audio_template)
-            global_meta_payload = build_audio_template_meta_payload(
-                audio_signature=audio_signature,
-                template_path=global_audio_template,
-                config=config,
-                normalized_audio_path=audio_template_input_wav,
-            )
-            write_audio_template_meta(global_audio_meta, global_meta_payload)
-            print(f"[ok] cached audio template globally: {global_audio_template}")
-
-        if template_used and not global_cache_hit:
-            global_audio_template.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(audio_template, global_audio_template)
-            global_meta_payload = build_audio_template_meta_payload(
-                audio_signature=audio_signature,
-                template_path=global_audio_template,
-                config=config,
-                normalized_audio_path=audio_template_input_wav,
-            )
-            write_audio_template_meta(global_audio_meta, global_meta_payload)
-            print(f"[info] backfilled global audio cache: {global_audio_template}")
-
-        assert_path_exists(audio_template, "Audio driving template")
-        if config.audio_motion_stride > 1:
-            build_strided_audio_template(
-                source_template_path=audio_template,
-                output_template_path=strided_audio_template,
-                motion_stride=config.audio_motion_stride,
-            )
-            assert_path_exists(strided_audio_template, "Strided audio driving template")
-            driving_input = strided_audio_template
-        else:
-            driving_input = audio_template
+        driving_input = audio_template_input_wav
         driving_media = driving_audio
-        driving_fps = read_template_fps(driving_input, source_fps)
+        driving_fps = source_fps
     else:
         if config.skip_driving_video_build and driving_video.exists():
             print(f"[info] reusing driving video: {driving_video}")
@@ -2050,6 +2052,11 @@ def main() -> None:
     phase_inference_seconds = time.time() - phase_inference_started_at
 
     phase_postprocess_started_at = time.time()
+    if driving_audio is not None:
+        exported_audio_template = copy_template_if_present(run_output_dir, audio_template, driving_input.name)
+        if exported_audio_template:
+            driving_fps = read_template_fps(audio_template, driving_fps)
+            print(f"[ok] exported audio motion template -> {audio_template}")
     if driving_input.suffix.lower() == ".mp4":
         template_written = copy_template_if_present(run_output_dir, driving_template, driving_input.name)
         if template_written:

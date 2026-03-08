@@ -89,7 +89,7 @@ FFPROBE_BINARY = resolve_media_tool_binary("ffprobe")
 
 def ffmpeg_supports_encoder(encoder_name: str) -> bool:
     """
-    Check whether the configured FFmpeg build exposes one specific encoder.
+    Check whether the configured FFmpeg runtime can actually initialize one specific encoder.
     """
     safe_encoder_name = str(encoder_name or "").strip().lower()
     if not safe_encoder_name:
@@ -99,7 +99,25 @@ def ffmpeg_supports_encoder(encoder_name: str) -> bool:
         return cached_value
     try:
         completed = subprocess.run(
-            [FFMPEG_BINARY, "-hide_banner", "-encoders"],
+            [
+                FFMPEG_BINARY,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=16x16:r=1",
+                "-frames:v",
+                "1",
+                "-c:v",
+                safe_encoder_name,
+                "-pix_fmt",
+                "yuv420p",
+                "-f",
+                "null",
+                "-",
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -108,7 +126,7 @@ def ffmpeg_supports_encoder(encoder_name: str) -> bool:
     except (OSError, subprocess.SubprocessError):
         FFMPEG_ENCODER_SUPPORT_CACHE[safe_encoder_name] = False
         return False
-    support_detected = completed.returncode == 0 and safe_encoder_name in completed.stdout.lower()
+    support_detected = completed.returncode == 0
     FFMPEG_ENCODER_SUPPORT_CACHE[safe_encoder_name] = support_detected
     return support_detected
 
@@ -136,9 +154,7 @@ def build_stream_video_codec_args() -> list[str]:
             "-c:v",
             codec_name,
             "-preset",
-            "p3",
-            "-tune",
-            "ll",
+            "llhp",
             "-rc",
             "cbr",
             "-profile:v",
@@ -371,9 +387,8 @@ AVATAR_IDLE_SOURCE_ANCHOR_ROOT_REL = Path("output_fasterliveportrait/avatar_idle
 AVATAR_IDLE_SOURCE_ANCHOR_MANIFEST_NAME = "anchors.json"
 AVATAR_IDLE_SOURCE_ANCHOR_COUNT = 12
 AVATAR_IDLE_MIN_HOLD_SEC = 0.35
-AVATAR_READY_PROGRESS = 0.40
 AVATAR_READY_BUFFER_MIN_SEC = 1.2
-AVATAR_READY_BUFFER_MAX_SEC = 2.0
+AVATAR_READY_DYNAMIC_MARGIN_SEC = 0.45
 AVATAR_STATE_POLL_SLEEP_SEC = 0.1
 WEBRTC_OFFER_API_PATH = "/api/webrtc/offer"
 WEBRTC_SESSION_POLL_SLEEP_SEC = 0.15
@@ -1976,7 +1991,10 @@ async def pump_continuous_avatar_audio(
                 elif len(audio_chunk) < VIDEO_STREAM_AUDIO_CHUNK_BYTES:
                     audio_chunk = audio_chunk + bytes(VIDEO_STREAM_AUDIO_CHUNK_BYTES - len(audio_chunk))
 
-            await asyncio.to_thread(os.write, audio_write_fd, audio_chunk)
+            try:
+                await asyncio.to_thread(os.write, audio_write_fd, audio_chunk)
+            except (BrokenPipeError, OSError):
+                break
             next_emit_at += float(VIDEO_STREAM_AUDIO_CHUNK_SAMPLES) / float(VIDEO_STREAM_AUDIO_SAMPLE_RATE_INT)
             sleep_duration = next_emit_at - time.perf_counter()
             if sleep_duration > 0:
@@ -2000,7 +2018,7 @@ async def stop_continuous_avatar_audio(
         stop_event.set()
     if audio_task is not None:
         audio_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
+        with contextlib.suppress(asyncio.CancelledError, BrokenPipeError, OSError):
             await audio_task
     if audio_write_fd is not None and audio_write_fd >= 0:
         with contextlib.suppress(OSError):
@@ -2385,6 +2403,11 @@ def get_avatar_state_snapshot() -> dict[str, Any]:
     if current_job_id:
         with JOBS_LOCK:
             current_job = JOBS.get(current_job_id)
+    buffered_start_progress = (
+        resolve_avatar_minimum_ready_progress(current_job.audio_duration_sec)
+        if current_job is not None
+        else 0.0
+    )
     return {
         "mode": current_mode,
         "sequence": sequence,
@@ -2393,7 +2416,7 @@ def get_avatar_state_snapshot() -> dict[str, Any]:
         "currentJobEndsAtMs": current_ends_at_ms,
         "idleStartedAtMs": idle_started_at_ms,
         "idleVideoUrl": resolve_idle_video_url(),
-        "bufferedStartProgress": AVATAR_READY_PROGRESS,
+        "bufferedStartProgress": buffered_start_progress,
         "currentJobVideoWsUrl": f"/ws/jobs/{current_job_id}/video" if current_job_id else "",
         "currentJobStatusWsUrl": f"/ws/jobs/{current_job_id}" if current_job_id else "",
         "currentJobAudioDurationSec": current_job.audio_duration_sec if current_job is not None else 0.0,
@@ -2455,20 +2478,58 @@ def build_avatar_payload() -> dict[str, Any]:
 
 def resolve_avatar_ready_buffer_sec_for_duration(audio_duration_sec: float) -> float:
     """
-    Resolve the adaptive talking prebuffer window from one audio duration.
+    Resolve the baseline talking prebuffer window from one audio duration.
     """
-    return clamp_float(
-        max(0.0, float(audio_duration_sec)) * AVATAR_READY_PROGRESS,
-        AVATAR_READY_BUFFER_MIN_SEC,
-        AVATAR_READY_BUFFER_MAX_SEC,
-    )
+    return AVATAR_READY_BUFFER_MIN_SEC
+
+
+def resolve_avatar_minimum_ready_progress(audio_duration_sec: float) -> float:
+    """
+    Resolve the display-only progress ratio implied by the startup safety window.
+    """
+    safe_audio_duration_sec = max(0.0, float(audio_duration_sec))
+    if safe_audio_duration_sec <= 0:
+        return 0.0
+    return clamp_float(AVATAR_READY_BUFFER_MIN_SEC / safe_audio_duration_sec, 0.0, 1.0)
 
 
 def resolve_avatar_ready_buffer_sec(job: JobRecord, stream_status: dict[str, Any] | None) -> float:
     """
-    Resolve the adaptive talking prebuffer window before the avatar starts one job.
+    Resolve the baseline talking prebuffer window before the avatar starts one job.
     """
     return resolve_avatar_ready_buffer_sec_for_duration(job.audio_duration_sec)
+
+
+def resolve_avatar_required_ready_frame_count(
+    job: JobRecord,
+    stream_status: dict[str, Any] | None,
+) -> int:
+    """
+    Resolve the minimum generated frame count required before the avatar can
+    start one talking job without outrunning the renderer.
+    """
+    frame_total = parse_status_int(stream_status, "frameTotal")
+    playback_fps = resolve_stream_playback_fps(stream_status)
+    baseline_duration_sec = resolve_avatar_ready_buffer_sec(job, stream_status)
+    baseline_frame_count = 0
+    if playback_fps > 0 and baseline_duration_sec > 0:
+        baseline_frame_count = int(math.ceil(baseline_duration_sec * playback_fps))
+    if frame_total <= 0 or playback_fps <= 0:
+        return max(1, baseline_frame_count)
+
+    estimated_generation_fps = estimate_generation_fps(stream_status, 0.0)
+    if estimated_generation_fps <= 0:
+        return max(1, min(frame_total, baseline_frame_count))
+
+    clip_duration_sec = float(frame_total) / float(playback_fps)
+    generation_deficit_fps = max(0.0, float(playback_fps) - float(estimated_generation_fps))
+    dynamic_frame_count = int(
+        math.ceil(
+            (generation_deficit_fps * clip_duration_sec)
+            + (float(playback_fps) * AVATAR_READY_DYNAMIC_MARGIN_SEC)
+        )
+    )
+    return max(1, min(frame_total, max(baseline_frame_count, dynamic_frame_count)))
 
 
 def resolve_avatar_idle_anchor_source_frame(audio_duration_sec: float) -> tuple[Path, str] | None:
@@ -2542,9 +2603,8 @@ def is_job_ready_for_avatar(job: JobRecord, stream_status: dict[str, Any] | None
     playback_fps = resolve_stream_playback_fps(stream_status)
     if frame_index <= 0 or playback_fps <= 0:
         return False
-    buffered_duration_sec = float(frame_index) / float(playback_fps)
-    required_buffer_sec = resolve_avatar_ready_buffer_sec(job, stream_status)
-    return buffered_duration_sec >= required_buffer_sec
+    required_frame_count = resolve_avatar_required_ready_frame_count(job, stream_status)
+    return frame_index >= required_frame_count
 
 
 def select_next_avatar_job() -> JobRecord | None:
