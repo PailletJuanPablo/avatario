@@ -145,6 +145,10 @@ Dockerized API flow, see:
 
 - `docs/DOCKER_BACKEND_BENCHMARK.md`
 
+If you want to run the TRT path on Runpod Pods without Docker-in-Docker, see:
+
+- `docs/RUNPOD_DEPLOYMENT.md`
+
 ## Contrato runtime
 
 - Backend por defecto: TensorRT

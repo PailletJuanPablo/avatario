@@ -2,6 +2,7 @@ node_modules/
 __pycache__/
 .venv/
 .env
+.runpod/
 .vscode/
 .lh/
 .ipynb_checkpoints/
