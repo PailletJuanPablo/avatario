@@ -16,10 +16,22 @@ DEFAULT_TRT_RUNTIME="local"
 DEFAULT_TRT_PRECISION="fp16"
 DEFAULT_IDLE_VIDEO_PATH="inputs/idlevid.mp4"
 DEFAULT_CHECKPOINT_REPO_ID="warmshao/FasterLivePortrait"
+RUNPOD_REQUIREMENTS_FILE_PATH="${PROJECT_ROOT}/requirements-runpod.txt"
 DEFAULT_TENSORRT_PIP_PACKAGES=(
   "tensorrt-cu12"
   "tensorrt-cu12-bindings"
   "tensorrt-cu12-libs"
+)
+DEFAULT_SYSTEM_PACKAGES=(
+  "build-essential"
+  "ca-certificates"
+  "curl"
+  "ffmpeg"
+  "git"
+  "libglib2.0-0"
+  "libsm6"
+  "libxext6"
+  "libxrender1"
 )
 HEALTHCHECK_MAX_ATTEMPTS="${RUNPOD_HEALTHCHECK_MAX_ATTEMPTS:-180}"
 HEALTHCHECK_SLEEP_SECONDS="${RUNPOD_HEALTHCHECK_SLEEP_SECONDS:-2}"
@@ -44,6 +56,15 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+apt_package_installed() {
+  local package_name="$1"
+  if command_exists dpkg-query; then
+    dpkg-query -W -f='${Status}' "${package_name}" 2>/dev/null | grep -q "install ok installed"
+    return
+  fi
+  return 1
+}
+
 install_apt_packages_if_missing() {
   local package_names=("$@")
   local packages_to_install=()
@@ -58,6 +79,9 @@ install_apt_packages_if_missing() {
   fi
 
   for package_name in "${package_names[@]}"; do
+    if apt_package_installed "${package_name}"; then
+      continue
+    fi
     binary_name="${package_name}"
     case "${package_name}" in
       ca-certificates) binary_name="update-ca-certificates" ;;
@@ -97,7 +121,7 @@ resolve_python_bin() {
     command -v python
     return
   fi
-  print_error "Python runtime not found. Use a TensorRT-capable image such as shaoguo/faster_liveportrait:v3."
+  print_error "Python runtime not found. Use an official Runpod PyTorch image or a custom image built from Dockerfile.runpod."
   exit 1
 }
 
@@ -125,12 +149,12 @@ resolve_pip_bin() {
     command -v pip
     return
   fi
-  print_error "pip runtime not found. Use a TensorRT-capable image such as shaoguo/faster_liveportrait:v3."
+  print_error "pip runtime not found. Use an official Runpod PyTorch image or a custom image built from Dockerfile.runpod."
   exit 1
 }
 
 ensure_runpod_system_dependencies() {
-  install_apt_packages_if_missing git curl ffmpeg ca-certificates >/dev/null
+  install_apt_packages_if_missing "${DEFAULT_SYSTEM_PACKAGES[@]}" >/dev/null
 }
 
 ensure_gpu_runtime() {
@@ -186,47 +210,78 @@ PY
 ensure_python_runtime_modules() {
   local python_bin="$1"
   local pip_bin="$2"
-  local missing_core_modules
-  local missing_extension_modules
+  local missing_preinstalled_modules
+  local missing_runtime_modules
 
-  missing_core_modules="$("${python_bin}" - <<'PY'
+  missing_preinstalled_modules="$("${python_bin}" - <<'PY'
 import importlib.util
 
-core_modules = ("cv2", "numpy", "torch")
-missing_modules = [name for name in core_modules if importlib.util.find_spec(name) is None]
+required_preinstalled_modules = ("numpy", "torch")
+missing_modules = [name for name in required_preinstalled_modules if importlib.util.find_spec(name) is None]
 print(" ".join(missing_modules))
 PY
 )"
 
-  if [[ -n "${missing_core_modules}" ]]; then
-    print_error "The selected image is missing required TRT runtime modules: ${missing_core_modules}"
+  if [[ -n "${missing_preinstalled_modules}" ]]; then
+    print_error "The selected image is missing required CUDA runtime modules: ${missing_preinstalled_modules}"
     print_error "Use a Runpod PyTorch image with CUDA support."
     exit 1
   fi
 
-  missing_extension_modules="$("${python_bin}" - <<'PY'
+  if [[ ! -f "${RUNPOD_REQUIREMENTS_FILE_PATH}" ]]; then
+    print_error "Runpod requirements file not found: ${RUNPOD_REQUIREMENTS_FILE_PATH}"
+    exit 1
+  fi
+
+  print_info "Installing Python runtime packages from ${RUNPOD_REQUIREMENTS_FILE_PATH}"
+  "${pip_bin}" install --no-cache-dir -r "${RUNPOD_REQUIREMENTS_FILE_PATH}"
+
+  missing_runtime_modules="$("${python_bin}" - <<'PY'
 import importlib.util
 
-extension_modules = ("aiortc", "av", "fastapi", "huggingface_hub", "multipart", "omegaconf", "transformers", "uvicorn")
-missing_modules = [name for name in extension_modules if importlib.util.find_spec(name) is None]
+required_runtime_modules = (
+    "aiortc",
+    "av",
+    "colorama",
+    "cv2",
+    "fastapi",
+    "ffmpeg",
+    "huggingface_hub",
+    "insightface",
+    "mediapipe",
+    "multipart",
+    "omegaconf",
+    "onnx",
+    "onnxruntime",
+    "PIL",
+    "pycuda",
+    "skimage",
+    "torchgeometry",
+    "tqdm",
+    "transformers",
+    "uvicorn",
+)
+missing_modules = [name for name in required_runtime_modules if importlib.util.find_spec(name) is None]
 print(" ".join(missing_modules))
 PY
 )"
 
-  if [[ -z "${missing_extension_modules}" ]]; then
-    return
+  if [[ -n "${missing_runtime_modules}" ]]; then
+    print_error "Missing Python runtime modules after bootstrap: ${missing_runtime_modules}"
+    exit 1
   fi
 
-  print_info "Installing Python packages for realtime_stream_api.py"
-  "${pip_bin}" install --no-cache-dir \
-    aiortc==1.14.0 \
-    av \
-    fastapi \
-    "huggingface_hub[cli]" \
-    omegaconf \
-    python-multipart \
-    transformers==4.40.2 \
-    "uvicorn[standard]"
+  if ! "${python_bin}" - <<'PY'
+import importlib.util
+import sys
+
+torchaudio_spec = importlib.util.find_spec("torchaudio")
+sys.exit(0 if torchaudio_spec is not None else 1)
+PY
+  then
+    print_error "torchaudio is unavailable in the selected image. Use an official Runpod PyTorch image that includes torchaudio."
+    exit 1
+  fi
 }
 
 ensure_project_layout() {
@@ -467,6 +522,12 @@ main() {
   export ANIMATION_WARMUP_ENABLED="${ANIMATION_WARMUP_ENABLED:-1}"
   export ANIMATION_IDLE_VIDEO="${ANIMATION_IDLE_VIDEO:-${DEFAULT_IDLE_VIDEO_PATH}}"
   export ANIMATION_API_TOKEN="$(resolve_api_token "${PYTHON_BIN}")"
+  export ANIMATION_VIDEO_ENCODER="${ANIMATION_VIDEO_ENCODER:-cpu}"
+
+  if [[ "${ANIMATION_BACKEND}" != "${DEFAULT_BACKEND}" ]]; then
+    print_error "Runpod bootstrap only supports ANIMATION_BACKEND=${DEFAULT_BACKEND}. Current value: ${ANIMATION_BACKEND}"
+    exit 1
+  fi
 
   ensure_idle_video_exists
   ensure_checkpoints

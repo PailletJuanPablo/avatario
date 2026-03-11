@@ -2,122 +2,147 @@
 
 ## Scope
 
-This runbook deploys the realtime avatar API on a Runpod Pod without Docker-in-Docker.
+This runbook deploys the realtime avatar API on Runpod Pods with `TensorRT` as the only supported inference backend for this flow.
 
-It uses:
+The deployment assets are:
 
-- Runpod Pod networking and storage
-- `scripts/runpod_pytorch_quickstart.sh`
+- `Dockerfile.runpod`
+- `requirements-runpod.txt`
 - `scripts/runpod_bootstrap.sh`
-- `realtime_stream_api.py`
-- `faster_liveportrait_runner.py`
+- `scripts/runpod_pytorch_quickstart.sh`
+- `scripts/runpod_workspace_start.sh`
 
-The runtime path is `TRT` with `ANIMATION_TRT_RUNTIME=local`.
-The supported Pod base is an official Runpod PyTorch image with CUDA enabled.
+`ONNX` artifacts are still required because FasterLivePortrait builds local TensorRT engines from `checkpoints/liveportrait_onnx/*.onnx`. This runbook does not use `ONNX Runtime` as the active inference backend.
 
-## Preconditions
+## Verified Repository Facts
 
-1. Create a Runpod Pod with an NVIDIA GPU that has enough VRAM for the project workload.
-2. Use an official Runpod PyTorch image with CUDA enabled, for example `runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04`.
-3. Mount persistent storage at `/workspace`.
-4. Expose port `8010/http` for browser access.
-5. Expose port `8010/tcp` when you want a direct URL for long-lived websocket sessions.
-6. Expose port `22/tcp` only when you want full SSH or SCP access.
+| Fact | Source |
+| --- | --- |
+| The API defaults to the `trt` backend when `ANIMATION_BACKEND` is unset. | [realtime_stream_api.py](/e:/animation/realtime_stream_api.py#L225) |
+| The local TRT flow builds engines from `liveportrait_onnx/*.onnx` files. | [faster_liveportrait_runner.py](/e:/animation/faster_liveportrait_runner.py#L1369) |
+| The TensorRT build script imports `onnx`, `pycuda`, and `tensorrt`. | [third_party/FasterLivePortrait/scripts/onnx2trt.py](/e:/animation/third_party/FasterLivePortrait/scripts/onnx2trt.py#L15) |
+| The FasterLivePortrait runtime imports `cv2`, `ffmpeg`, `PIL`, `tqdm`, `insightface`, `mediapipe`, `onnxruntime`, and `torchgeometry` in the TRT execution path. | [third_party/FasterLivePortrait/run.py](/e:/animation/third_party/FasterLivePortrait/run.py#L27), [third_party/FasterLivePortrait/src/models/__init__.py](/e:/animation/third_party/FasterLivePortrait/src/models/__init__.py#L7), [third_party/FasterLivePortrait/src/models/predictor.py](/e:/animation/third_party/FasterLivePortrait/src/models/predictor.py#L7), [third_party/FasterLivePortrait/src/utils/crop.py](/e:/animation/third_party/FasterLivePortrait/src/utils/crop.py#L14) |
+
+## Recommended Path
+
+Use a custom Runpod image built from `Dockerfile.runpod`.
+
+This avoids:
+
+- reinstalling TensorRT Python packages on every Pod start
+- discovering missing runtime modules one by one
+- paying Pod time for large dependency builds before the API starts
+
+## Build the Custom Image
+
+Build and push the image from a machine with Docker access:
+
+```bash
+docker build -f Dockerfile.runpod -t <dockerhub-user>/avatario-runpod:latest .
+docker push <dockerhub-user>/avatario-runpod:latest
+```
 
 ## Pod Settings
 
+Use these Pod settings in Runpod:
+
 | Setting | Value |
 | --- | --- |
-| Container image | `runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04` |
+| Container image | `<dockerhub-user>/avatario-runpod:latest` |
+| GPU | `RTX 4000 Ada` or another NVIDIA GPU with sufficient VRAM |
+| Container disk | `20 GB` minimum |
+| Volume disk | `0 GB` for disposable tests, persistent volume when you want cached checkpoints and TRT engines |
 | Volume mount path | `/workspace` |
-| Required HTTP port | `8010/http` |
-| Optional TCP port | `8010/tcp` |
-| Optional SSH port | `22/tcp` |
-| Recommended env | `ANIMATION_API_PORT=8010` |
-| Recommended env | `ANIMATION_BACKEND=trt` |
-| Recommended env | `ANIMATION_TRT_RUNTIME=local` |
-| Recommended env | `ANIMATION_TRT_PRECISION=fp16` |
-| Optional env | `ANIMATION_API_TOKEN=<your token>` |
-| Optional env | `RUNPOD_ENABLE_SSH=1` |
-| Optional env | `PUBLIC_KEY=<your ssh public key>` |
-| Optional env | `RUNPOD_GIT_REPO=https://github.com/PailletJuanPablo/avatario.git` |
-| Optional env | `RUNPOD_GIT_REF=main` |
+| HTTP ports | optional `8888` only if you want Jupyter |
+| TCP ports | `22`, `8010` |
+
+Do not configure `8010` as both HTTP and TCP in the same template. Runpod rejects duplicate port declarations.
 
 ## Start Command
 
-Use this as the Pod start command:
+Preferred start command for the custom image:
+
+```bash
+bash /app/scripts/runpod_workspace_start.sh
+```
+
+This start script copies the image contents into `/workspace/animation` and then runs the bootstrap from there. That keeps the image reproducible while still allowing checkpoint and TensorRT engine reuse when a persistent Runpod volume is attached.
+
+Fallback start command for the official Runpod PyTorch image:
 
 ```bash
 bash -lc 'command -v curl >/dev/null 2>&1 || (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates); curl -fsSL https://raw.githubusercontent.com/PailletJuanPablo/avatario/main/scripts/runpod_pytorch_quickstart.sh | bash'
 ```
 
-If you deploy from a fork or a non-`main` branch, replace the raw GitHub URL in the command so it points to the matching `scripts/runpod_pytorch_quickstart.sh`.
+The fallback path is slower because it installs Python runtime dependencies and TensorRT packages inside the Pod.
 
-This command:
+## Environment Variables
 
-1. Ensures `curl` is available.
-2. Downloads `scripts/runpod_pytorch_quickstart.sh` from GitHub.
-3. Clones the repository into `/workspace/animation` when it is missing.
-4. Installs missing base packages when needed.
-5. Installs TensorRT Python packages when they are not present in the PyTorch image.
-6. Bootstraps `third_party/FasterLivePortrait`.
-7. Downloads the required checkpoints into `/workspace/animation/third_party/FasterLivePortrait/checkpoints`.
-8. Starts `realtime_stream_api.py` with the local TRT runtime.
+Recommended variables:
 
-## Validation
+| Variable | Value |
+| --- | --- |
+| `ANIMATION_API_PORT` | `8010` |
+| `ANIMATION_BACKEND` | `trt` |
+| `ANIMATION_TRT_RUNTIME` | `local` |
+| `ANIMATION_TRT_PRECISION` | `fp16` |
+| `ANIMATION_VIDEO_ENCODER` | `cpu` |
+| `ANIMATION_API_TOKEN` | optional fixed token |
 
-1. Open the Pod logs and wait for the bootstrap to print `Local health URL` and `Token`.
-2. Validate the local health endpoint from SSH or the web terminal:
+`scripts/runpod_bootstrap.sh` exits immediately when `ANIMATION_BACKEND` is not `trt`.
+
+## Validation Procedure
+
+1. Confirm CUDA access before any large install step:
+
+```bash
+python - <<'PY'
+import torch
+print("cuda_available =", torch.cuda.is_available())
+print("device_count =", torch.cuda.device_count())
+if torch.cuda.is_available():
+    print("device_0 =", torch.cuda.get_device_name(0))
+PY
+```
+
+2. Start the bootstrap.
+
+3. Wait until the script prints:
+
+- `Local health URL`
+- `Token`
+- optional `Direct TCP UI URL`
+
+4. Validate the API locally:
 
 ```bash
 curl -H "Authorization: Bearer <token>" http://127.0.0.1:8010/api/health
 ```
 
-3. Open the UI through the HTTP proxy when only `8010/http` is exposed:
+5. Open the direct TCP URL when `8010/tcp` is exposed:
 
 ```text
-https://<pod-id>-8010.proxy.runpod.net/?token=<token>
+http://<public-ip>:<mapped-port>/?token=<token>
 ```
 
-4. Prefer the direct TCP URL when `8010/tcp` is also exposed:
+Direct TCP is preferred for long-lived websocket sessions.
 
-```text
-http://<public-ip>:<mapped-tcp-port>/?token=<token>
+## Failure Policy
+
+Terminate the Pod immediately when either of these checks fails:
+
+- `torch.cuda.is_available()` returns `False`
+- `curl http://127.0.0.1:8010/api/health` does not become healthy after bootstrap
+
+Use the application log for triage:
+
+```bash
+tail -n 120 /app/output_fasterliveportrait/runpod_api.log
 ```
-
-The bootstrap script prints both URLs when Runpod provides the required environment variables.
-
-## SSH
-
-Runpod supports a basic proxied SSH flow for Pods. Full SSH and SCP require a public IP and a TCP port mapping for `22/tcp`.
-
-When `RUNPOD_ENABLE_SSH=1` and `PUBLIC_KEY` are set, `scripts/runpod_bootstrap.sh` starts `sshd` inside the container and writes the authorized key for the `root` user.
-
-## Data Persistence
-
-The bootstrap stores runtime state in the persistent volume under `/workspace/animation`:
-
-- repository clone
-- generated TRT engines under `third_party/FasterLivePortrait/checkpoints`
-- output artifacts under `output/` and `output_fasterliveportrait/`
-- generated API token under `.runpod/api_token`
-
-## Stop and Restart
-
-1. Stop the Pod from Runpod when you want to release the GPU.
-2. Start the same Pod again to reuse the persistent volume.
-3. If `RUNPOD_GIT_AUTO_UPDATE=1` is set, the entrypoint updates the repository checkout on startup.
-
-## Unknowns
-
-- The repository does not include a measured minimum volume size for checkpoints, generated TRT engines, and output artifacts.
-  Verification action: allocate persistent storage with headroom for model downloads and generated outputs before the first run.
-- The repository does not include a benchmark of long-lived avatar websocket streams through the Runpod HTTP proxy.
-  Verification action: expose `8010/tcp` and validate one end-to-end streaming session if the HTTP proxy shows websocket instability.
 
 ## References
 
-- Runpod Pod overview: https://docs.runpod.io/pods/overview
-- Runpod custom container arguments: https://docs.runpod.io/pods/configuration/launch-custom-image
+- Runpod Pod templates: https://docs.runpod.io/pods/templates/create-custom-template
+- Runpod template management: https://docs.runpod.io/pods/templates/manage-templates
+- Runpod SSH for Pods: https://docs.runpod.io/pods/configuration/use-ssh
 - Runpod exposed ports: https://docs.runpod.io/pods/configuration/expose-ports
-- Runpod SSH access: https://docs.runpod.io/pods/configuration/use-ssh

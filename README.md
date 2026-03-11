@@ -149,6 +149,8 @@ If you want to run the TRT path on Runpod Pods without Docker-in-Docker, see:
 
 - `docs/RUNPOD_DEPLOYMENT.md`
 
+The recommended Runpod path now uses a custom image built from `Dockerfile.runpod` so the Pod does not spend startup time discovering missing TRT runtime dependencies.
+
 ## Contrato runtime
 
 - Backend por defecto: TensorRT
