@@ -10,9 +10,14 @@ The deployment assets are:
 - `requirements-runpod.txt`
 - `scripts/runpod_bootstrap.sh`
 - `scripts/runpod_pytorch_quickstart.sh`
-- `scripts/runpod_workspace_start.sh`
+- `scripts/runpod_image_start.sh`
 
 `ONNX` artifacts are still required because FasterLivePortrait builds local TensorRT engines from `checkpoints/liveportrait_onnx/*.onnx`. This runbook does not use `ONNX Runtime` as the active inference backend.
+The bootstrap downloads three checkpoint sources:
+
+- `warmshao/FasterLivePortrait`
+- `jdh-algo/JoyVASA`
+- `TencentGameMate/chinese-hubert-base`
 
 ## Verified Repository Facts
 
@@ -63,10 +68,10 @@ Do not configure `8010` as both HTTP and TCP in the same template. Runpod reject
 Preferred start command for the custom image:
 
 ```bash
-bash /app/scripts/runpod_workspace_start.sh
+bash /app/scripts/runpod_image_start.sh
 ```
 
-This start script copies the image contents into `/workspace/animation` and then runs the bootstrap from there. That keeps the image reproducible while still allowing checkpoint and TensorRT engine reuse when a persistent Runpod volume is attached.
+This start script launches the base Runpod image services through `/start.sh`, copies the image contents into `/workspace/animation`, and then runs the bootstrap from there. That keeps the image aligned with the base Runpod startup path while still allowing checkpoint and TensorRT engine reuse when a persistent Runpod volume is attached.
 
 Fallback start command for the official Runpod PyTorch image:
 

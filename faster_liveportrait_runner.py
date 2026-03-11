@@ -354,6 +354,19 @@ def read_template_fps(template_path: Path, fallback_fps: float) -> float:
     return float(fps_value)
 
 
+def onnx2trt_supports_max_batch_size(script_path: Path) -> bool:
+    """
+    Detect whether the current FasterLivePortrait onnx2trt.py accepts --max-batch-size.
+    """
+    if not script_path.exists():
+        return False
+    try:
+        script_text = script_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return "--max-batch-size" in script_text
+
+
 def build_motion_sample_indices(source_count: int, target_count: int) -> list[int]:
     """
     Build monotonically increasing sample indices for motion downsampling.
@@ -1445,6 +1458,9 @@ def ensure_trt_engines(config: RunnerConfig) -> None:
     else:
         onnx2trt_script = config.faster_repo_dir / "scripts" / "onnx2trt.py"
         assert_path_exists(onnx2trt_script, "TensorRT build script")
+        supports_max_batch_size = onnx2trt_supports_max_batch_size(onnx2trt_script)
+        if not supports_max_batch_size:
+            print("[warn] onnx2trt.py does not support --max-batch-size; building fixed-batch TensorRT engines.")
         for build_job in build_jobs:
             onnx_rel = to_project_relative(Path(build_job["onnx_path"]), config.faster_repo_dir, "TRT source ONNX")
             engine_rel = to_project_relative(Path(build_job["engine_path"]), config.faster_repo_dir, "TRT engine output")
@@ -1457,9 +1473,14 @@ def ensure_trt_engines(config: RunnerConfig) -> None:
                 engine_rel,
                 "-p",
                 build_job["precision"],
-                "--max-batch-size",
-                build_job["max_batch_size"],
             ]
+            if supports_max_batch_size:
+                command.extend(
+                    [
+                        "--max-batch-size",
+                        str(build_job["max_batch_size"]),
+                    ]
+                )
             if build_job["precision"] == TRT_PRECISION_INT8:
                 calibration_cache_rel = f"{engine_rel}{TRT_INT8_CALIBRATION_CACHE_SUFFIX}"
                 command.extend(

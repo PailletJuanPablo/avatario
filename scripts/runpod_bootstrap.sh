@@ -16,6 +16,8 @@ DEFAULT_TRT_RUNTIME="local"
 DEFAULT_TRT_PRECISION="fp16"
 DEFAULT_IDLE_VIDEO_PATH="inputs/idlevid.mp4"
 DEFAULT_CHECKPOINT_REPO_ID="warmshao/FasterLivePortrait"
+DEFAULT_JOYVASA_CHECKPOINT_REPO_ID="jdh-algo/JoyVASA"
+DEFAULT_CHINESE_HUBERT_REPO_ID="TencentGameMate/chinese-hubert-base"
 RUNPOD_REQUIREMENTS_FILE_PATH="${PROJECT_ROOT}/requirements-runpod.txt"
 DEFAULT_TENSORRT_PIP_PACKAGES=(
   "tensorrt-cu12"
@@ -318,6 +320,14 @@ resolve_huggingface_cli_bin() {
   local python_bin="$1"
   local python_dir
   python_dir="$(cd "$(dirname "${python_bin}")" && pwd)"
+  if [[ -x "${python_dir}/hf" ]]; then
+    printf '%s\n' "${python_dir}/hf"
+    return
+  fi
+  if command_exists hf; then
+    command -v hf
+    return
+  fi
   if [[ -x "${python_dir}/huggingface-cli" ]]; then
     printf '%s\n' "${python_dir}/huggingface-cli"
     return
@@ -349,6 +359,7 @@ ensure_checkpoints() {
   )
   local relative_path
   local missing_paths=()
+  local hf_cli_command_name
 
   if [[ "${RUNPOD_DOWNLOAD_CHECKPOINTS:-1}" != "1" ]]; then
     print_warning "Checkpoint download disabled by RUNPOD_DOWNLOAD_CHECKPOINTS=${RUNPOD_DOWNLOAD_CHECKPOINTS}"
@@ -360,10 +371,26 @@ ensure_checkpoints() {
     done
     if ((${#missing_paths[@]} > 0)); then
       huggingface_cli_bin="$(resolve_huggingface_cli_bin "${PYTHON_BIN}")"
-      print_info "Downloading checkpoints from ${DEFAULT_CHECKPOINT_REPO_ID}"
+      hf_cli_command_name="$(basename "${huggingface_cli_bin}")"
+
+      print_info "Downloading FasterLivePortrait checkpoints from ${DEFAULT_CHECKPOINT_REPO_ID}"
       "${huggingface_cli_bin}" \
         download "${DEFAULT_CHECKPOINT_REPO_ID}" \
         --local-dir "${checkpoint_root}"
+
+      print_info "Downloading JoyVASA checkpoints from ${DEFAULT_JOYVASA_CHECKPOINT_REPO_ID}"
+      "${huggingface_cli_bin}" \
+        download "${DEFAULT_JOYVASA_CHECKPOINT_REPO_ID}" \
+        --local-dir "${checkpoint_root}/JoyVASA"
+
+      print_info "Downloading chinese-hubert-base checkpoints from ${DEFAULT_CHINESE_HUBERT_REPO_ID}"
+      "${huggingface_cli_bin}" \
+        download "${DEFAULT_CHINESE_HUBERT_REPO_ID}" \
+        --local-dir "${checkpoint_root}/chinese-hubert-base"
+
+      if [[ "${hf_cli_command_name}" == "huggingface-cli" ]]; then
+        print_warning "huggingface-cli is deprecated. The bootstrap prefers the newer 'hf' command when available."
+      fi
     fi
   fi
 
