@@ -1,9 +1,15 @@
 node_modules/
 __pycache__/
 .venv/
+.env
 .vscode/
 .lh/
+.ipynb_checkpoints/
 models/
+logs/
+inputs/*
+!inputs/idlevid.mp4
+!inputs/idlevid_breath.mp4
 output/
 output_fasterliveportrait/
 output_b_step1/
@@ -11,10 +17,18 @@ output_b_step2/
 output_b_step3/
 output_debug_logic/
 output_liveportrait/
+output_liveportrait_dataset_poc/
+output_liveportrait_test/
 output_mediapipe_v2/
 output_new_contract/
 *.log
 *.err
+.tmp_*
+_tmp_*
+Microsoft/
+liveportrait_dataset_*.json
+person.png
+sin nombre.mp3
 voice.mp3
 third_party/**/.git/
 third_party/FasterLivePortrait/checkpoints/

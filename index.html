@@ -16,10 +16,6 @@
       --ok: #59e2a9;
       --warn: #ffd87a;
       --danger: #ff8d8d;
-      --avatar-drift-duration: 22s;
-      --avatar-drift-scale-rest: 1.0002;
-      --avatar-drift-scale-peak: 1.0028;
-      --avatar-drift-easing: ease-in-out;
     }
 
     * {
@@ -188,11 +184,8 @@
       position: absolute;
       inset: 0;
       transition: opacity 180ms ease;
-      transform: translate3d(0, 0, 0) scale(var(--avatar-drift-scale-rest));
-      transform-origin: center center;
       backface-visibility: hidden;
-      will-change: opacity, transform;
-      animation: avatarDriftZoom var(--avatar-drift-duration) var(--avatar-drift-easing) infinite;
+      will-change: opacity;
     }
 
     .avatar-layer.idle {
@@ -276,29 +269,6 @@
       50% {
         transform: scale(1);
         box-shadow: 0 0 0 6px rgba(73, 208, 255, 0);
-      }
-    }
-
-    @keyframes avatarDriftZoom {
-      0%,
-      12% {
-        transform: translate3d(0, 0, 0) scale(var(--avatar-drift-scale-rest));
-      }
-
-      22% {
-        transform: translate3d(0, 0, 0) scale(var(--avatar-drift-scale-peak));
-      }
-
-      30%,
-      100% {
-        transform: translate3d(0, 0, 0) scale(var(--avatar-drift-scale-rest));
-      }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .avatar-layer {
-        animation: none;
-        transform: none;
       }
     }
 
@@ -483,6 +453,10 @@
       <label>
         API base
         <input id="apiBaseInput" type="text" value="">
+      </label>
+      <label>
+        API token
+        <input id="apiTokenInput" type="password" value="" placeholder="optional bearer token">
       </label>
       <label>
         Audio
@@ -704,17 +678,27 @@
   </main>
 
   <script>
-    const API_GENERATE_PATH = "/api/generate";
+    const API_GENERATE_PATH = "/api/avatar/enqueue";
     const API_HEALTH_PATH = "/api/health";
     const API_WEBRTC_OFFER_PATH = "/api/webrtc/offer";
     const API_RUNTIME_LOGS_PATH = "/api/runtime/logs";
     const API_RUNTIME_RESTART_PATH = "/api/runtime/restart";
     const API_WARMUP_PATH = "/api/warmup";
+    const API_TOKEN_QUERY_KEY = "token";
+    const AUTHORIZATION_HEADER_NAME = "Authorization";
+    const AUTHORIZATION_BEARER_PREFIX = "Bearer ";
     const DEFAULT_API_BASE_URL = (() => {
       if ((window.location.protocol === "http:" || window.location.protocol === "https:") && window.location.host) {
         return `${window.location.protocol}//${window.location.host}`;
       }
       return "http://127.0.0.1:8010";
+    })();
+    const DEFAULT_API_TOKEN = (() => {
+      try {
+        return String(new URL(window.location.href).searchParams.get(API_TOKEN_QUERY_KEY) || "").trim();
+      } catch (_error) {
+        return "";
+      }
     })();
     const DEFAULT_SOURCE_FRAME = "output/frames/frame_00061.png";
     const DRIVING_MEDIA_DEFAULT_PATH = "";
@@ -865,6 +849,7 @@
       drivingAudio: document.getElementById("drivingAudio"),
       drivingAudioWrap: document.getElementById("drivingAudioWrap"),
       apiBaseInput: document.getElementById("apiBaseInput"),
+      apiTokenInput: document.getElementById("apiTokenInput"),
       audioFileInput: document.getElementById("audioFileInput"),
       sourceImageInput: document.getElementById("sourceImageInput"),
       sourceFrameInput: document.getElementById("sourceFrameInput"),
@@ -946,6 +931,10 @@
         activeWebrtcSessions: 0,
         warmupEnabled: false,
         warmupRunning: false,
+        warmupPhase: "",
+        warmupProgress: 0,
+        warmupMessage: "",
+        warmupError: "",
         runtimeRestarting: false,
         runtimeRestartRequestedAtMs: 0,
         processStartedAtMs: 0,
@@ -1062,7 +1051,8 @@
     function setSourcePreviewFromPath(path) {
       revokeSourcePreviewObjectUrl();
       const normalizedPath = String(path || "").trim() || DEFAULT_SOURCE_FRAME;
-      applySourcePreviewSource(withCacheBust(normalizedPath), `path:${normalizedPath}`);
+      const resolvedUrl = resolveMediaUrl(normalizedPath) || normalizedPath;
+      applySourcePreviewSource(withCacheBust(resolvedUrl), `path:${normalizedPath}`);
     }
 
     function setSourcePreviewFromUrl(pathOrUrl) {
@@ -1263,6 +1253,10 @@
       return raw.replace(/\/+$/, "");
     }
 
+    function getApiToken() {
+      return String((elements.apiTokenInput && elements.apiTokenInput.value) || "").trim();
+    }
+
     function buildAbsoluteUrl(pathOrUrl) {
       if (!pathOrUrl) {
         return "";
@@ -1274,6 +1268,23 @@
       return new URL(pathOrUrl.startsWith("/") ? pathOrUrl.slice(1) : pathOrUrl, baseUrl).toString();
     }
 
+    function appendApiTokenQueryParameter(pathOrUrl) {
+      if (!pathOrUrl) {
+        return "";
+      }
+      const token = getApiToken();
+      if (!token) {
+        return pathOrUrl;
+      }
+      const absoluteUrl = new URL(pathOrUrl, window.location.href);
+      const apiOrigin = new URL(`${normalizeApiBase()}/`).origin;
+      if (absoluteUrl.origin !== apiOrigin) {
+        return absoluteUrl.toString();
+      }
+      absoluteUrl.searchParams.set(API_TOKEN_QUERY_KEY, token);
+      return absoluteUrl.toString();
+    }
+
     function buildApiUrl(pathOrUrl) {
       if (!pathOrUrl) {
         return "";
@@ -1281,17 +1292,36 @@
       return buildAbsoluteUrl(pathOrUrl);
     }
 
+    function buildApiRequestOptions(requestOptions = {}) {
+      const headers = new Headers(requestOptions.headers || {});
+      const token = getApiToken();
+      if (token) {
+        headers.set(AUTHORIZATION_HEADER_NAME, `${AUTHORIZATION_BEARER_PREFIX}${token}`);
+      }
+      return {
+        ...requestOptions,
+        headers
+      };
+    }
+
+    function fetchApi(pathOrUrl, requestOptions = {}) {
+      return fetch(buildApiUrl(pathOrUrl), buildApiRequestOptions(requestOptions));
+    }
+
     function resolveMediaUrl(pathOrUrl) {
       if (!pathOrUrl) {
         return "";
       }
-      if (/^https?:\/\//i.test(pathOrUrl)) {
+      if (/^(blob:|data:)/i.test(pathOrUrl)) {
         return pathOrUrl;
       }
-      if (pathOrUrl.startsWith("/")) {
-        return buildApiUrl(pathOrUrl);
+      if (/^https?:\/\//i.test(pathOrUrl)) {
+        return appendApiTokenQueryParameter(pathOrUrl);
       }
-      return pathOrUrl;
+      if (pathOrUrl.startsWith("/")) {
+        return appendApiTokenQueryParameter(buildApiUrl(pathOrUrl));
+      }
+      return appendApiTokenQueryParameter(buildApiUrl(pathOrUrl));
     }
 
     /**
@@ -1500,7 +1530,15 @@
       setTextContent(
         elements.runtimeWarmup,
         runtimeState.warmupEnabled
-          ? (runtimeState.warmupRunning ? HEALTH_TEXT.RUNNING : HEALTH_TEXT.READY)
+          ? (
+            runtimeState.warmupError
+              ? `error: ${runtimeState.warmupError}`
+              : (
+                runtimeState.warmupRunning
+                  ? `${runtimeState.warmupPhase || HEALTH_TEXT.RUNNING} ${Math.round((Number(runtimeState.warmupProgress) || 0) * 100)}%`
+                  : HEALTH_TEXT.READY
+              )
+          )
           : HEALTH_TEXT.DISABLED
       );
       setTextContent(
@@ -1974,6 +2012,11 @@
           absoluteUrl.searchParams.set(key, String(value));
         });
       }
+      const token = getApiToken();
+      const apiHost = new URL(`${normalizeApiBase()}/`).host;
+      if (token && absoluteUrl.host === apiHost) {
+        absoluteUrl.searchParams.set(API_TOKEN_QUERY_KEY, token);
+      }
       if (absoluteUrl.protocol === "https:") {
         absoluteUrl.protocol = WS_PROTOCOL_HTTPS;
       } else if (absoluteUrl.protocol === "http:") {
@@ -2137,7 +2180,7 @@
         if (!localDescription) {
           throw new Error("missing local WebRTC description");
         }
-        const response = await fetch(buildApiUrl(runtimeState.webrtcOfferUrl || API_WEBRTC_OFFER_PATH), {
+        const response = await fetchApi(runtimeState.webrtcOfferUrl || API_WEBRTC_OFFER_PATH, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -2890,7 +2933,7 @@
       setStatusBadge("submitting job", false);
       setStreamBadge(buildIdleStreamBadge());
       try {
-        const response = await fetch(buildApiUrl(API_GENERATE_PATH), {
+        const response = await fetchApi(API_GENERATE_PATH, {
           method: "POST",
           body: formData
         });
@@ -2977,8 +3020,8 @@
     async function refreshRuntimeLogs(showStatusBadge = true) {
       try {
         const [containerResult, workerResult] = await Promise.allSettled([
-          fetch(buildRuntimeLogUrl(RUNTIME_LOG_TARGET.CONTAINER, RUNTIME_LOG_LINES), { cache: "no-store" }),
-          fetch(buildRuntimeLogUrl(RUNTIME_LOG_TARGET.WORKER, RUNTIME_LOG_LINES), { cache: "no-store" })
+          fetchApi(buildRuntimeLogUrl(RUNTIME_LOG_TARGET.CONTAINER, RUNTIME_LOG_LINES), { cache: "no-store" }),
+          fetchApi(buildRuntimeLogUrl(RUNTIME_LOG_TARGET.WORKER, RUNTIME_LOG_LINES), { cache: "no-store" })
         ]);
 
         if (containerResult.status === "fulfilled" && containerResult.value.ok) {
@@ -3025,7 +3068,7 @@
       setStreamBadge("runtime restart");
 
       try {
-        const response = await fetch(buildApiUrl(API_RUNTIME_RESTART_PATH), {
+        const response = await fetchApi(API_RUNTIME_RESTART_PATH, {
           method: "POST"
         });
         if (!response.ok) {
@@ -3064,7 +3107,7 @@
     async function triggerWarmup() {
       elements.btnWarmup.disabled = true;
       try {
-        const response = await fetch(buildApiUrl(API_WARMUP_PATH), {
+        const response = await fetchApi(API_WARMUP_PATH, {
           method: "POST"
         });
         if (!response.ok) {
@@ -3083,7 +3126,7 @@
 
     async function checkApiHealth(showStatusBadge = true) {
       try {
-        const response = await fetch(buildApiUrl(API_HEALTH_PATH), { cache: "no-store" });
+        const response = await fetchApi(API_HEALTH_PATH, { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -3100,6 +3143,10 @@
           activeWebrtcSessions: Number(data.activeWebrtcSessions || 0),
           warmupEnabled: Boolean(data.warmupEnabled),
           warmupRunning: Boolean(data.warmupRunning),
+          warmupPhase: String(data.warmupPhase || ""),
+          warmupProgress: Number(data.warmupProgress || 0),
+          warmupMessage: String(data.warmupMessage || ""),
+          warmupError: String(data.warmupError || ""),
           runtimeRestarting: Boolean(data.runtimeRestarting),
           runtimeRestartRequestedAtMs: Number(data.runtimeRestartRequestedAtMs || 0),
           processStartedAtMs: Number(data.processStartedAtMs || 0),
@@ -3241,6 +3288,19 @@
     elements.motionStrideInput.addEventListener("change", handleMotionStrideInputChange);
     elements.apiBaseInput.addEventListener("change", () => {
       stopStreamView();
+      closeAvatarPeerConnection();
+      closeStatusSocket();
+      closeAvatarStatusSocket();
+      checkApiHealth().catch(() => {});
+      connectAvatarStatusSocket();
+      connectUnifiedAvatarStream();
+      refreshRuntimeLogs(false).catch(() => {});
+    });
+    elements.apiTokenInput.addEventListener("change", () => {
+      stopStreamView();
+      closeAvatarPeerConnection();
+      closeStatusSocket();
+      closeAvatarStatusSocket();
       checkApiHealth().catch(() => {});
       connectAvatarStatusSocket();
       connectUnifiedAvatarStream();
@@ -3251,6 +3311,7 @@
       elements.resultVideo.src = activeVideoPaths.result;
     }
     elements.apiBaseInput.value = DEFAULT_API_BASE_URL;
+    elements.apiTokenInput.value = DEFAULT_API_TOKEN;
     elements.sourceFrameInput.value = DEFAULT_SOURCE_FRAME;
     elements.motionStrideInput.value = String(DEFAULT_MOTION_STRIDE);
     updateSelectedSourcePreview();

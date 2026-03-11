@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from collections import deque
 import contextlib
 from fractions import Fraction
+import hmac
 import json
 import math
 import os
@@ -274,9 +275,18 @@ DEFAULT_RELATIVE_MOTION_ENABLED = (
 )
 DEFAULT_PASTE_BACK_ENABLED = os.getenv("ANIMATION_PASTE_BACK_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
 DEFAULT_API_HOST = os.getenv("ANIMATION_API_HOST", "0.0.0.0").strip() or "0.0.0.0"
-DEFAULT_API_PORT = 8010
+DEFAULT_API_PORT = max(1, int(os.getenv("ANIMATION_API_PORT", "8010").strip() or "8010"))
 CURRENT_API_HOST = DEFAULT_API_HOST
 CURRENT_API_PORT = DEFAULT_API_PORT
+API_TOKEN_ENV_KEY = "ANIMATION_API_TOKEN"
+API_TOKEN_QUERY_KEY = "token"
+AUTHORIZATION_HEADER_NAME = "authorization"
+AUTHORIZATION_HEADER_VALUE = "Bearer"
+WEBSOCKET_UNAUTHORIZED_CLOSE_CODE = 4401
+AUTH_REQUIRED_HTTP_PATH_PREFIXES = ("/api/", "/jobs/")
+AUTH_FAILURE_MESSAGE = "Invalid or missing API token."
+DEFAULT_API_TOKEN = os.getenv(API_TOKEN_ENV_KEY, "").strip()
+API_TOKEN_ENABLED = bool(DEFAULT_API_TOKEN)
 JOB_POLL_SLEEP_SEC = 0.12
 VIDEO_STREAM_POLL_SLEEP_SEC = 0.02
 VIDEO_STREAM_INPUT_FPS = 20.0
@@ -351,6 +361,8 @@ STREAM_BOUNDARY = "frame"
 STREAM_STATUS_FILE_NAME = "status.json"
 STREAM_IMAGE_FILE_NAME = "latest.jpg"
 STREAM_FRAME_NAME_PATTERN = "frame_{:06d}.jpg"
+PREVIEW_COMPOSITION_STATUS_KEY = "previewComposition"
+PREVIEW_COMPOSITION_MASK_NAME = "preview_composition_mask.png"
 RUN_LOG_FILE_NAME = "run.log"
 RUN_REPORT_FILE_NAME = "run_report.json"
 MAX_LOG_LINES = 400
@@ -381,7 +393,10 @@ AVATAR_MODE_CHOICES = {AVATAR_MODE_IDLE, AVATAR_MODE_TALKING}
 AVATAR_TRANSPORT_WEBSOCKET = "websocket"
 AVATAR_TRANSPORT_WEBRTC = "webrtc"
 AVATAR_STREAM_SEGMENT_IDLE_KEY = "__idle__"
-AVATAR_IDLE_VIDEO_REL = Path(os.getenv("ANIMATION_IDLE_VIDEO", "inputs/idlevid.mp4").strip() or "inputs/idlevid.mp4")
+DEFAULT_IDLE_VIDEO_PATH = "inputs/idlevid.mp4"
+AVATAR_IDLE_VIDEO_REL = Path(
+    os.getenv("ANIMATION_IDLE_VIDEO", DEFAULT_IDLE_VIDEO_PATH).strip() or DEFAULT_IDLE_VIDEO_PATH
+)
 AVATAR_IDLE_SOURCE_FRAME_REL = Path("output_fasterliveportrait/avatar_idle_source.png")
 AVATAR_IDLE_SOURCE_ANCHOR_ROOT_REL = Path("output_fasterliveportrait/avatar_idle_sources")
 AVATAR_IDLE_SOURCE_ANCHOR_MANIFEST_NAME = "anchors.json"
@@ -658,6 +673,90 @@ def build_public_file_url(file_path: Path) -> str:
     return f"/{normalize_rel_path(str(relative_project_path))}"
 
 
+def extract_bearer_token(header_value: str) -> str:
+    """
+    Extract bearer token value from one Authorization header when present.
+    """
+    normalized_value = str(header_value or "").strip()
+    if not normalized_value:
+        return ""
+    scheme_prefix = f"{AUTHORIZATION_HEADER_VALUE} "
+    if normalized_value.lower().startswith(scheme_prefix.lower()):
+        return normalized_value[len(scheme_prefix):].strip()
+    return ""
+
+
+def is_authentication_required_for_path(request_path: str) -> bool:
+    """
+    Determine whether one HTTP path must present the configured API token.
+    """
+    normalized_path = str(request_path or "").strip()
+    return any(normalized_path.startswith(prefix) for prefix in AUTH_REQUIRED_HTTP_PATH_PREFIXES)
+
+
+def is_valid_api_token(raw_token: str) -> bool:
+    """
+    Validate one provided API token against the configured shared secret.
+    """
+    if not API_TOKEN_ENABLED:
+        return True
+    normalized_token = str(raw_token or "").strip()
+    if not normalized_token:
+        return False
+    return hmac.compare_digest(normalized_token, DEFAULT_API_TOKEN)
+
+
+def extract_request_api_token(request: Request) -> str:
+    """
+    Extract API token from one HTTP request query string or Authorization header.
+    """
+    query_token = str(request.query_params.get(API_TOKEN_QUERY_KEY, "")).strip()
+    if query_token:
+        return query_token
+    return extract_bearer_token(str(request.headers.get(AUTHORIZATION_HEADER_NAME, "")))
+
+
+def extract_websocket_api_token(websocket: WebSocket) -> str:
+    """
+    Extract API token from one WebSocket query string or Authorization header.
+    """
+    query_token = str(websocket.query_params.get(API_TOKEN_QUERY_KEY, "")).strip()
+    if query_token:
+        return query_token
+    return extract_bearer_token(str(websocket.headers.get(AUTHORIZATION_HEADER_NAME, "")))
+
+
+def build_http_auth_error_response() -> JSONResponse:
+    """
+    Build one consistent HTTP 401 response for token-protected routes.
+    """
+    return JSONResponse(
+        status_code=401,
+        content={"detail": AUTH_FAILURE_MESSAGE},
+        headers={"WWW-Authenticate": AUTHORIZATION_HEADER_VALUE},
+    )
+
+
+def authorize_http_request(request: Request) -> JSONResponse | None:
+    """
+    Validate token requirements for one HTTP request.
+    """
+    if not API_TOKEN_ENABLED:
+        return None
+    if not is_authentication_required_for_path(request.url.path):
+        return None
+    if is_valid_api_token(extract_request_api_token(request)):
+        return None
+    return build_http_auth_error_response()
+
+
+def is_websocket_request_authorized(websocket: WebSocket) -> bool:
+    """
+    Validate token requirements for one WebSocket request.
+    """
+    return is_valid_api_token(extract_websocket_api_token(websocket))
+
+
 def probe_media_duration_sec(media_path: Path) -> float:
     """
     Probe media duration in seconds using ffprobe when available.
@@ -743,7 +842,10 @@ def resolve_idle_video_url() -> str:
     idle_video_abs = resolve_idle_video_abs()
     if idle_video_abs is None:
         return ""
-    return build_public_file_url(idle_video_abs)
+    idle_video_url = build_public_file_url(idle_video_abs)
+    if not idle_video_url:
+        return ""
+    return f"{idle_video_url}?v={int(idle_video_abs.stat().st_mtime_ns)}"
 
 
 def build_idle_source_anchor_manifest_path() -> Path:
@@ -1292,6 +1394,7 @@ class JobRecord:
     stitching_enabled: bool
     relative_motion_enabled: bool
     paste_back_enabled: bool
+    defer_paste_back_enabled: bool
     log_rel: Path
     log_abs: Path
     started_at_ms: int | None = None
@@ -1346,6 +1449,10 @@ class AvatarTalkingFrameState:
     previous_source_frame_image: np.ndarray | None = None
     last_frame_bytes: bytes | None = None
     last_frame_image: np.ndarray | None = None
+    preview_composition_signature: str = ""
+    preview_composition_matrix: np.ndarray | None = None
+    preview_composition_mask: np.ndarray | None = None
+    preview_composition_source: np.ndarray | None = None
 
 
 class IdleVideoLooper:
@@ -2188,6 +2295,10 @@ WEBRTC_SESSIONS: dict[str, AvatarWebRtcSession] = {}
 WARMUP_LOCK = threading.Lock()
 WARMUP_LAST_STARTED_AT_MS = 0
 WARMUP_RUNNING = False
+WARMUP_PHASE = "idle"
+WARMUP_PROGRESS = 0.0
+WARMUP_MESSAGE = ""
+WARMUP_ERROR = ""
 RUNTIME_RESTART_LOCK = threading.Lock()
 RUNTIME_RESTARTING = False
 RUNTIME_RESTART_REQUESTED_AT_MS = 0
@@ -2400,9 +2511,12 @@ def get_avatar_state_snapshot() -> dict[str, Any]:
         sequence = AVATAR_STATE_SEQUENCE
         idle_started_at_ms = AVATAR_LAST_IDLE_STARTED_AT_MS
     current_job = None
+    current_job_stream_status = None
     if current_job_id:
         with JOBS_LOCK:
             current_job = JOBS.get(current_job_id)
+        if current_job is not None:
+            current_job_stream_status = read_json(current_job.status_abs)
     buffered_start_progress = (
         resolve_avatar_minimum_ready_progress(current_job.audio_duration_sec)
         if current_job is not None
@@ -2421,6 +2535,11 @@ def get_avatar_state_snapshot() -> dict[str, Any]:
         "currentJobStatusWsUrl": f"/ws/jobs/{current_job_id}" if current_job_id else "",
         "currentJobAudioDurationSec": current_job.audio_duration_sec if current_job is not None else 0.0,
         "currentJobSourceFrameUrl": build_public_file_url(current_job.source_frame_abs) if current_job is not None else "",
+        "currentJobPreviewComposition": (
+            build_public_preview_composition_payload(current_job, current_job_stream_status)
+            if current_job is not None
+            else None
+        ),
     }
 
 
@@ -2765,6 +2884,13 @@ def ensure_avatar_worker_started() -> None:
         AVATAR_WORKER_THREAD.start()
 
 
+def should_defer_preview_paste_back(mode: str, paste_back_enabled: bool, stitching_enabled: bool) -> bool:
+    """
+    Defer paste-back only for preview jobs that still require stitched full-frame output.
+    """
+    return bool(str(mode or "").strip().lower() == "preview" and paste_back_enabled and stitching_enabled)
+
+
 def build_runner_command(job: JobRecord) -> list[str]:
     """
     Build runner command for a specific job.
@@ -2799,7 +2925,9 @@ def build_runner_command(job: JobRecord) -> list[str]:
         "--animation-region",
         job.animation_region,
     ]
-    if not job.paste_back_enabled:
+    if job.defer_paste_back_enabled:
+        command.append("--defer-paste-back")
+    elif not job.paste_back_enabled:
         command.append("--no-paste-back")
     if not job.stitching_enabled:
         command.append("--no-stitching")
@@ -3076,6 +3204,182 @@ def normalize_jpeg_frame_image_to_canvas(frame_bytes: bytes, canvas_size: tuple[
     return fit_frame_to_canvas(frame_image, canvas_size)
 
 
+def resolve_preview_composition_status(stream_status: dict[str, Any] | None) -> dict[str, Any] | None:
+    """
+    Extract one normalized preview-composition payload from stream status.
+    """
+    if not isinstance(stream_status, dict):
+        return None
+    preview_composition = stream_status.get(PREVIEW_COMPOSITION_STATUS_KEY)
+    if not isinstance(preview_composition, dict):
+        return None
+    if not bool(preview_composition.get("enabled")):
+        return None
+    return preview_composition
+
+
+def build_preview_composition_signature(
+    job: JobRecord,
+    preview_composition: dict[str, Any],
+    canvas_size: tuple[int, int],
+) -> str:
+    """
+    Build one cache key for avatar-side preview composition assets.
+    """
+    matrix_value = preview_composition.get("matrix")
+    mask_image_name = str(preview_composition.get("maskImage") or PREVIEW_COMPOSITION_MASK_NAME)
+    return json.dumps(
+        {
+            "jobId": job.job_id,
+            "maskImage": mask_image_name,
+            "matrix": matrix_value,
+            "canvasWidth": int(canvas_size[0]),
+            "canvasHeight": int(canvas_size[1]),
+            "sourceFrame": str(job.source_frame_abs),
+        },
+        sort_keys=True,
+    )
+
+
+def clear_avatar_preview_composition_state(state: AvatarTalkingFrameState) -> None:
+    """
+    Drop cached preview-composition assets when the active job changes.
+    """
+    state.preview_composition_signature = ""
+    state.preview_composition_matrix = None
+    state.preview_composition_mask = None
+    state.preview_composition_source = None
+
+
+def load_avatar_preview_composition_state(
+    job: JobRecord,
+    state: AvatarTalkingFrameState,
+    stream_status: dict[str, Any] | None,
+    canvas_size: tuple[int, int],
+) -> bool:
+    """
+    Load one cached preview-composition state for the continuous avatar stream.
+    """
+    preview_composition = resolve_preview_composition_status(stream_status)
+    if preview_composition is None:
+        return bool(
+            state.preview_composition_matrix is not None
+            and state.preview_composition_mask is not None
+            and state.preview_composition_source is not None
+        )
+
+    signature = build_preview_composition_signature(job, preview_composition, canvas_size)
+    if (
+        signature == state.preview_composition_signature
+        and state.preview_composition_matrix is not None
+        and state.preview_composition_mask is not None
+        and state.preview_composition_source is not None
+    ):
+        return True
+
+    source_frame_image = cv2.imread(str(job.source_frame_abs), cv2.IMREAD_COLOR)
+    if source_frame_image is None:
+        clear_avatar_preview_composition_state(state)
+        return False
+    source_height, source_width = source_frame_image.shape[:2]
+    if source_width <= 0 or source_height <= 0:
+        clear_avatar_preview_composition_state(state)
+        return False
+
+    mask_image_name = str(preview_composition.get("maskImage") or PREVIEW_COMPOSITION_MASK_NAME)
+    mask_image_path = job.stream_abs / mask_image_name
+    mask_image = cv2.imread(str(mask_image_path), cv2.IMREAD_UNCHANGED)
+    if mask_image is None or mask_image.ndim != 3 or mask_image.shape[2] < 4:
+        clear_avatar_preview_composition_state(state)
+        return False
+
+    matrix_value = preview_composition.get("matrix")
+    if not isinstance(matrix_value, list):
+        clear_avatar_preview_composition_state(state)
+        return False
+    transform_matrix = np.asarray(matrix_value, dtype=np.float32)
+    if transform_matrix.shape != (2, 3):
+        clear_avatar_preview_composition_state(state)
+        return False
+
+    canvas_width = max(1, int(canvas_size[0]))
+    canvas_height = max(1, int(canvas_size[1]))
+    scale = min(float(canvas_width) / float(source_width), float(canvas_height) / float(source_height))
+    resized_width = max(1, int(round(source_width * scale)))
+    resized_height = max(1, int(round(source_height * scale)))
+    offset_x = float(max(0, (canvas_width - resized_width) // 2))
+    offset_y = float(max(0, (canvas_height - resized_height) // 2))
+    scaled_transform = transform_matrix.copy()
+    scaled_transform[:, :2] *= scale
+    scaled_transform[0, 2] = (transform_matrix[0, 2] * scale) + offset_x
+    scaled_transform[1, 2] = (transform_matrix[1, 2] * scale) + offset_y
+
+    source_canvas_image = fit_frame_to_canvas(source_frame_image, canvas_size)
+    mask_canvas_image = fit_frame_to_canvas(
+        cv2.cvtColor(mask_image[..., 3], cv2.COLOR_GRAY2BGR),
+        canvas_size,
+    )[..., 0]
+    mask_canvas_float = np.repeat(
+        (mask_canvas_image.astype(np.float32) / 255.0)[..., None],
+        3,
+        axis=2,
+    )
+
+    state.preview_composition_signature = signature
+    state.preview_composition_matrix = scaled_transform
+    state.preview_composition_mask = mask_canvas_float
+    state.preview_composition_source = source_canvas_image
+    return True
+
+
+def compose_avatar_preview_frame(
+    job: JobRecord,
+    state: AvatarTalkingFrameState,
+    stream_status: dict[str, Any] | None,
+    frame_image: np.ndarray,
+    canvas_size: tuple[int, int],
+) -> np.ndarray:
+    """
+    Compose one crop-only frame into the shared avatar canvas using cached preview metadata.
+    """
+    if not load_avatar_preview_composition_state(job, state, stream_status, canvas_size):
+        return fit_frame_to_canvas(frame_image, canvas_size)
+
+    assert state.preview_composition_matrix is not None
+    assert state.preview_composition_mask is not None
+    assert state.preview_composition_source is not None
+
+    canvas_width = max(1, int(canvas_size[0]))
+    canvas_height = max(1, int(canvas_size[1]))
+    warped_frame_image = cv2.warpAffine(
+        frame_image,
+        state.preview_composition_matrix,
+        (canvas_width, canvas_height),
+    )
+    return np.clip(
+        (state.preview_composition_mask * warped_frame_image)
+        + ((1.0 - state.preview_composition_mask) * state.preview_composition_source),
+        0.0,
+        255.0,
+    ).astype(np.uint8)
+
+
+def normalize_job_stream_frame_image_to_canvas(
+    job: JobRecord,
+    state: AvatarTalkingFrameState,
+    frame_bytes: bytes,
+    canvas_size: tuple[int, int],
+    stream_status: dict[str, Any] | None,
+) -> np.ndarray | None:
+    """
+    Decode one job frame and compose it into the avatar canvas when preview metadata is present.
+    """
+    frame_image = decode_jpeg_frame(frame_bytes)
+    if frame_image is None:
+        return None
+    return compose_avatar_preview_frame(job, state, stream_status, frame_image, canvas_size)
+
+
 def refresh_avatar_source_frame_images(
     job: JobRecord,
     state: AvatarTalkingFrameState,
@@ -3105,7 +3409,13 @@ def refresh_avatar_source_frame_images(
         frame_bytes = read_stream_frame_by_index(job, state.next_frame_index)
         if not frame_bytes:
             break
-        frame_image = normalize_jpeg_frame_image_to_canvas(frame_bytes, canvas_size)
+        frame_image = normalize_job_stream_frame_image_to_canvas(
+            job,
+            state,
+            frame_bytes,
+            canvas_size,
+            stream_status,
+        )
         if frame_image is None:
             break
         state.source_frame_images[state.next_frame_index] = frame_image
@@ -3253,7 +3563,13 @@ def update_webrtc_avatar_talking_frame_state(
         frame_bytes = read_stream_frame_by_index(job, state.next_frame_index)
         if not frame_bytes:
             break
-        normalized_frame_image = normalize_jpeg_frame_image_to_canvas(frame_bytes, canvas_size)
+        normalized_frame_image = normalize_job_stream_frame_image_to_canvas(
+            job,
+            state,
+            frame_bytes,
+            canvas_size,
+            stream_status,
+        )
         if normalized_frame_image is None:
             break
         state.pending_frame_images.append(normalized_frame_image)
@@ -3371,6 +3687,24 @@ def resolve_driving_media_url(job: JobRecord) -> str:
     return f"/jobs/{job.job_id}/inputs/{job.audio_input_abs.name}"
 
 
+def build_public_preview_composition_payload(
+    job: JobRecord,
+    stream_status: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """
+    Convert preview-composition status metadata into public API URLs.
+    """
+    preview_composition = resolve_preview_composition_status(stream_status)
+    if preview_composition is None:
+        return None
+    payload = dict(preview_composition)
+    mask_image_name = str(payload.get("maskImage") or PREVIEW_COMPOSITION_MASK_NAME)
+    payload["maskImage"] = mask_image_name
+    payload["maskImageUrl"] = f"/jobs/{job.job_id}/stream/{mask_image_name}"
+    payload["sourceFrameUrl"] = build_public_file_url(job.source_frame_abs)
+    return payload
+
+
 def build_warmup_command(audio_rel_path: Path) -> list[str]:
     """
     Build warmup runner command that primes container, models and kernels.
@@ -3408,11 +3742,12 @@ def build_warmup_command(audio_rel_path: Path) -> list[str]:
         normalize_rel_path(str(output_root_rel)),
         "--stream-dir",
         normalize_rel_path(str(stream_rel)),
-        "--disable-stream",
         "--animation-region",
         DEFAULT_ANIMATION_REGION,
     ]
-    if not DEFAULT_PASTE_BACK_ENABLED:
+    if should_defer_preview_paste_back("preview", DEFAULT_PASTE_BACK_ENABLED, DEFAULT_STITCHING_ENABLED):
+        command.append("--defer-paste-back")
+    elif not DEFAULT_PASTE_BACK_ENABLED:
         command.append("--no-paste-back")
     if not DEFAULT_STITCHING_ENABLED:
         command.append("--no-stitching")
@@ -3421,6 +3756,29 @@ def build_warmup_command(audio_rel_path: Path) -> list[str]:
     if DEFAULT_SKIP_TRT_ENGINE_BUILD:
         command.append("--skip-trt-engine-build")
     return command
+
+
+def set_warmup_state(phase: str, progress: float, message: str = "", error: str = "") -> None:
+    """
+    Update the public warmup state exposed through the health payload.
+    """
+    global WARMUP_PHASE
+    global WARMUP_PROGRESS
+    global WARMUP_MESSAGE
+    global WARMUP_ERROR
+    with WARMUP_LOCK:
+        WARMUP_PHASE = str(phase or "idle")
+        WARMUP_PROGRESS = clamp_float(float(progress), 0.0, 1.0)
+        WARMUP_MESSAGE = str(message or "")
+        WARMUP_ERROR = str(error or "")
+
+
+def read_warmup_stream_status() -> dict[str, Any] | None:
+    """
+    Read the live warmup stream status when the warmup runner has started emitting frames.
+    """
+    status_path = PROJECT_ROOT / WARMUP_OUTPUT_ROOT_REL / WARMUP_STREAM_SUBDIR_NAME / STREAM_STATUS_FILE_NAME
+    return read_json(status_path)
 
 
 def ensure_warmup_audio_file(audio_abs_path: Path) -> None:
@@ -3459,18 +3817,59 @@ def run_startup_warmup_once() -> None:
             return
         WARMUP_RUNNING = True
         WARMUP_LAST_STARTED_AT_MS = now_ms()
+    set_warmup_state("starting", 0.0, "starting warmup")
     try:
         time.sleep(WARMUP_START_DELAY_SEC)
         output_root_abs = PROJECT_ROOT / WARMUP_OUTPUT_ROOT_REL
         input_dir_abs = output_root_abs / WARMUP_INPUTS_SUBDIR_NAME
         warmup_audio_abs = input_dir_abs / WARMUP_AUDIO_FILE_NAME
         warmup_audio_rel = warmup_audio_abs.relative_to(PROJECT_ROOT)
+        stream_dir_abs = output_root_abs / WARMUP_STREAM_SUBDIR_NAME
+        stream_status_abs = stream_dir_abs / STREAM_STATUS_FILE_NAME
+        stream_dir_abs.mkdir(parents=True, exist_ok=True)
+        if stream_status_abs.exists():
+            stream_status_abs.unlink()
+        set_warmup_state("prepare-audio", 0.05, "preparing warmup audio")
         ensure_warmup_audio_file(warmup_audio_abs)
         command = build_warmup_command(warmup_audio_rel)
         print("[warmup] starting runtime warmup job")
-        subprocess.run(command, cwd=str(PROJECT_ROOT), check=True)
+        set_warmup_state("launch-runner", 0.1, "launching warmup runner")
+        process = subprocess.Popen(
+            command,
+            cwd=str(PROJECT_ROOT),
+        )
+        last_status_message = "initializing models"
+        while True:
+            stream_status = read_warmup_stream_status()
+            if isinstance(stream_status, dict):
+                progress_ratio = float(stream_status.get("progress") or 0.0)
+                frame_index = parse_status_int(stream_status, "frameIndex")
+                frame_total = parse_status_int(stream_status, "frameTotal")
+                latest_message = str(stream_status.get("message") or "rendering")
+                if frame_total > 0:
+                    last_status_message = f"{latest_message} ({frame_index}/{frame_total})"
+                else:
+                    last_status_message = latest_message
+                set_warmup_state(
+                    "rendering",
+                    0.1 + (clamp_float(progress_ratio, 0.0, 1.0) * 0.85),
+                    last_status_message,
+                )
+            elif process.poll() is None:
+                set_warmup_state("initializing-models", 0.1, last_status_message)
+
+            if process.poll() is not None:
+                break
+            time.sleep(max(0.1, JOB_POLL_SLEEP_SEC))
+
+        if process.returncode != 0:
+            error_message = f"warmup runner exited with code {process.returncode}"
+            set_warmup_state("error", 0.0, "warmup failed", error_message)
+            raise RuntimeError(error_message)
+        set_warmup_state("completed", 1.0, "warmup completed")
         print("[warmup] completed runtime warmup job")
     except Exception as exc:
+        set_warmup_state("error", 0.0, "warmup failed", str(exc))
         print(f"[warmup] failed: {exc}")
     finally:
         with WARMUP_LOCK:
@@ -3488,6 +3887,10 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
     state = determine_job_state(job, stream_status)
     exit_code = job.exit_code if job.exit_code is not None else (process.poll() if process is not None else None)
     queued_position = queue_position(job.job_id)
+    public_stream_status = dict(stream_status or {})
+    public_preview_composition = build_public_preview_composition_payload(job, stream_status)
+    if public_preview_composition is not None:
+        public_stream_status[PREVIEW_COMPOSITION_STATUS_KEY] = public_preview_composition
     payload: dict[str, Any] = {
         "jobId": job.job_id,
         "state": state,
@@ -3504,9 +3907,11 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "stitchingEnabled": job.stitching_enabled,
         "relativeMotionEnabled": job.relative_motion_enabled,
         "pasteBackEnabled": job.paste_back_enabled,
+        "deferPasteBackEnabled": job.defer_paste_back_enabled,
         "sourceFrame": job.source_frame_arg,
         "sourceFrameUrl": build_public_file_url(job.source_frame_abs),
-        "status": stream_status or {},
+        "status": public_stream_status,
+        "previewComposition": public_preview_composition,
         "streamUrl": f"/api/jobs/{job.job_id}/stream.mjpg",
         "wsUrl": f"/ws/jobs/{job.job_id}",
         "videoWsUrl": f"/ws/jobs/{job.job_id}/video",
@@ -3575,6 +3980,95 @@ async def resolve_requested_source_frame(
     return source_image_abs, normalize_rel_path(str(source_image_rel))
 
 
+async def create_and_enqueue_audio_job(
+    audio: UploadFile,
+    source_image: UploadFile | None,
+    source_frame: str,
+    mode: str,
+    motion_stride: int,
+    animation_region: str,
+    stitching: bool,
+    relative_motion: bool,
+    paste_back: bool,
+) -> dict[str, Any]:
+    """
+    Validate one audio generation request, register the job, and enqueue it for playback/rendering.
+    """
+    ensure_runtime_accepting_requests()
+    ensure_job_worker_started()
+    ensure_avatar_worker_started()
+    extension = Path(audio.filename or "").suffix.lower()
+    if extension not in ALLOWED_AUDIO_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported audio extension '{extension}'. Allowed: {sorted(ALLOWED_AUDIO_EXTENSIONS)}",
+        )
+    if mode not in {"preview", "full"}:
+        raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
+    if int(motion_stride) < 1 or int(motion_stride) > 6:
+        raise HTTPException(status_code=400, detail="Invalid motion_stride. Allowed range: 1..6")
+    normalized_animation_region = str(animation_region or "").strip().lower()
+    if normalized_animation_region not in ANIMATION_REGION_CHOICES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid animation_region. Allowed values: {sorted(ANIMATION_REGION_CHOICES)}",
+        )
+
+    job_id = make_job_id()
+    output_rel = JOBS_ROOT_REL / job_id
+    output_abs = PROJECT_ROOT / output_rel
+    stream_rel = output_rel / "stream"
+    stream_abs = PROJECT_ROOT / stream_rel
+    log_rel = output_rel / RUN_LOG_FILE_NAME
+    log_abs = PROJECT_ROOT / log_rel
+    input_rel = output_rel / "inputs" / f"driving{extension}"
+    input_abs = PROJECT_ROOT / input_rel
+    stream_audio_abs = PROJECT_ROOT / output_rel / "inputs" / "driving_stream.wav"
+    output_abs.mkdir(parents=True, exist_ok=True)
+    await save_upload_file(audio, input_abs)
+    stream_audio_input_abs = normalize_stream_audio_input(input_abs, stream_audio_abs)
+    audio_duration_sec = probe_media_duration_sec(input_abs)
+    source_frame_abs, source_frame_arg = await resolve_requested_source_frame(
+        source_frame=source_frame,
+        source_image=source_image,
+        output_abs=output_abs,
+        output_rel=output_rel,
+        audio_duration_sec=audio_duration_sec,
+    )
+
+    job = JobRecord(
+        job_id=job_id,
+        created_at_ms=now_ms(),
+        mode=mode,
+        source_frame_arg=source_frame_arg,
+        source_frame_abs=source_frame_abs,
+        output_rel=output_rel,
+        output_abs=output_abs,
+        stream_rel=stream_rel,
+        stream_abs=stream_abs,
+        audio_input_rel=input_rel,
+        audio_input_abs=input_abs,
+        stream_audio_input_abs=stream_audio_input_abs,
+        audio_original_name=audio.filename or input_abs.name,
+        audio_duration_sec=audio_duration_sec,
+        audio_motion_stride=int(motion_stride),
+        animation_region=normalized_animation_region,
+        stitching_enabled=bool(stitching),
+        relative_motion_enabled=bool(relative_motion),
+        paste_back_enabled=bool(paste_back),
+        defer_paste_back_enabled=should_defer_preview_paste_back(
+            mode,
+            bool(paste_back),
+            bool(stitching),
+        ),
+        log_rel=log_rel,
+        log_abs=log_abs,
+    )
+    register_job(job)
+    enqueue_job(job.job_id)
+    return build_job_payload(job)
+
+
 def create_app() -> FastAPI:
     """
     Build FastAPI application.
@@ -3588,6 +4082,15 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def require_api_token(request: Request, call_next: Callable[[Request], Awaitable[Any]]) -> Any:
+        if request.method.upper() == "OPTIONS":
+            return await call_next(request)
+        auth_error_response = authorize_http_request(request)
+        if auth_error_response is not None:
+            return auth_error_response
+        return await call_next(request)
 
     @app.on_event("startup")
     async def startup_warmup() -> None:
@@ -3620,6 +4123,11 @@ def create_app() -> FastAPI:
         except RuntimeError as exc:
             fixed_source_error = str(exc)
         avatar_payload = build_avatar_payload()
+        with WARMUP_LOCK:
+            warmup_phase = WARMUP_PHASE
+            warmup_progress = WARMUP_PROGRESS
+            warmup_message = WARMUP_MESSAGE
+            warmup_error = WARMUP_ERROR
         return {
             "status": "ok",
             "backend": DEFAULT_BACKEND,
@@ -3634,6 +4142,11 @@ def create_app() -> FastAPI:
             "defaultRelativeMotionEnabled": DEFAULT_RELATIVE_MOTION_ENABLED,
             "defaultPasteBackEnabled": DEFAULT_PASTE_BACK_ENABLED,
             "defaultVideoEncoder": DEFAULT_VIDEO_ENCODER,
+            "authEnabled": API_TOKEN_ENABLED,
+            "authHeaderName": "Authorization",
+            "authScheme": AUTHORIZATION_HEADER_VALUE,
+            "authQueryParam": API_TOKEN_QUERY_KEY,
+            "enqueueAudioUrl": "/api/avatar/enqueue",
             "fixedSourceEnabled": bool(FIXED_SOURCE_FRAME),
             "fixedSourceFrame": fixed_source_frame_arg,
             "fixedSourceError": fixed_source_error,
@@ -3642,6 +4155,10 @@ def create_app() -> FastAPI:
             "warmupRunning": WARMUP_RUNNING,
             "warmupLastStartedAtMs": WARMUP_LAST_STARTED_AT_MS,
             "warmupSourceFrame": warmup_source_frame_arg,
+            "warmupPhase": warmup_phase,
+            "warmupProgress": warmup_progress,
+            "warmupMessage": warmup_message,
+            "warmupError": warmup_error,
             "runtimeRestarting": RUNTIME_RESTARTING,
             "runtimeRestartRequestedAtMs": RUNTIME_RESTART_REQUESTED_AT_MS,
             "processStartedAtMs": PROCESS_STARTED_AT_MS,
@@ -3712,7 +4229,21 @@ def create_app() -> FastAPI:
             return JSONResponse({"status": "disabled"})
         warmup_thread = threading.Thread(target=run_startup_warmup_once, daemon=True)
         warmup_thread.start()
-        return JSONResponse({"status": "started", "startedAtMs": now_ms()})
+        with WARMUP_LOCK:
+            warmup_phase = WARMUP_PHASE
+            warmup_progress = WARMUP_PROGRESS
+            warmup_message = WARMUP_MESSAGE
+            warmup_error = WARMUP_ERROR
+        return JSONResponse(
+            {
+                "status": "started",
+                "startedAtMs": now_ms(),
+                "warmupPhase": warmup_phase,
+                "warmupProgress": warmup_progress,
+                "warmupMessage": warmup_message,
+                "warmupError": warmup_error,
+            }
+        )
 
     @app.post("/api/runtime/restart")
     async def runtime_restart() -> JSONResponse:
@@ -3756,74 +4287,43 @@ def create_app() -> FastAPI:
         relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
         paste_back: bool = Form(DEFAULT_PASTE_BACK_ENABLED),
     ) -> JSONResponse:
-        ensure_runtime_accepting_requests()
-        ensure_job_worker_started()
-        ensure_avatar_worker_started()
-        extension = Path(audio.filename or "").suffix.lower()
-        if extension not in ALLOWED_AUDIO_EXTENSIONS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported audio extension '{extension}'. Allowed: {sorted(ALLOWED_AUDIO_EXTENSIONS)}",
-            )
-        if mode not in {"preview", "full"}:
-            raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
-        if int(motion_stride) < 1 or int(motion_stride) > 6:
-            raise HTTPException(status_code=400, detail="Invalid motion_stride. Allowed range: 1..6")
-        normalized_animation_region = str(animation_region or "").strip().lower()
-        if normalized_animation_region not in ANIMATION_REGION_CHOICES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid animation_region. Allowed values: {sorted(ANIMATION_REGION_CHOICES)}",
-            )
-
-        job_id = make_job_id()
-        output_rel = JOBS_ROOT_REL / job_id
-        output_abs = PROJECT_ROOT / output_rel
-        stream_rel = output_rel / "stream"
-        stream_abs = PROJECT_ROOT / stream_rel
-        log_rel = output_rel / RUN_LOG_FILE_NAME
-        log_abs = PROJECT_ROOT / log_rel
-        input_rel = output_rel / "inputs" / f"driving{extension}"
-        input_abs = PROJECT_ROOT / input_rel
-        stream_audio_abs = PROJECT_ROOT / output_rel / "inputs" / "driving_stream.wav"
-        output_abs.mkdir(parents=True, exist_ok=True)
-        await save_upload_file(audio, input_abs)
-        stream_audio_input_abs = normalize_stream_audio_input(input_abs, stream_audio_abs)
-        audio_duration_sec = probe_media_duration_sec(input_abs)
-        source_frame_abs, source_frame_arg = await resolve_requested_source_frame(
-            source_frame=source_frame,
+        payload = await create_and_enqueue_audio_job(
+            audio=audio,
             source_image=source_image,
-            output_abs=output_abs,
-            output_rel=output_rel,
-            audio_duration_sec=audio_duration_sec,
-        )
-
-        job = JobRecord(
-            job_id=job_id,
-            created_at_ms=now_ms(),
+            source_frame=source_frame,
             mode=mode,
-            source_frame_arg=source_frame_arg,
-            source_frame_abs=source_frame_abs,
-            output_rel=output_rel,
-            output_abs=output_abs,
-            stream_rel=stream_rel,
-            stream_abs=stream_abs,
-            audio_input_rel=input_rel,
-            audio_input_abs=input_abs,
-            stream_audio_input_abs=stream_audio_input_abs,
-            audio_original_name=audio.filename or input_abs.name,
-            audio_duration_sec=audio_duration_sec,
-            audio_motion_stride=int(motion_stride),
-            animation_region=normalized_animation_region,
-            stitching_enabled=bool(stitching),
-            relative_motion_enabled=bool(relative_motion),
-            paste_back_enabled=bool(paste_back),
-            log_rel=log_rel,
-            log_abs=log_abs,
+            motion_stride=motion_stride,
+            animation_region=animation_region,
+            stitching=stitching,
+            relative_motion=relative_motion,
+            paste_back=paste_back,
         )
-        register_job(job)
-        enqueue_job(job.job_id)
-        return JSONResponse(build_job_payload(job))
+        return JSONResponse(payload)
+
+    @app.post("/api/avatar/enqueue")
+    async def enqueue_avatar_audio(
+        audio: UploadFile = File(...),
+        source_image: UploadFile | None = File(None),
+        source_frame: str = Form(DEFAULT_SOURCE_FRAME),
+        mode: str = Form(DEFAULT_MODE),
+        motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
+        animation_region: str = Form(DEFAULT_ANIMATION_REGION),
+        stitching: bool = Form(DEFAULT_STITCHING_ENABLED),
+        relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
+        paste_back: bool = Form(DEFAULT_PASTE_BACK_ENABLED),
+    ) -> JSONResponse:
+        payload = await create_and_enqueue_audio_job(
+            audio=audio,
+            source_image=source_image,
+            source_frame=source_frame,
+            mode=mode,
+            motion_stride=motion_stride,
+            animation_region=animation_region,
+            stitching=stitching,
+            relative_motion=relative_motion,
+            paste_back=paste_back,
+        )
+        return JSONResponse(payload)
 
     @app.get("/api/jobs/{job_id}/status")
     async def job_status(job_id: str) -> JSONResponse:
@@ -3900,6 +4400,9 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/jobs/{job_id}")
     async def job_stream_ws(websocket: WebSocket, job_id: str) -> None:
+        if not is_websocket_request_authorized(websocket):
+            await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
+            return
         with JOBS_LOCK:
             job = JOBS.get(job_id)
         if job is None:
@@ -4012,6 +4515,9 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/avatar/video")
     async def avatar_video_ws(websocket: WebSocket) -> None:
+        if not is_websocket_request_authorized(websocket):
+            await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
+            return
         await websocket.accept()
 
         async def send_chunk(chunk: bytes) -> None:
@@ -4029,6 +4535,9 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/avatar")
     async def avatar_status_ws(websocket: WebSocket) -> None:
+        if not is_websocket_request_authorized(websocket):
+            await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
+            return
         ensure_avatar_worker_started()
         await websocket.accept()
         last_signature = ""
@@ -4055,6 +4564,9 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/jobs/{job_id}/video")
     async def job_video_ws(websocket: WebSocket, job_id: str) -> None:
+        if not is_websocket_request_authorized(websocket):
+            await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
+            return
         with JOBS_LOCK:
             job = JOBS.get(job_id)
         if job is None:

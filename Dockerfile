@@ -3,6 +3,8 @@ FROM shaoguo/faster_liveportrait:v3
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
+    ANIMATION_API_HOST=0.0.0.0 \
+    ANIMATION_API_PORT=8010 \
     ANIMATION_BACKEND=trt \
     ANIMATION_TRT_RUNTIME=local \
     ANIMATION_TRT_PRECISION=fp16 \
@@ -30,4 +32,4 @@ COPY third_party/FasterLivePortrait /app/third_party/FasterLivePortrait
 
 EXPOSE 8010
 
-CMD ["/root/miniconda3/bin/python", "realtime_stream_api.py", "--host", "0.0.0.0", "--port", "8010", "--backend", "trt", "--trt-runtime", "local", "--trt-precision", "fp16"]
+CMD ["/root/miniconda3/bin/python", "realtime_stream_api.py"]

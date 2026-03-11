@@ -37,6 +37,114 @@ docker compose logs -f animation-api
 docker compose down
 ```
 
+## Docker-ready runtime contract
+
+The container is now environment-driven. You can run it with `docker compose` or plain `docker run`
+without editing the image command.
+
+Recommended environment variables:
+
+- `ANIMATION_API_HOST` = bind host inside the container. Default: `0.0.0.0`
+- `ANIMATION_API_PORT` = HTTP/WebSocket port inside the container. Default: `8010`
+- `ANIMATION_API_TOKEN` = optional shared token for HTTP, media URLs, and WebSocket access
+
+Quick start with token protection:
+
+```powershell
+Copy-Item .env.example .env
+docker compose up --build -d
+```
+
+Plain Docker example:
+
+```powershell
+docker build -t animation-realtime-trt .
+docker run --gpus all --rm -p 8010:8010 `
+  -e ANIMATION_API_TOKEN=change-me `
+  -v ${PWD}\inputs:/app/inputs `
+  -v ${PWD}\output:/app/output `
+  -v ${PWD}\output_fasterliveportrait:/app/output_fasterliveportrait `
+  animation-realtime-trt
+```
+
+When `ANIMATION_API_TOKEN` is set:
+
+- HTTP accepts `Authorization: Bearer <token>`
+- HTTP also accepts `?token=<token>`
+- WebSocket accepts `?token=<token>`
+- The built-in UI reuses `?token=<token>` automatically when opening `index.html`
+
+Example UI URL:
+
+```text
+http://127.0.0.1:8010/?token=change-me
+```
+
+## Audio enqueue API
+
+The explicit queue endpoint is:
+
+```text
+POST /api/avatar/enqueue
+```
+
+It accepts the same multipart contract as the legacy `POST /api/generate` endpoint and immediately
+adds the audio to the sequential avatar queue.
+
+Minimal example:
+
+```powershell
+curl -X POST "http://127.0.0.1:8010/api/avatar/enqueue" `
+  -H "Authorization: Bearer change-me" `
+  -F "audio=@voice.mp3" `
+  -F "mode=preview" `
+  -F "motion_stride=1"
+```
+
+The response returns:
+
+- `jobId`
+- `queuePosition`
+- `wsUrl`
+- `videoWsUrl`
+- `statusUrl`
+
+## WebSocket contract
+
+Queue-aware avatar status stream:
+
+```text
+ws://127.0.0.1:8010/ws/avatar?token=change-me
+```
+
+Continuous avatar video stream:
+
+```text
+ws://127.0.0.1:8010/ws/avatar/video?token=change-me
+```
+
+Per-job status stream:
+
+```text
+ws://127.0.0.1:8010/ws/jobs/<jobId>?token=change-me
+```
+
+Per-job video stream:
+
+```text
+ws://127.0.0.1:8010/ws/jobs/<jobId>/video?token=change-me
+```
+
+`/ws/avatar` exposes queue depth and the currently playing job. `/ws/avatar/video` plays the unified
+idle/talking stream and consumes queued audios in order.
+
+## Docker backend benchmark
+
+If you want to start the stack in `onnx` locally or compare `onnx` versus `trt` using the same
+Dockerized API flow, see:
+
+- `docs/DOCKER_BACKEND_BENCHMARK.md`
+
 ## Contrato runtime
 
 - Backend por defecto: TensorRT

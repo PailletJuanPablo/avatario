@@ -16,6 +16,8 @@ import subprocess
 import sys
 import time
 import uuid
+import cv2
+import numpy as np
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -48,12 +50,15 @@ RESULT_PUBLIC_NAME = "result.mp4"
 RESULT_CONCAT_PUBLIC_NAME = "result_concat.mp4"
 STREAM_IMAGE_NAME = "latest.jpg"
 STREAM_STATUS_NAME = "status.json"
+PREVIEW_COMPOSITION_META_NAME = "preview_composition.json"
+PREVIEW_COMPOSITION_MASK_NAME = "preview_composition_mask.png"
 AUDIO_TO_PKL_SCRIPT_NAME = "faster_liveportrait_audio_to_pkl.py"
 DRIVING_AUDIO_EXTENSIONS = (".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg")
 AUDIO_TEMPLATE_META_NAME = "audio_template_meta.json"
 DEFAULT_AUDIO_TEMPLATE_CACHE_DIR = "output_fasterliveportrait/audio_template_cache"
 DEFAULT_SOURCE_CACHE_DIR = "output_fasterliveportrait/source_preprocess_cache"
 DEFAULT_PERSISTENT_WORKER_QUEUE_DIR = "output_fasterliveportrait/worker_queue"
+REDUCED_MOTION_TARGET_FPS_CAP = 10.0
 ENGINE_PRECISION_MARKER_SUFFIX = ".precision.txt"
 ENGINE_BATCH_MARKER_SUFFIX = ".batch.txt"
 TRT_INT8_CALIBRATION_BATCHES = 12
@@ -125,6 +130,7 @@ class RunnerConfig:
     skip_trt_engine_build: bool
     video_encoder: str
     paste_back: bool
+    defer_paste_back: bool
     animation_region: str
     stitching_enabled: bool
     relative_motion_enabled: bool
@@ -225,6 +231,7 @@ def parse_args() -> RunnerConfig:
     parser.add_argument("--skip-trt-engine-build", action="store_true")
     parser.add_argument("--video-encoder", choices=VIDEO_ENCODER_CHOICES, default=DEFAULT_VIDEO_ENCODER)
     parser.add_argument("--no-paste-back", action="store_true")
+    parser.add_argument("--defer-paste-back", action="store_true")
     parser.add_argument("--animation-region", choices=ANIMATION_REGION_CHOICES, default="all")
     parser.add_argument("--stitching-enabled", dest="stitching_enabled", action="store_true")
     parser.add_argument("--no-stitching", dest="stitching_enabled", action="store_false")
@@ -277,6 +284,7 @@ def parse_args() -> RunnerConfig:
         skip_trt_engine_build=args.skip_trt_engine_build,
         video_encoder=str(args.video_encoder).strip().lower(),
         paste_back=not args.no_paste_back,
+        defer_paste_back=bool(args.defer_paste_back),
         animation_region=str(args.animation_region).strip().lower(),
         stitching_enabled=bool(args.stitching_enabled),
         relative_motion_enabled=bool(args.relative_motion_enabled),
@@ -289,6 +297,27 @@ def assert_path_exists(path: Path, label: str) -> None:
     """
     if not path.exists():
         raise FileNotFoundError(f"{label} not found: {path}")
+
+
+def is_deferred_paste_back_enabled(config: RunnerConfig) -> bool:
+    """
+    Enable deferred paste-back only when the final contract still requires paste-back output.
+    """
+    return bool(config.defer_paste_back and config.paste_back and config.stitching_enabled)
+
+
+def should_render_paste_back(config: RunnerConfig) -> bool:
+    """
+    Resolve whether the heavy core pipeline should execute paste-back internally.
+    """
+    return bool(config.paste_back and not is_deferred_paste_back_enabled(config))
+
+
+def should_export_preview_composition(config: RunnerConfig) -> bool:
+    """
+    Resolve whether the core pipeline must emit lightweight composition metadata.
+    """
+    return is_deferred_paste_back_enabled(config)
 
 
 def read_fps(meta_path: Path) -> float:
@@ -356,7 +385,7 @@ def resolve_motion_stride_target_fps(source_fps: float, motion_stride: int) -> i
     if motion_stride <= 1:
         return max(1, int(round(float(source_fps))))
     base_target_fps = float(source_fps) / float(motion_stride)
-    capped_target_fps = min(float(source_fps), base_target_fps)
+    capped_target_fps = min(float(source_fps), base_target_fps, REDUCED_MOTION_TARGET_FPS_CAP)
     return max(1, int(round(capped_target_fps)))
 
 
@@ -1112,6 +1141,104 @@ def ensure_browser_compatible_video(video_path: Path, video_encoder: str) -> Pat
     return output_path
 
 
+def read_preview_composition_meta(run_output_dir: Path) -> dict[str, object]:
+    """
+    Read deferred paste-back metadata emitted by the core render path.
+    """
+    meta_path = run_output_dir / PREVIEW_COMPOSITION_META_NAME
+    assert_path_exists(meta_path, "Preview composition metadata")
+    with meta_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Invalid preview composition metadata: {meta_path}")
+    return payload
+
+
+def load_preview_composition_mask(run_output_dir: Path, mask_file_name: str) -> np.ndarray:
+    """
+    Load one persisted alpha mask as a float blend tensor.
+    """
+    mask_path = run_output_dir / str(mask_file_name or PREVIEW_COMPOSITION_MASK_NAME)
+    assert_path_exists(mask_path, "Preview composition mask")
+    mask_image = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
+    if mask_image is None:
+        raise RuntimeError(f"Unable to read preview composition mask: {mask_path}")
+    if mask_image.ndim != 3 or mask_image.shape[2] < 4:
+        raise RuntimeError(f"Invalid preview composition mask format: {mask_path}")
+    alpha_channel = mask_image[..., 3].astype(np.float32) / 255.0
+    return np.repeat(alpha_channel[..., None], 3, axis=2)
+
+
+def compose_deferred_paste_back_video(
+    config: RunnerConfig,
+    run_output_dir: Path,
+    crop_video_path: Path,
+) -> Path:
+    """
+    Compose one full-frame result from crop-only output using exported preview metadata.
+    """
+    metadata = read_preview_composition_meta(run_output_dir)
+    matrix_value = metadata.get("matrix")
+    if not isinstance(matrix_value, list):
+        raise RuntimeError("Preview composition matrix is missing.")
+    transform_matrix = np.asarray(matrix_value, dtype=np.float32)
+    if transform_matrix.shape != (2, 3):
+        raise RuntimeError("Preview composition matrix has an invalid shape.")
+
+    source_frame_image = cv2.imread(str(config.source_frame), cv2.IMREAD_COLOR)
+    if source_frame_image is None:
+        raise RuntimeError(f"Unable to read source frame for deferred paste-back: {config.source_frame}")
+    source_height, source_width = source_frame_image.shape[:2]
+    mask_float = load_preview_composition_mask(
+        run_output_dir,
+        str(metadata.get("maskFile") or PREVIEW_COMPOSITION_MASK_NAME),
+    )
+    if mask_float.shape[:2] != (source_height, source_width):
+        raise RuntimeError("Preview composition mask dimensions do not match the source frame.")
+
+    capture = cv2.VideoCapture(str(crop_video_path))
+    if not capture.isOpened():
+        raise RuntimeError(f"Unable to open crop video for deferred paste-back: {crop_video_path}")
+
+    fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    if fps <= 0:
+        fps = DEFAULT_FPS
+
+    output_path = crop_video_path.with_name(f"{crop_video_path.stem}-deferred-org.mp4")
+    writer = cv2.VideoWriter(
+        str(output_path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (source_width, source_height),
+    )
+    if not writer.isOpened():
+        capture.release()
+        raise RuntimeError(f"Unable to create deferred paste-back video: {output_path}")
+
+    try:
+        while True:
+            ok, crop_frame_image = capture.read()
+            if not ok:
+                break
+            warped_frame_image = cv2.warpAffine(
+                crop_frame_image,
+                transform_matrix,
+                (source_width, source_height),
+            )
+            composed_frame_image = np.clip(
+                (mask_float * warped_frame_image) + ((1.0 - mask_float) * source_frame_image),
+                0.0,
+                255.0,
+            ).astype(np.uint8)
+            writer.write(composed_frame_image)
+    finally:
+        capture.release()
+        writer.release()
+
+    assert_path_exists(output_path, "Deferred paste-back video")
+    return output_path
+
+
 def to_docker_host_path(path: Path) -> str:
     """
     Convert host filesystem path to Docker-friendly path for bind mount.
@@ -1461,8 +1588,10 @@ def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
         f"--render_batch_size {int(config.render_batch_size)} "
         f"--animation_region {shlex.quote(config.animation_region)} "
     )
-    if config.paste_back:
+    if should_render_paste_back(config):
         worker_command += "--paste_back "
+    if should_export_preview_composition(config):
+        worker_command += "--export_preview_composition "
     if not config.stitching_enabled:
         worker_command += "--no_stitching "
     if not config.relative_motion_enabled:
@@ -1516,8 +1645,10 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
         "--animation_region",
         str(config.animation_region),
     ]
-    if config.paste_back:
+    if should_render_paste_back(config):
         worker_command.append("--paste_back")
+    if should_export_preview_composition(config):
+        worker_command.append("--export_preview_composition")
     if not config.stitching_enabled:
         worker_command.append("--no_stitching")
     if not config.relative_motion_enabled:
@@ -1674,8 +1805,10 @@ def run_faster_pipeline_local(
     command.extend(build_local_driving_args(config, driving_input))
     if config.stream_enabled:
         command.extend(["--stream_dir", str(config.stream_dir)])
-    if config.paste_back:
+    if should_render_paste_back(config):
         command.append("--paste_back")
+    if should_export_preview_composition(config):
+        command.append("--export_preview_composition")
     if not config.stitching_enabled:
         command.append("--no_stitching")
     if not config.relative_motion_enabled:
@@ -1713,7 +1846,8 @@ def run_faster_pipeline_local_trt_persistent_worker(
         "saveDir": str(run_output_dir),
         "animal": False,
         "renderBatchSize": int(config.render_batch_size),
-        "pasteBack": bool(config.paste_back),
+        "pasteBack": bool(should_render_paste_back(config)),
+        "exportPreviewComposition": bool(should_export_preview_composition(config)),
         "animationRegion": str(config.animation_region),
         "stitchingEnabled": bool(config.stitching_enabled),
         "relativeMotionEnabled": bool(config.relative_motion_enabled),
@@ -1772,8 +1906,10 @@ def run_faster_pipeline_docker_trt(
     script += " " + build_docker_driving_args(config, f"/workspace/{driving_rel}").strip()
     if config.stream_enabled:
         script += f" --stream_dir {shlex.quote(f'/workspace/{stream_rel}')}"
-    if config.paste_back:
+    if should_render_paste_back(config):
         script += " --paste_back"
+    if should_export_preview_composition(config):
+        script += " --export_preview_composition"
     if not config.stitching_enabled:
         script += " --no_stitching"
     if not config.relative_motion_enabled:
@@ -1816,7 +1952,8 @@ def run_faster_pipeline_docker_trt_persistent_worker(
         "saveDir": to_container_workspace_path(run_output_dir, config.project_root, "Worker run output directory"),
         "animal": False,
         "renderBatchSize": int(config.render_batch_size),
-        "pasteBack": bool(config.paste_back),
+        "pasteBack": bool(should_render_paste_back(config)),
+        "exportPreviewComposition": bool(should_export_preview_composition(config)),
         "animationRegion": str(config.animation_region),
         "stitchingEnabled": bool(config.stitching_enabled),
         "relativeMotionEnabled": bool(config.relative_motion_enabled),
@@ -2061,6 +2198,14 @@ def main() -> None:
         template_written = copy_template_if_present(run_output_dir, driving_template, driving_input.name)
         if template_written:
             print(f"[ok] cached template -> {driving_template}")
+    if is_deferred_paste_back_enabled(config):
+        preview_composition_meta_path = run_output_dir / PREVIEW_COMPOSITION_META_NAME
+        if preview_composition_meta_path.exists():
+            result_org = compose_deferred_paste_back_video(config, run_output_dir, result_crop)
+        else:
+            print(
+                f"[warn] deferred paste-back metadata missing; reusing original render: {preview_composition_meta_path}"
+            )
     if driving_audio is not None:
         result_org = mux_audio_into_video(result_org, driving_audio, config.video_encoder)
         result_crop = mux_audio_into_video(result_crop, driving_audio, config.video_encoder)

@@ -5,17 +5,21 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8010:8010"
+      - "${ANIMATION_API_PORT:-8010}:${ANIMATION_API_PORT:-8010}"
     gpus: all
     environment:
-      ANIMATION_BACKEND: trt
-      ANIMATION_TRT_RUNTIME: local
-      ANIMATION_TRT_PRECISION: fp16
-      ANIMATION_WARMUP_ENABLED: "1"
-      ANIMATION_AUDIO_MOTION_STRIDE: "1"
-      ANIMATION_RENDER_BATCH_SIZE: "4"
-      ANIMATION_TRT_ENGINE_BATCH_SIZE: "4"
-      ANIMATION_VIDEO_ENCODER: auto
+      ANIMATION_API_HOST: 0.0.0.0
+      ANIMATION_API_PORT: ${ANIMATION_API_PORT:-8010}
+      ANIMATION_API_TOKEN: ${ANIMATION_API_TOKEN:-}
+      ANIMATION_BACKEND: ${ANIMATION_BACKEND:-trt}
+      ANIMATION_TRT_RUNTIME: ${ANIMATION_TRT_RUNTIME:-local}
+      ANIMATION_TRT_PRECISION: ${ANIMATION_TRT_PRECISION:-fp16}
+      ANIMATION_WARMUP_ENABLED: ${ANIMATION_WARMUP_ENABLED:-1}
+      ANIMATION_IDLE_VIDEO: ${ANIMATION_IDLE_VIDEO:-inputs/idlevid.mp4}
+      ANIMATION_AUDIO_MOTION_STRIDE: ${ANIMATION_AUDIO_MOTION_STRIDE:-1}
+      ANIMATION_RENDER_BATCH_SIZE: ${ANIMATION_RENDER_BATCH_SIZE:-4}
+      ANIMATION_TRT_ENGINE_BATCH_SIZE: ${ANIMATION_TRT_ENGINE_BATCH_SIZE:-4}
+      ANIMATION_VIDEO_ENCODER: ${ANIMATION_VIDEO_ENCODER:-auto}
       ANIMATION_WEBRTC_ICE_SERVERS_JSON: ${ANIMATION_WEBRTC_ICE_SERVERS_JSON:-[]}
       ANIMATION_WEBRTC_ICE_TRANSPORT_POLICY: ${ANIMATION_WEBRTC_ICE_TRANSPORT_POLICY:-all}
     command:
@@ -24,7 +28,7 @@ services:
       - >
         set -o pipefail &&
         mkdir -p /app/output_fasterliveportrait &&
-        /root/miniconda3/bin/python realtime_stream_api.py --host 0.0.0.0 --port 8010 --backend trt --trt-runtime local --trt-precision fp16
+        /root/miniconda3/bin/python realtime_stream_api.py
         2>&1 | tee -a /app/output_fasterliveportrait/docker_api.log;
         exit $${PIPESTATUS[0]}
     volumes:
