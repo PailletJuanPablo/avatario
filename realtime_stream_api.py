@@ -132,6 +132,46 @@ def ffmpeg_supports_encoder(encoder_name: str) -> bool:
     return support_detected
 
 
+def read_env_int(
+    env_key: str,
+    default_value: int,
+    minimum_value: int,
+    maximum_value: int | None = None,
+) -> int:
+    """
+    Read one integer environment override with bounded fallback.
+    """
+    raw_value = os.getenv(env_key, str(default_value)).strip()
+    try:
+        parsed_value = int(raw_value or str(default_value))
+    except ValueError:
+        parsed_value = int(default_value)
+    bounded_value = max(int(minimum_value), parsed_value)
+    if maximum_value is not None:
+        bounded_value = min(int(maximum_value), bounded_value)
+    return bounded_value
+
+
+def read_env_float(
+    env_key: str,
+    default_value: float,
+    minimum_value: float,
+    maximum_value: float | None = None,
+) -> float:
+    """
+    Read one float environment override with bounded fallback.
+    """
+    raw_value = os.getenv(env_key, str(default_value)).strip()
+    try:
+        parsed_value = float(raw_value or str(default_value))
+    except ValueError:
+        parsed_value = float(default_value)
+    bounded_value = max(float(minimum_value), parsed_value)
+    if maximum_value is not None:
+        bounded_value = min(float(maximum_value), bounded_value)
+    return bounded_value
+
+
 def resolve_stream_video_encoder_name() -> str:
     """
     Resolve the concrete FFmpeg encoder name used by websocket/avatar stream encoders.
@@ -234,10 +274,16 @@ DEFAULT_TRT_PRECISION = os.getenv("ANIMATION_TRT_PRECISION", "fp16").strip().low
 DEFAULT_SKIP_TRT_ENGINE_BUILD = (
     os.getenv("ANIMATION_SKIP_TRT_ENGINE_BUILD", "0").strip().lower() in {"1", "true", "yes"}
 )
-DEFAULT_AUDIO_MOTION_STRIDE = max(
+DEFAULT_AUDIO_MOTION_STRIDE_ENV_KEY = "ANIMATION_AUDIO_MOTION_STRIDE"
+DEFAULT_AUDIO_MOTION_STRIDE_VALUE = 2
+DEFAULT_AUDIO_MOTION_STRIDE = read_env_int(
+    DEFAULT_AUDIO_MOTION_STRIDE_ENV_KEY,
+    DEFAULT_AUDIO_MOTION_STRIDE_VALUE,
     1,
-    int(os.getenv("ANIMATION_AUDIO_MOTION_STRIDE", "1").strip() or "1"),
+    6,
 )
+GENERATION_FRAME_COUNT_MIN = 1
+GENERATION_FRAME_COUNT_MAX = 1200
 DEFAULT_RENDER_BATCH_SIZE = max(
     1,
     int(os.getenv("ANIMATION_RENDER_BATCH_SIZE", "4").strip() or "4"),
@@ -323,8 +369,20 @@ VIDEO_STREAM_TARGET_LATENCY_FRAMES = 2
 VIDEO_STREAM_SERVER_BUFFER_FRAMES = 6
 VIDEO_STREAM_REALTIME_TARGET_DELAY_SEC = 0.18
 VIDEO_STREAM_INTERPOLATION_MAX_STEPS = 1
-VIDEO_STREAM_INTERPOLATION_TARGET_FPS = 25.0
-VIDEO_STREAM_INTERPOLATION_ALPHA_QUALITY = 95
+VIDEO_STREAM_TARGET_FPS_ENV_KEY = "ANIMATION_STREAM_TARGET_FPS"
+VIDEO_STREAM_INTERPOLATION_TARGET_FPS = read_env_float(
+    VIDEO_STREAM_TARGET_FPS_ENV_KEY,
+    20.0,
+    8.0,
+    25.0,
+)
+VIDEO_STREAM_JPEG_QUALITY_ENV_KEY = "ANIMATION_STREAM_JPEG_QUALITY"
+VIDEO_STREAM_INTERPOLATION_ALPHA_QUALITY = read_env_int(
+    VIDEO_STREAM_JPEG_QUALITY_ENV_KEY,
+    88,
+    40,
+    100,
+)
 VIDEO_STREAM_AUDIO_SAMPLES_PER_VIDEO_FRAME = VIDEO_STREAM_AUDIO_SAMPLE_RATE_INT // int(VIDEO_STREAM_INTERPOLATION_TARGET_FPS)
 VIDEO_STREAM_AUDIO_BYTES_PER_VIDEO_FRAME = (
     VIDEO_STREAM_AUDIO_SAMPLES_PER_VIDEO_FRAME
@@ -343,10 +401,21 @@ AVATAR_CAPTURE_DEFAULT_DURATION_SEC = 12.0
 AVATAR_CAPTURE_MIN_DURATION_SEC = 2.0
 AVATAR_CAPTURE_MAX_DURATION_SEC = 30.0
 AVATAR_VIDEO_OUTPUT_FPS = VIDEO_STREAM_INTERPOLATION_TARGET_FPS
-AVATAR_STREAM_OUTPUT_MAX_WIDTH = 854
-AVATAR_STREAM_OUTPUT_MAX_HEIGHT = 480
-AVATAR_VIDEO_FALLBACK_WIDTH = 854
-AVATAR_VIDEO_FALLBACK_HEIGHT = 480
+AVATAR_STREAM_MAX_WIDTH_ENV_KEY = "ANIMATION_AVATAR_STREAM_MAX_WIDTH"
+AVATAR_STREAM_MAX_HEIGHT_ENV_KEY = "ANIMATION_AVATAR_STREAM_MAX_HEIGHT"
+AVATAR_STREAM_OUTPUT_MAX_WIDTH = read_env_int(
+    AVATAR_STREAM_MAX_WIDTH_ENV_KEY,
+    768,
+    256,
+)
+AVATAR_STREAM_OUTPUT_MAX_HEIGHT = read_env_int(
+    AVATAR_STREAM_MAX_HEIGHT_ENV_KEY,
+    432,
+    256,
+)
+AVATAR_VIDEO_FALLBACK_WIDTH = AVATAR_STREAM_OUTPUT_MAX_WIDTH
+AVATAR_VIDEO_FALLBACK_HEIGHT = AVATAR_STREAM_OUTPUT_MAX_HEIGHT
+AVATAR_FALLBACK_BOUNCE_WINDOW_FRAMES = 3
 VIDEO_STREAM_START_MODE_QUERY_KEY = "startMode"
 VIDEO_STREAM_START_MODE_BUFFERED = "buffered"
 VIDEO_STREAM_START_MODE_LIVE = "live"
@@ -402,6 +471,34 @@ AVATAR_IDLE_SOURCE_ANCHOR_ROOT_REL = Path("output_fasterliveportrait/avatar_idle
 AVATAR_IDLE_SOURCE_ANCHOR_MANIFEST_NAME = "anchors.json"
 AVATAR_IDLE_SOURCE_ANCHOR_COUNT = 12
 AVATAR_IDLE_MIN_HOLD_SEC = 0.35
+AVATAR_RETURN_TO_IDLE_ENABLED = (
+    os.getenv("ANIMATION_AVATAR_RETURN_TO_IDLE_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+)
+AVATAR_RETURN_TO_IDLE_DURATION_SEC_ENV_KEY = "ANIMATION_AVATAR_RETURN_TO_IDLE_DURATION_SEC"
+AVATAR_RETURN_TO_IDLE_DURATION_SEC = read_env_float(
+    AVATAR_RETURN_TO_IDLE_DURATION_SEC_ENV_KEY,
+    0.24,
+    0.0,
+    2.0,
+)
+AVATAR_RETURN_TO_IDLE_MIN_FRAME_COUNT = 2
+AVATAR_RETURN_TO_IDLE_MAX_FRAME_COUNT_ENV_KEY = "ANIMATION_AVATAR_RETURN_TO_IDLE_MAX_FRAME_COUNT"
+AVATAR_RETURN_TO_IDLE_MAX_FRAME_COUNT = read_env_int(
+    AVATAR_RETURN_TO_IDLE_MAX_FRAME_COUNT_ENV_KEY,
+    6,
+    AVATAR_RETURN_TO_IDLE_MIN_FRAME_COUNT,
+    24,
+)
+AVATAR_RETURN_TO_IDLE_FLOW_PYR_SCALE = 0.5
+AVATAR_RETURN_TO_IDLE_FLOW_LEVELS = 3
+AVATAR_RETURN_TO_IDLE_FLOW_WINDOW_SIZE = 21
+AVATAR_RETURN_TO_IDLE_FLOW_ITERATIONS = 5
+AVATAR_RETURN_TO_IDLE_FLOW_POLY_N = 7
+AVATAR_RETURN_TO_IDLE_FLOW_POLY_SIGMA = 1.5
+AVATAR_RETURN_TO_IDLE_FLOW_CONSISTENCY_THRESHOLD = 1.5
+AVATAR_RETURN_TO_IDLE_FLOW_CONSISTENCY_SCALE = 0.05
+AVATAR_RETURN_TO_IDLE_FLOW_MASK_BLUR_KERNEL = 5
+AVATAR_RETURN_TO_IDLE_FLOW_WEIGHT_EPSILON = 1e-6
 AVATAR_READY_BUFFER_MIN_SEC = 1.2
 AVATAR_READY_DYNAMIC_MARGIN_SEC = 0.45
 AVATAR_STATE_POLL_SLEEP_SEC = 0.1
@@ -1390,6 +1487,7 @@ class JobRecord:
     audio_original_name: str
     audio_duration_sec: float
     audio_motion_stride: int
+    generation_frame_count: int | None
     animation_region: str
     stitching_enabled: bool
     relative_motion_enabled: bool
@@ -1437,6 +1535,7 @@ class AvatarTalkingFrameState:
     next_frame_index: int = 1
     output_frame_index: int = 0
     playback_started_at_perf: float = 0.0
+    virtual_source_position_zero_based: float | None = None
     last_known_frame_index: int = 0
     last_known_frame_total: int = 0
     estimated_generation_fps: float = VIDEO_STREAM_INPUT_FPS
@@ -1449,6 +1548,9 @@ class AvatarTalkingFrameState:
     previous_source_frame_image: np.ndarray | None = None
     last_frame_bytes: bytes | None = None
     last_frame_image: np.ndarray | None = None
+    last_output_source_frame_index: int = 0
+    fallback_bounce_cursor: int = 0
+    fallback_bounce_signature: tuple[int, ...] = field(default_factory=tuple)
     preview_composition_signature: str = ""
     preview_composition_matrix: np.ndarray | None = None
     preview_composition_mask: np.ndarray | None = None
@@ -1493,14 +1595,25 @@ class IdleVideoLooper:
             self.frame_count = frame_count
         self.capture = capture
 
+    def seek_to_frame(self, frame_index: int) -> None:
+        """
+        Seek the idle capture to one absolute frame index when the source is seekable.
+        """
+        if self.capture is None:
+            return
+        target_frame_index = max(0, int(frame_index))
+        if self.frame_count > 0:
+            target_frame_index %= self.frame_count
+        self.capture.set(cv2.CAP_PROP_POS_FRAMES, target_frame_index)
+
     def seek_to_time(self, offset_sec: float) -> None:
         """
         Seek idle capture to one time offset when the source is seekable.
         """
-        if self.capture is None or self.frame_count <= 0 or self.source_fps <= 0:
+        if self.capture is None or self.source_fps <= 0:
             return
-        target_frame = int(max(0.0, offset_sec) * self.source_fps) % max(1, self.frame_count)
-        self.capture.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+        target_frame = int(max(0.0, offset_sec) * self.source_fps)
+        self.seek_to_frame(target_frame)
 
     def read_next_frame(self) -> np.ndarray:
         if self.capture is None:
@@ -1606,6 +1719,7 @@ class AvatarVideoStreamTrack(MediaStreamTrack):
         self.mode = AVATAR_MODE_IDLE
         self.current_job: JobRecord | None = None
         self.current_talking_state: AvatarTalkingFrameState | None = None
+        self.pending_idle_return_frames: deque[np.ndarray] = deque()
         self.frame_interval_sec = 1.0 / max(1.0, self.looper.source_fps or WEBRTC_IDLE_VIDEO_FPS)
         self.clock_started_at_perf: float | None = None
         self.next_emit_at: float | None = None
@@ -1632,14 +1746,30 @@ class AvatarVideoStreamTrack(MediaStreamTrack):
         """
         Return the avatar track to the idle loop without changing the sender.
         """
+        previous_mode = self.mode
+        previous_frame_image = self.last_frame_image.copy()
         self.mode = AVATAR_MODE_IDLE
         self.current_job = None
         self.current_talking_state = None
-        if idle_started_at_ms > 0:
+        self.pending_idle_return_frames.clear()
+        if previous_mode == AVATAR_MODE_TALKING:
+            self.pending_idle_return_frames.extend(
+                build_avatar_return_to_idle_frame_sequence(
+                    start_frame_image=previous_frame_image,
+                    canvas_size=self.canvas_size,
+                    frames_per_second=self.looper.source_fps or WEBRTC_IDLE_VIDEO_FPS,
+                )
+            )
+        if self.pending_idle_return_frames:
+            self.looper.seek_to_frame(0)
+            self._prime_idle_frame()
+        elif idle_started_at_ms > 0:
             idle_offset_sec = max(0.0, (now_ms() - idle_started_at_ms) / 1000.0)
             self.looper.seek_to_time(idle_offset_sec)
+            self._prime_idle_frame()
+        else:
+            self._prime_idle_frame()
         self._set_frame_interval(self.looper.source_fps or WEBRTC_IDLE_VIDEO_FPS)
-        self._prime_idle_frame()
 
     def switch_to_talking(self, job: JobRecord, snapshot: dict[str, Any]) -> None:
         """
@@ -1657,6 +1787,7 @@ class AvatarVideoStreamTrack(MediaStreamTrack):
             playback_fps=max(1.0, playback_fps or WEBRTC_IDLE_VIDEO_FPS),
             playback_started_at_perf=time.perf_counter(),
         )
+        self.pending_idle_return_frames.clear()
         self._set_frame_interval(self.current_talking_state.playback_fps)
 
     def _resolve_idle_frame_image(self) -> np.ndarray:
@@ -1696,7 +1827,10 @@ class AvatarVideoStreamTrack(MediaStreamTrack):
         if self.mode == AVATAR_MODE_TALKING:
             frame_image = self._resolve_talking_frame_image()
         else:
-            frame_image = self._resolve_idle_frame_image()
+            if self.pending_idle_return_frames:
+                frame_image = self.pending_idle_return_frames.popleft()
+            else:
+                frame_image = self._resolve_idle_frame_image()
             self.last_frame_image = frame_image
 
         frame = VideoFrame.from_ndarray(frame_image, format="bgr24")
@@ -2151,6 +2285,7 @@ async def stream_continuous_avatar_video(
     audio_stop_event: asyncio.Event | None = None
     talking_state: AvatarTalkingFrameState | None = None
     talking_job: JobRecord | None = None
+    pending_idle_return_frames: deque[np.ndarray] = deque()
     frame_interval_sec = 1.0 / max(1.0, AVATAR_VIDEO_OUTPUT_FPS)
     next_emit_at = time.perf_counter()
 
@@ -2187,6 +2322,22 @@ async def stream_continuous_avatar_video(
             audio_stop_event = None
             audio_task = None
 
+    def arm_idle_return_transition(last_frame_image: np.ndarray | None) -> None:
+        """
+        Prepare one short return-to-idle bridge for the continuous avatar stream.
+        """
+        pending_idle_return_frames.clear()
+        pending_idle_return_frames.extend(
+            build_avatar_return_to_idle_frame_sequence(
+                start_frame_image=last_frame_image,
+                canvas_size=canvas_size,
+                frames_per_second=AVATAR_VIDEO_OUTPUT_FPS,
+            )
+        )
+        if pending_idle_return_frames:
+            idle_looper.seek_to_frame(0)
+            idle_looper.read_next_frame()
+
     await start_output_pipeline()
 
     try:
@@ -2205,6 +2356,7 @@ async def stream_continuous_avatar_video(
             snapshot = get_avatar_state_snapshot()
             desired_job_id = str(snapshot["currentJobId"] or "") if snapshot["mode"] == AVATAR_MODE_TALKING else ""
             if talking_state is not None and desired_job_id != talking_state.job_id:
+                arm_idle_return_transition(talking_state.last_frame_image)
                 talking_state = None
                 talking_job = None
             if talking_state is None and desired_job_id:
@@ -2214,6 +2366,7 @@ async def stream_continuous_avatar_video(
                     candidate_status = read_json(candidate_job.status_abs)
                     start_frame_index = resolve_avatar_playback_start_frame_index(snapshot, candidate_status)
                     talking_job = candidate_job
+                    pending_idle_return_frames.clear()
                     talking_state = AvatarTalkingFrameState(
                         job_id=desired_job_id,
                         start_frame_index=max(1, start_frame_index),
@@ -2224,14 +2377,18 @@ async def stream_continuous_avatar_video(
             if talking_state is not None and talking_job is not None:
                 frame_image, is_finished = resolve_avatar_talking_frame(talking_job, talking_state, canvas_size)
                 if is_finished:
+                    arm_idle_return_transition(talking_state.last_frame_image)
                     mark_avatar_job_finished(talking_job)
                     talking_state = None
                     talking_job = None
                     frame_image = None
 
             if frame_image is None:
-                idle_frame = idle_looper.read_next_frame()
-                frame_image = fit_frame_to_canvas(idle_frame, canvas_size)
+                if pending_idle_return_frames:
+                    frame_image = pending_idle_return_frames.popleft()
+                else:
+                    idle_frame = idle_looper.read_next_frame()
+                    frame_image = fit_frame_to_canvas(idle_frame, canvas_size)
 
             if frame_image is not None:
                 try:
@@ -2925,6 +3082,13 @@ def build_runner_command(job: JobRecord) -> list[str]:
         "--animation-region",
         job.animation_region,
     ]
+    if job.generation_frame_count is not None:
+        command.extend(
+            [
+                "--generation-frame-count",
+                str(job.generation_frame_count),
+            ]
+        )
     if job.defer_paste_back_enabled:
         command.append("--defer-paste-back")
     elif not job.paste_back_enabled:
@@ -3421,7 +3585,10 @@ def refresh_avatar_source_frame_images(
         state.source_frame_images[state.next_frame_index] = frame_image
         state.next_frame_index += 1
 
-    minimum_cached_frame_index = max(state.start_frame_index, required_frame_index - 2)
+    minimum_cached_frame_index = max(
+        state.start_frame_index,
+        required_frame_index - AVATAR_FALLBACK_BOUNCE_WINDOW_FRAMES,
+    )
     stale_frame_indices = [
         frame_index
         for frame_index in state.source_frame_images.keys()
@@ -3450,6 +3617,63 @@ def blend_avatar_source_frames(
     if safe_alpha >= 1.0:
         return next_frame_image
     return cv2.addWeighted(base_frame_image, 1.0 - safe_alpha, next_frame_image, safe_alpha, 0.0)
+
+
+def reset_avatar_bounce_fallback_state(state: AvatarTalkingFrameState) -> None:
+    """
+    Clear the short reverse-forward fallback cursor once forward playback resumes.
+    """
+    state.fallback_bounce_cursor = 0
+    state.fallback_bounce_signature = ()
+
+
+def build_avatar_bounce_cycle(frame_indices: list[int]) -> tuple[int, ...]:
+    """
+    Build one short reverse-forward cycle from the newest available frame indices.
+    """
+    if not frame_indices:
+        return ()
+    ordered_frame_indices = sorted({int(frame_index) for frame_index in frame_indices if int(frame_index) > 0})
+    if not ordered_frame_indices:
+        return ()
+    descending_frame_indices = list(reversed(ordered_frame_indices))
+    if len(descending_frame_indices) <= 2:
+        return tuple(descending_frame_indices)
+    return tuple(descending_frame_indices + ordered_frame_indices[1:-1])
+
+
+def resolve_avatar_bounce_frame_image(
+    state: AvatarTalkingFrameState,
+    requested_frame_index: int,
+) -> np.ndarray | None:
+    """
+    Return one brief ping-pong fallback frame when generation is momentarily late.
+    """
+    fallback_frame_ceiling = max(
+        1,
+        min(
+            max(state.last_known_frame_index, 1),
+            max(state.last_output_source_frame_index, requested_frame_index - 1),
+        ),
+    )
+    recent_frame_indices = sorted(
+        frame_index
+        for frame_index in state.source_frame_images.keys()
+        if frame_index <= fallback_frame_ceiling
+    )[-AVATAR_FALLBACK_BOUNCE_WINDOW_FRAMES:]
+    bounce_cycle = build_avatar_bounce_cycle(recent_frame_indices)
+    if not bounce_cycle:
+        return state.last_frame_image
+    if bounce_cycle != state.fallback_bounce_signature:
+        state.fallback_bounce_signature = bounce_cycle
+        state.fallback_bounce_cursor = 0
+    bounce_frame_index = bounce_cycle[state.fallback_bounce_cursor % len(bounce_cycle)]
+    state.fallback_bounce_cursor = (state.fallback_bounce_cursor + 1) % len(bounce_cycle)
+    bounce_frame_image = state.source_frame_images.get(bounce_frame_index)
+    if bounce_frame_image is not None:
+        state.last_output_source_frame_index = bounce_frame_index
+        return bounce_frame_image
+    return state.last_frame_image
 
 
 def update_avatar_talking_frame_state(job: JobRecord, state: AvatarTalkingFrameState) -> dict[str, Any] | None:
@@ -3501,9 +3725,25 @@ def resolve_avatar_talking_frame(
     """
     stream_status = refresh_avatar_source_frame_images(job, state, canvas_size, state.start_frame_index + 1)
     elapsed_talking_sec = max(0.0, time.perf_counter() - float(state.playback_started_at_perf))
-    source_position_zero_based = float(state.start_frame_index - 1) + (
+    desired_source_position_zero_based = float(state.start_frame_index - 1) + (
         elapsed_talking_sec * float(state.playback_fps)
     )
+    if state.virtual_source_position_zero_based is None:
+        state.virtual_source_position_zero_based = float(state.start_frame_index - 1)
+    source_position_step = float(state.playback_fps) / float(max(1.0, AVATAR_VIDEO_OUTPUT_FPS))
+    candidate_source_position_zero_based = min(
+        desired_source_position_zero_based,
+        float(state.virtual_source_position_zero_based) + max(source_position_step, 0.0),
+    )
+    maximum_available_source_position_zero_based = max(0.0, float(state.last_known_frame_index - 1))
+    source_position_zero_based = min(
+        candidate_source_position_zero_based,
+        maximum_available_source_position_zero_based,
+    )
+    source_position_advanced = (
+        source_position_zero_based > (float(state.virtual_source_position_zero_based) + 1e-6)
+    )
+    state.virtual_source_position_zero_based = source_position_zero_based
     base_frame_index = int(math.floor(source_position_zero_based)) + 1
     next_frame_index = base_frame_index + 1
     blend_alpha = source_position_zero_based - math.floor(source_position_zero_based)
@@ -3525,13 +3765,24 @@ def resolve_avatar_talking_frame(
 
     base_frame_image = state.source_frame_images.get(base_frame_index)
     if base_frame_image is None:
-        if state.last_frame_image is not None:
-            return state.last_frame_image, False
-        return None, False
+        fallback_frame_image = resolve_avatar_bounce_frame_image(state, base_frame_index)
+        if fallback_frame_image is None:
+            return None, False
+        state.last_frame_image = fallback_frame_image
+        state.output_frame_index += 1
+        return fallback_frame_image, False
 
     next_frame_image = state.source_frame_images.get(next_frame_index)
+    if not source_position_advanced and state.last_output_source_frame_index == base_frame_index:
+        fallback_frame_image = resolve_avatar_bounce_frame_image(state, base_frame_index)
+        if fallback_frame_image is not None:
+            state.last_frame_image = fallback_frame_image
+            state.output_frame_index += 1
+            return fallback_frame_image, False
     frame_image = blend_avatar_source_frames(base_frame_image, next_frame_image, blend_alpha)
+    reset_avatar_bounce_fallback_state(state)
     state.last_frame_image = frame_image
+    state.last_output_source_frame_index = base_frame_index
     state.output_frame_index += 1
     return frame_image, False
 
@@ -3658,6 +3909,249 @@ def build_interpolated_image_sequence(
         sequence.append(cv2.addWeighted(previous_frame_image, beta, current_frame_image, alpha, 0.0))
     sequence.append(current_frame_image)
     return sequence
+
+
+def build_avatar_transition_pixel_grid(width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Build one reusable pixel-coordinate grid for dense avatar frame warping.
+    """
+    return np.meshgrid(np.arange(width, dtype=np.float32), np.arange(height, dtype=np.float32))
+
+
+def compute_avatar_transition_optical_flow(
+    gray_frame_a: np.ndarray,
+    gray_frame_b: np.ndarray,
+) -> np.ndarray:
+    """
+    Compute dense optical flow between two grayscale avatar frames.
+    """
+    return cv2.calcOpticalFlowFarneback(
+        gray_frame_a,
+        gray_frame_b,
+        None,
+        pyr_scale=AVATAR_RETURN_TO_IDLE_FLOW_PYR_SCALE,
+        levels=AVATAR_RETURN_TO_IDLE_FLOW_LEVELS,
+        winsize=AVATAR_RETURN_TO_IDLE_FLOW_WINDOW_SIZE,
+        iterations=AVATAR_RETURN_TO_IDLE_FLOW_ITERATIONS,
+        poly_n=AVATAR_RETURN_TO_IDLE_FLOW_POLY_N,
+        poly_sigma=AVATAR_RETURN_TO_IDLE_FLOW_POLY_SIGMA,
+        flags=0,
+    )
+
+
+def warp_avatar_transition_image_with_flow(
+    image: np.ndarray,
+    flow: np.ndarray,
+    factor: float,
+    grid_x: np.ndarray,
+    grid_y: np.ndarray,
+) -> np.ndarray:
+    """
+    Warp one avatar frame using a scaled optical-flow field.
+    """
+    map_x = grid_x - (flow[..., 0] * factor)
+    map_y = grid_y - (flow[..., 1] * factor)
+    return cv2.remap(
+        image,
+        map_x,
+        map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT101,
+    )
+
+
+def build_avatar_transition_flow_consistency_mask(
+    flow_forward: np.ndarray,
+    flow_backward: np.ndarray,
+    grid_x: np.ndarray,
+    grid_y: np.ndarray,
+) -> np.ndarray:
+    """
+    Estimate one soft validity mask for bidirectional avatar optical flow.
+    """
+    map_x = grid_x + flow_forward[..., 0]
+    map_y = grid_y + flow_forward[..., 1]
+    sampled_backward = cv2.remap(
+        flow_backward,
+        map_x,
+        map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=0,
+    )
+    residual = np.linalg.norm(flow_forward + sampled_backward, axis=2)
+    magnitude = np.linalg.norm(flow_forward, axis=2) + np.linalg.norm(sampled_backward, axis=2)
+    validity_mask = (
+        residual
+        <= (
+            float(AVATAR_RETURN_TO_IDLE_FLOW_CONSISTENCY_THRESHOLD)
+            + (float(AVATAR_RETURN_TO_IDLE_FLOW_CONSISTENCY_SCALE) * magnitude)
+        )
+    ).astype(np.float32)
+    blur_kernel = int(AVATAR_RETURN_TO_IDLE_FLOW_MASK_BLUR_KERNEL)
+    if blur_kernel > 1:
+        if blur_kernel % 2 == 0:
+            blur_kernel += 1
+        validity_mask = cv2.GaussianBlur(validity_mask, (blur_kernel, blur_kernel), 0)
+    return np.clip(validity_mask, 0.0, 1.0)
+
+
+def synthesize_avatar_transition_frame(
+    start_frame_image: np.ndarray,
+    end_frame_image: np.ndarray,
+    flow_forward: np.ndarray,
+    flow_backward: np.ndarray,
+    mask_forward: np.ndarray,
+    mask_backward: np.ndarray,
+    alpha: float,
+    grid_x: np.ndarray,
+    grid_y: np.ndarray,
+) -> np.ndarray:
+    """
+    Synthesize one intermediate return-to-idle frame with bidirectional optical flow.
+    """
+    safe_alpha = clamp_float(float(alpha), 0.0, 1.0)
+    warped_start_frame = warp_avatar_transition_image_with_flow(
+        start_frame_image,
+        flow_forward,
+        safe_alpha,
+        grid_x,
+        grid_y,
+    ).astype(np.float32)
+    warped_end_frame = warp_avatar_transition_image_with_flow(
+        end_frame_image,
+        flow_backward,
+        1.0 - safe_alpha,
+        grid_x,
+        grid_y,
+    ).astype(np.float32)
+    warped_start_mask = warp_avatar_transition_image_with_flow(
+        mask_forward,
+        flow_forward,
+        safe_alpha,
+        grid_x,
+        grid_y,
+    ).astype(np.float32)
+    warped_end_mask = warp_avatar_transition_image_with_flow(
+        mask_backward,
+        flow_backward,
+        1.0 - safe_alpha,
+        grid_x,
+        grid_y,
+    ).astype(np.float32)
+    start_weight = ((1.0 - safe_alpha) * warped_start_mask)[..., None]
+    end_weight = (safe_alpha * warped_end_mask)[..., None]
+    weight_sum = np.maximum(start_weight + end_weight, AVATAR_RETURN_TO_IDLE_FLOW_WEIGHT_EPSILON)
+    blended = ((warped_start_frame * start_weight) + (warped_end_frame * end_weight)) / weight_sum
+    fallback_frame = blend_avatar_source_frames(start_frame_image, end_frame_image, safe_alpha).astype(np.float32)
+    transition_confidence = np.clip(start_weight + end_weight, 0.0, 1.0)
+    stabilized_frame = (
+        (blended * transition_confidence)
+        + (fallback_frame * (1.0 - transition_confidence))
+    )
+    return np.clip(stabilized_frame, 0, 255).astype(np.uint8)
+
+
+def resolve_avatar_idle_reference_frame_image(canvas_size: tuple[int, int]) -> np.ndarray | None:
+    """
+    Resolve the first idle-loop frame resized into the shared avatar canvas.
+    """
+    idle_source_frame_abs = ensure_idle_source_frame_abs()
+    if idle_source_frame_abs is not None:
+        idle_source_frame_image = cv2.imread(str(idle_source_frame_abs), cv2.IMREAD_COLOR)
+        if idle_source_frame_image is not None:
+            return fit_frame_to_canvas(idle_source_frame_image, canvas_size)
+    idle_video_abs = resolve_idle_video_abs()
+    if idle_video_abs is None:
+        return None
+    capture = cv2.VideoCapture(str(idle_video_abs))
+    if not capture.isOpened():
+        return None
+    try:
+        frame_ok, frame_bgr = capture.read()
+    finally:
+        capture.release()
+    if not frame_ok or frame_bgr is None:
+        return None
+    return fit_frame_to_canvas(frame_bgr, canvas_size)
+
+
+def resolve_avatar_return_to_idle_frame_count(frames_per_second: float) -> int:
+    """
+    Resolve how many frames the return-to-idle motion should emit.
+    """
+    if not AVATAR_RETURN_TO_IDLE_ENABLED or AVATAR_RETURN_TO_IDLE_DURATION_SEC <= 0:
+        return 0
+    safe_frames_per_second = max(1.0, float(frames_per_second or AVATAR_VIDEO_OUTPUT_FPS))
+    estimated_frame_count = int(round(AVATAR_RETURN_TO_IDLE_DURATION_SEC * safe_frames_per_second))
+    bounded_frame_count = max(AVATAR_RETURN_TO_IDLE_MIN_FRAME_COUNT, estimated_frame_count)
+    return min(AVATAR_RETURN_TO_IDLE_MAX_FRAME_COUNT, bounded_frame_count)
+
+
+def build_avatar_return_to_idle_frame_sequence(
+    start_frame_image: np.ndarray | None,
+    canvas_size: tuple[int, int],
+    frames_per_second: float,
+) -> list[np.ndarray]:
+    """
+    Build one short motion bridge from the last talking frame back to the idle-loop first frame.
+    """
+    if start_frame_image is None:
+        return []
+    target_frame_count = resolve_avatar_return_to_idle_frame_count(frames_per_second)
+    if target_frame_count <= 0:
+        return []
+    idle_reference_frame_image = resolve_avatar_idle_reference_frame_image(canvas_size)
+    if idle_reference_frame_image is None:
+        return []
+    normalized_start_frame_image = fit_frame_to_canvas(start_frame_image, canvas_size)
+    interpolation_steps = max(0, target_frame_count - 1)
+    fallback_sequence = build_interpolated_image_sequence(
+        normalized_start_frame_image,
+        idle_reference_frame_image,
+        interpolation_steps,
+    )
+    if normalized_start_frame_image.shape != idle_reference_frame_image.shape:
+        return fallback_sequence
+    try:
+        gray_start_frame = cv2.cvtColor(normalized_start_frame_image, cv2.COLOR_BGR2GRAY)
+        gray_idle_frame = cv2.cvtColor(idle_reference_frame_image, cv2.COLOR_BGR2GRAY)
+        flow_forward = compute_avatar_transition_optical_flow(gray_start_frame, gray_idle_frame)
+        flow_backward = compute_avatar_transition_optical_flow(gray_idle_frame, gray_start_frame)
+        frame_height, frame_width = normalized_start_frame_image.shape[:2]
+        grid_x, grid_y = build_avatar_transition_pixel_grid(frame_width, frame_height)
+        mask_forward = build_avatar_transition_flow_consistency_mask(
+            flow_forward=flow_forward,
+            flow_backward=flow_backward,
+            grid_x=grid_x,
+            grid_y=grid_y,
+        )
+        mask_backward = build_avatar_transition_flow_consistency_mask(
+            flow_forward=flow_backward,
+            flow_backward=flow_forward,
+            grid_x=grid_x,
+            grid_y=grid_y,
+        )
+        transition_sequence: list[np.ndarray] = []
+        for step in range(1, interpolation_steps + 1):
+            alpha = float(step) / float(interpolation_steps + 1)
+            transition_sequence.append(
+                synthesize_avatar_transition_frame(
+                    start_frame_image=normalized_start_frame_image,
+                    end_frame_image=idle_reference_frame_image,
+                    flow_forward=flow_forward,
+                    flow_backward=flow_backward,
+                    mask_forward=mask_forward,
+                    mask_backward=mask_backward,
+                    alpha=alpha,
+                    grid_x=grid_x,
+                    grid_y=grid_y,
+                )
+            )
+        transition_sequence.append(idle_reference_frame_image.copy())
+        return transition_sequence
+    except cv2.error:
+        return fallback_sequence
 
 
 def read_stream_frame_by_index(job: JobRecord, frame_index: int) -> bytes | None:
@@ -3903,6 +4397,7 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "mode": job.mode,
         "audioDurationSec": job.audio_duration_sec,
         "audioMotionStride": job.audio_motion_stride,
+        "generationFrameCount": job.generation_frame_count,
         "animationRegion": job.animation_region,
         "stitchingEnabled": job.stitching_enabled,
         "relativeMotionEnabled": job.relative_motion_enabled,
@@ -3986,6 +4481,7 @@ async def create_and_enqueue_audio_job(
     source_frame: str,
     mode: str,
     motion_stride: int,
+    generation_frame_count: int | None,
     animation_region: str,
     stitching: bool,
     relative_motion: bool,
@@ -4007,6 +4503,20 @@ async def create_and_enqueue_audio_job(
         raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
     if int(motion_stride) < 1 or int(motion_stride) > 6:
         raise HTTPException(status_code=400, detail="Invalid motion_stride. Allowed range: 1..6")
+    normalized_generation_frame_count: int | None = None
+    if generation_frame_count is not None:
+        normalized_generation_frame_count = int(generation_frame_count)
+        if (
+            normalized_generation_frame_count < GENERATION_FRAME_COUNT_MIN
+            or normalized_generation_frame_count > GENERATION_FRAME_COUNT_MAX
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid generation_frame_count. "
+                    f"Allowed range: {GENERATION_FRAME_COUNT_MIN}..{GENERATION_FRAME_COUNT_MAX}"
+                ),
+            )
     normalized_animation_region = str(animation_region or "").strip().lower()
     if normalized_animation_region not in ANIMATION_REGION_CHOICES:
         raise HTTPException(
@@ -4052,6 +4562,7 @@ async def create_and_enqueue_audio_job(
         audio_original_name=audio.filename or input_abs.name,
         audio_duration_sec=audio_duration_sec,
         audio_motion_stride=int(motion_stride),
+        generation_frame_count=normalized_generation_frame_count,
         animation_region=normalized_animation_region,
         stitching_enabled=bool(stitching),
         relative_motion_enabled=bool(relative_motion),
@@ -4135,6 +4646,9 @@ def create_app() -> FastAPI:
             "trtPrecision": DEFAULT_TRT_PRECISION,
             "skipTrtEngineBuild": DEFAULT_SKIP_TRT_ENGINE_BUILD,
             "defaultAudioMotionStride": DEFAULT_AUDIO_MOTION_STRIDE,
+            "generationFrameCountSupported": True,
+            "generationFrameCountMin": GENERATION_FRAME_COUNT_MIN,
+            "generationFrameCountMax": GENERATION_FRAME_COUNT_MAX,
             "defaultRenderBatchSize": DEFAULT_RENDER_BATCH_SIZE,
             "defaultTrtEngineBatchSize": DEFAULT_TRT_ENGINE_BATCH_SIZE,
             "defaultAnimationRegion": DEFAULT_ANIMATION_REGION,
@@ -4282,6 +4796,7 @@ def create_app() -> FastAPI:
         source_frame: str = Form(DEFAULT_SOURCE_FRAME),
         mode: str = Form(DEFAULT_MODE),
         motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
+        generation_frame_count: int | None = Form(None),
         animation_region: str = Form(DEFAULT_ANIMATION_REGION),
         stitching: bool = Form(DEFAULT_STITCHING_ENABLED),
         relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
@@ -4293,6 +4808,7 @@ def create_app() -> FastAPI:
             source_frame=source_frame,
             mode=mode,
             motion_stride=motion_stride,
+            generation_frame_count=generation_frame_count,
             animation_region=animation_region,
             stitching=stitching,
             relative_motion=relative_motion,
@@ -4307,6 +4823,7 @@ def create_app() -> FastAPI:
         source_frame: str = Form(DEFAULT_SOURCE_FRAME),
         mode: str = Form(DEFAULT_MODE),
         motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
+        generation_frame_count: int | None = Form(None),
         animation_region: str = Form(DEFAULT_ANIMATION_REGION),
         stitching: bool = Form(DEFAULT_STITCHING_ENABLED),
         relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
@@ -4318,6 +4835,7 @@ def create_app() -> FastAPI:
             source_frame=source_frame,
             mode=mode,
             motion_stride=motion_stride,
+            generation_frame_count=generation_frame_count,
             animation_region=animation_region,
             stitching=stitching,
             relative_motion=relative_motion,

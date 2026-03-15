@@ -91,6 +91,160 @@
       align-items: center;
     }
 
+    .compact-toolbar {
+      flex-wrap: nowrap;
+      gap: 6px;
+      align-items: stretch;
+      overflow-x: auto;
+      scrollbar-width: thin;
+      padding-block: 10px;
+    }
+
+    .compact-toolbar::-webkit-scrollbar {
+      height: 8px;
+    }
+
+    .compact-field,
+    .compact-picker,
+    .compact-button {
+      flex: 0 0 auto;
+    }
+
+    .compact-field {
+      display: grid;
+      gap: 3px;
+      min-width: 138px;
+    }
+
+    .compact-number-field {
+      min-width: 96px;
+    }
+
+    .compact-label {
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.18px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .compact-token-input {
+      min-width: 138px;
+      width: 138px;
+      height: 38px;
+      padding: 6px 10px;
+    }
+
+    .compact-number-input {
+      min-width: 96px;
+      width: 96px;
+      height: 38px;
+      padding: 6px 10px;
+    }
+
+    .compact-picker {
+      min-width: 132px;
+      max-width: 148px;
+      padding: 6px 10px;
+      border-radius: 9px;
+      border: 1px solid var(--line);
+      background: rgba(4, 14, 26, 0.7);
+      cursor: pointer;
+      display: grid;
+      gap: 3px;
+      align-content: center;
+    }
+
+    .compact-picker-value {
+      color: var(--text);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .compact-button {
+      min-height: 38px;
+      padding: 6px 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .compact-icon-button {
+      min-width: 38px;
+      width: 38px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+    }
+
+    .compact-button-label {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .compact-icon {
+      display: inline-block;
+      position: relative;
+      flex: 0 0 auto;
+      color: currentColor;
+    }
+
+    .compact-icon.play {
+      width: 0;
+      height: 0;
+      border-top: 7px solid transparent;
+      border-bottom: 7px solid transparent;
+      border-left: 12px solid currentColor;
+      margin-left: 3px;
+    }
+
+    .compact-icon.pause {
+      width: 12px;
+      height: 14px;
+      border-left: 4px solid currentColor;
+      border-right: 4px solid currentColor;
+      box-sizing: border-box;
+    }
+
+    .compact-icon.restart {
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      box-sizing: border-box;
+      transform: rotate(-35deg);
+    }
+
+    .compact-icon.restart::after {
+      content: "";
+      position: absolute;
+      top: -3px;
+      right: -4px;
+      width: 6px;
+      height: 6px;
+      border-top: 2px solid currentColor;
+      border-right: 2px solid currentColor;
+      transform: rotate(14deg);
+    }
+
+    .visually-hidden-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     button,
     input,
     select {
@@ -117,8 +271,14 @@
       gap: 12px;
     }
 
+    .single-column-media {
+      grid-template-columns: 1fr;
+    }
+
     .avatar-panel {
       grid-column: 1 / -1;
+      display: grid;
+      gap: 8px;
     }
 
     .result-panel,
@@ -169,6 +329,11 @@
         linear-gradient(180deg, rgba(4, 17, 33, 0.96), rgba(1, 8, 18, 0.98));
       box-shadow: 0 24px 64px rgba(0, 0, 0, 0.34);
       aspect-ratio: 16 / 9;
+    }
+
+    .avatar-stage.single-stream {
+      width: 65%;
+      margin-inline: auto;
     }
 
     .avatar-stage.single-stream .avatar-layer.idle {
@@ -432,6 +597,12 @@
         grid-template-columns: 2fr 1fr;
       }
     }
+
+    @media (max-width: 900px) {
+      .avatar-stage.single-stream {
+        width: 100%;
+      }
+    }
   </style>
 </head>
 <body>
@@ -442,58 +613,34 @@
       <div class="badges">
         <span class="badge" id="statusBadge">Status: idle</span>
         <span class="badge">Job: <span id="jobBadge">none</span></span>
-        <span class="badge">Source: <span id="sourceBadge">output/frames/frame_00061.png</span></span>
         <span class="badge">Driving: <span id="drivingBadge">none</span></span>
         <span class="badge">Stream: <span id="streamBadge">idle</span></span>
         <span class="badge">Preview Start: <span id="previewStartBadge">35% buffered</span></span>
       </div>
     </section>
 
-    <section class="card controls">
-      <label>
-        API base
-        <input id="apiBaseInput" type="text" value="">
+    <section class="card controls compact-toolbar">
+      <label class="compact-field">
+        <span class="compact-label">API Token</span>
+        <input class="compact-token-input" id="apiTokenInput" type="password" value="" placeholder="token">
       </label>
-      <label>
-        API token
-        <input id="apiTokenInput" type="password" value="" placeholder="optional bearer token">
+      <label class="compact-picker" for="audioFileInput">
+        <span class="compact-label">Audio</span>
+        <span class="compact-picker-value" id="audioPickerValue">Choose file</span>
       </label>
-      <label>
-        Audio
-        <input id="audioFileInput" type="file" accept=".wav,.mp3,.m4a,.aac,.flac,.ogg,audio/*">
+      <input class="visually-hidden-input" id="audioFileInput" type="file" accept=".wav,.mp3,.m4a,.aac,.flac,.ogg,audio/*">
+      <label class="compact-picker" for="sourceImageInput">
+        <span class="compact-label">Source</span>
+        <span class="compact-picker-value" id="sourceImagePickerValue">Runtime source</span>
       </label>
-      <label>
-        Source image
-        <input id="sourceImageInput" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp">
+      <input class="visually-hidden-input" id="sourceImageInput" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp">
+      <label class="compact-field compact-number-field">
+        <span class="compact-label">Frames</span>
+        <input class="compact-number-input" id="generationFrameCountInput" type="number" min="1" max="1200" step="1" inputmode="numeric" placeholder="Auto" disabled title="Available after backend reload">
       </label>
-      <label>
-        Source path
-        <input id="sourceFrameInput" type="text" value="output/frames/frame_00061.png">
-      </label>
-      <label>
-        Motion stride (1=best quality, 2=faster)
-        <input id="motionStrideInput" type="number" min="1" max="6" step="1" value="1">
-      </label>
-      <label>
-        Inference profile
-        <select id="inferenceProfileSelect">
-          <option value="quality" selected>Quality</option>
-          <option value="fastNoPaste">Fast / No paste-back</option>
-          <option value="expFast">Fast / Expression only</option>
-          <option value="lipFast">Fast / Lips only</option>
-        </select>
-      </label>
-      <button class="primary" id="btnGenerate">Generate</button>
-      <button id="btnWarmup">Warmup Runtime</button>
-      <button id="btnStopStream">Stop Stream</button>
-      <button class="primary" id="btnPlay">Play</button>
-      <button id="btnPause">Pause</button>
-      <button id="btnReset">Restart Runtime</button>
-      <label>
-        Speed
-        <input id="speedRange" type="range" min="0.5" max="1.5" step="0.05" value="1.0">
-      </label>
-      <span id="speedValue" class="badge">1.00x</span>
+      <button class="primary compact-button" id="btnGenerate"><span class="compact-button-label">Generate</span></button>
+      <button class="primary compact-button compact-icon-button" id="btnPlay" title="Play" aria-label="Play"><span class="compact-icon play" aria-hidden="true"></span></button>
+      <button class="compact-button compact-icon-button" id="btnPause" title="Pause" aria-label="Pause"><span class="compact-icon pause" aria-hidden="true"></span></button>
       <input id="muteCheck" type="checkbox" hidden>
       <label class="result-control">
         View
@@ -504,8 +651,8 @@
       </label>
     </section>
 
-    <section class="row">
-      <div class="card videos">
+    <section class="stack viewer-stack">
+      <section class="card videos single-column-media">
         <article class="avatar-panel">
           <h2 class="panel-title">Avatar Stream (idle + queued clips)</h2>
           <div class="media-box avatar-stage single-stream" id="avatarStage">
@@ -514,77 +661,9 @@
             <video class="avatar-layer talking" id="streamVideo" muted autoplay playsinline preload="auto"></video>
           </div>
         </article>
-        <article>
-          <h2 class="panel-title">Neutral Source</h2>
-          <div class="media-box">
-            <img id="sourcePreview" src="output/frames/frame_00061.png" alt="source frame">
-          </div>
-        </article>
-        <article>
-          <h2 class="panel-title">Driving Media</h2>
-          <div class="media-box">
-            <video id="drivingVideo" controls loop preload="auto"></video>
-            <div class="audio-wrap hidden" id="drivingAudioWrap">
-              <audio id="drivingAudio" controls preload="auto"></audio>
-            </div>
-          </div>
-        </article>
-        <article class="result-panel">
-          <h2 class="panel-title">Generated Result</h2>
-          <div class="media-box">
-            <video id="resultVideo" controls loop preload="auto"></video>
-          </div>
-        </article>
-      </div>
+      </section>
 
-      <aside class="stack">
-        <section class="card">
-          <h2 class="panel-title">Benchmark Summary</h2>
-          <div class="metrics-grid">
-            <article class="metric-card">
-              <span class="metric-label">Audio</span>
-              <strong class="metric-value" id="metricAudioDuration">--</strong>
-              <span class="metric-help" id="metricAudioHelp">Select an audio file to benchmark.</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">Upload</span>
-              <strong class="metric-value" id="metricUploadSize">--</strong>
-              <span class="metric-help" id="metricUploadHelp">Stride --</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">API Ack</span>
-              <strong class="metric-value" id="metricApiAck">--</strong>
-              <span class="metric-help" id="metricApiAckHelp">Browser to job creation.</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">Queue Wait</span>
-              <strong class="metric-value" id="metricQueueWait">--</strong>
-              <span class="metric-help" id="metricQueueWaitHelp">Time until worker start.</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">First Preview</span>
-              <strong class="metric-value" id="metricFirstPreview">--</strong>
-              <span class="metric-help" id="metricFirstPreviewHelp">Click to first rendered frame.</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">Ready</span>
-              <strong class="metric-value" id="metricReady">--</strong>
-              <span class="metric-help" id="metricReadyHelp">Click to final result.</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">End-to-End</span>
-              <strong class="metric-value" id="metricEndToEndRatio">--</strong>
-              <span class="metric-help" id="metricEndToEndHelp">Audio seconds per total second.</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label">Inference</span>
-              <strong class="metric-value" id="metricInferenceRatio">--</strong>
-              <span class="metric-help" id="metricInferenceHelp">Audio seconds per inference second.</span>
-            </article>
-          </div>
-        </section>
-
-        <section class="card">
+      <section class="card">
           <h2 class="panel-title">Timeline</h2>
           <div class="status-list">
             <div class="status-row">
@@ -608,9 +687,9 @@
               <span class="status-value muted" id="timelineResultReady">Pending</span>
             </div>
           </div>
-        </section>
+      </section>
 
-        <section class="card">
+      <section class="card">
           <h2 class="panel-title">Runtime State</h2>
           <div class="status-list">
             <div class="status-row">
@@ -650,30 +729,52 @@
               <span class="status-value" id="runtimeQueuedJob">--</span>
             </div>
           </div>
-        </section>
+      </section>
 
-        <section class="card">
-          <h2 class="panel-title">Job Status</h2>
-          <pre id="reportText" class="mono">Idle. Select audio and click Generate.</pre>
-        </section>
+      <section class="card">
+        <h2 class="panel-title">Job Status</h2>
+        <pre id="reportText" class="mono">Idle. Select audio and click Generate.</pre>
+      </section>
 
-        <section class="card">
-          <div class="panel-toolbar">
-            <h2 class="panel-title">Runtime Logs</h2>
-            <button id="btnRefreshLogs">Refresh Logs</button>
-          </div>
-          <div class="logs-grid">
-            <article class="log-card">
-              <div class="log-head">Container Stdout</div>
-              <pre id="containerLogText" class="mono log-view">Waiting for runtime logs.</pre>
-            </article>
-            <article class="log-card">
-              <div class="log-head">Persistent Worker</div>
-              <pre id="workerLogText" class="mono log-view">Waiting for worker logs.</pre>
-            </article>
-          </div>
-        </section>
-      </aside>
+      <section class="card">
+        <div class="panel-toolbar">
+          <h2 class="panel-title">Runtime Logs</h2>
+          <button id="btnRefreshLogs">Refresh Logs</button>
+        </div>
+        <div class="logs-grid">
+          <article class="log-card">
+            <div class="log-head">Container Stdout</div>
+            <pre id="containerLogText" class="mono log-view">Waiting for runtime logs.</pre>
+          </article>
+          <article class="log-card">
+            <div class="log-head">Persistent Worker</div>
+            <pre id="workerLogText" class="mono log-view">Waiting for worker logs.</pre>
+          </article>
+        </div>
+      </section>
+    </section>
+
+    <section class="hidden" aria-hidden="true">
+      <span id="sourceBadge">runtime</span>
+      <input id="apiBaseInput" type="text" value="">
+      <input id="sourceFrameInput" type="text" value="output/frames/frame_00061.png">
+      <select id="inferenceProfileSelect">
+        <option value="quality" selected>Quality</option>
+        <option value="fastNoPaste">Fast / No paste-back</option>
+        <option value="expFast">Fast / Expression only</option>
+        <option value="lipFast">Fast / Lips only</option>
+      </select>
+      <button id="btnReset">Restart runtime</button>
+      <button id="btnWarmup">Warmup Runtime</button>
+      <button id="btnStopStream">Stop Stream</button>
+      <input id="speedRange" type="range" min="0.5" max="1.5" step="0.05" value="1.0">
+      <span id="speedValue">1.00x</span>
+      <img id="sourcePreview" src="output/frames/frame_00061.png" alt="source frame">
+      <video id="drivingVideo" controls loop preload="auto"></video>
+      <div class="audio-wrap hidden" id="drivingAudioWrap">
+        <audio id="drivingAudio" controls preload="auto"></audio>
+      </div>
+      <video id="resultVideo" controls loop preload="auto"></video>
     </section>
   </main>
 
@@ -711,7 +812,7 @@
     const JOB_STATE_DONE = "done";
     const JOB_STATE_ERROR = "error";
     const JOB_STATE_RUNNING = "running";
-    const DEFAULT_MOTION_STRIDE = 1;
+    const DEFAULT_MOTION_STRIDE = 2;
     const VIDEO_STREAM_START_MODE = Object.freeze({
       BUFFERED: "buffered",
       LIVE: "live"
@@ -823,6 +924,17 @@
       OFFLINE: "offline",
       RESTARTING: "restarting"
     });
+    const GENERATION_FRAME_COUNT_LIMITS = Object.freeze({
+      MIN: 1,
+      MAX: 1200
+    });
+    const UI_TEXT = Object.freeze({
+      AUDIO_PICKER_EMPTY: "Choose file",
+      SOURCE_BADGE_RUNTIME: "runtime",
+      SOURCE_PICKER_DEFAULT: "Runtime source",
+      SOURCE_PICKER_LOCKED: "Locked source",
+      FRAME_INPUT_DISABLED_HINT: "Available after backend reload"
+    });
     const RUNTIME_LOG_TARGET = Object.freeze({
       CONTAINER: "container",
       WORKER: "worker"
@@ -850,10 +962,12 @@
       drivingAudioWrap: document.getElementById("drivingAudioWrap"),
       apiBaseInput: document.getElementById("apiBaseInput"),
       apiTokenInput: document.getElementById("apiTokenInput"),
+      audioPickerValue: document.getElementById("audioPickerValue"),
       audioFileInput: document.getElementById("audioFileInput"),
+      generationFrameCountInput: document.getElementById("generationFrameCountInput"),
+      sourceImagePickerValue: document.getElementById("sourceImagePickerValue"),
       sourceImageInput: document.getElementById("sourceImageInput"),
       sourceFrameInput: document.getElementById("sourceFrameInput"),
-      motionStrideInput: document.getElementById("motionStrideInput"),
       inferenceProfileSelect: document.getElementById("inferenceProfileSelect"),
       btnGenerate: document.getElementById("btnGenerate"),
       btnWarmup: document.getElementById("btnWarmup"),
@@ -905,7 +1019,6 @@
         audioName: "",
         audioSizeBytes: 0,
         audioDurationSec: 0,
-        motionStride: DEFAULT_MOTION_STRIDE,
         inferenceProfileLabel: "",
         queuePosition: 0,
         clientSubmitAtMs: 0,
@@ -938,6 +1051,7 @@
         runtimeRestarting: false,
         runtimeRestartRequestedAtMs: 0,
         processStartedAtMs: 0,
+        generationFrameCountSupported: false,
         fixedSourceEnabled: false,
         fixedSourceFrame: "",
         fixedSourceError: "",
@@ -1002,8 +1116,6 @@
     let runtimeState = createEmptyRuntimeState();
     let avatarState = createEmptyAvatarState();
     let currentStreamStartMode = VIDEO_STREAM_START_MODE.LIVE;
-    let motionStrideInitializedFromServer = false;
-    let motionStrideTouchedByUser = false;
     let pendingAvatarStreamConnection = false;
     let activeAvatarJobId = "";
     let activeUnifiedAvatarHttpUrl = "";
@@ -1048,6 +1160,86 @@
       return files && files[0] ? files[0] : null;
     }
 
+    /**
+     * Render short text inside one of the compact toolbar picker labels.
+     *
+     * @param {HTMLElement | null} targetElement - Label value element.
+     * @param {string} nextValue - Human-readable short label.
+     */
+    function setCompactPickerValue(targetElement, nextValue) {
+      if (!targetElement) {
+        return;
+      }
+      targetElement.textContent = String(nextValue || "").trim();
+    }
+
+    /**
+     * Resolve the compact source picker label when no local image is selected.
+     *
+     * @returns {string} Short source state label.
+     */
+    function resolveDefaultSourcePickerLabel() {
+      return runtimeState.fixedSourceFrame && !runtimeState.allowCustomSourceFrame
+        ? UI_TEXT.SOURCE_PICKER_LOCKED
+        : UI_TEXT.SOURCE_PICKER_DEFAULT;
+    }
+
+    /**
+     * Synchronize source-related labels without exposing full server paths in the UI.
+     *
+     * @param {File | null} sourceImageFile - Locally selected source image, if present.
+     */
+    function renderSourceSelectionState(sourceImageFile) {
+      if (sourceImageFile && sourceImageFile.name) {
+        elements.sourceBadge.textContent = sourceImageFile.name;
+        setCompactPickerValue(elements.sourceImagePickerValue, sourceImageFile.name);
+        return;
+      }
+      elements.sourceBadge.textContent = UI_TEXT.SOURCE_BADGE_RUNTIME;
+      setCompactPickerValue(elements.sourceImagePickerValue, resolveDefaultSourcePickerLabel());
+    }
+
+    /**
+     * Synchronize audio-related compact picker labels.
+     *
+     * @param {File | null} audioFile - Locally selected audio file, if present.
+     */
+    function renderAudioSelectionState(audioFile) {
+      const nextLabel = audioFile && audioFile.name ? audioFile.name : UI_TEXT.AUDIO_PICKER_EMPTY;
+      setCompactPickerValue(elements.audioPickerValue, nextLabel);
+    }
+
+    /**
+     * Enable or disable the optional generation frame count input based on API support.
+     */
+    function updateGenerationFrameCountInputState() {
+      const isEnabled = Boolean(runtimeState.generationFrameCountSupported) && !runtimeState.runtimeRestarting;
+      elements.generationFrameCountInput.disabled = !isEnabled;
+      elements.generationFrameCountInput.title = isEnabled ? "" : UI_TEXT.FRAME_INPUT_DISABLED_HINT;
+    }
+
+    /**
+     * Parse the optional generation frame count entered by the user.
+     *
+     * @returns {number | null} Normalized frame count override, or null when auto mode is selected.
+     */
+    function getSelectedGenerationFrameCount() {
+      const rawValue = String(elements.generationFrameCountInput.value || "").trim();
+      if (!rawValue) {
+        return null;
+      }
+      const numericValue = Number(rawValue);
+      if (!Number.isFinite(numericValue)) {
+        return null;
+      }
+      const normalizedValue = Math.round(numericValue);
+      return clampNumber(
+        normalizedValue,
+        GENERATION_FRAME_COUNT_LIMITS.MIN,
+        GENERATION_FRAME_COUNT_LIMITS.MAX
+      );
+    }
+
     function setSourcePreviewFromPath(path) {
       revokeSourcePreviewObjectUrl();
       const normalizedPath = String(path || "").trim() || DEFAULT_SOURCE_FRAME;
@@ -1080,13 +1272,12 @@
 
     function updateSelectedSourcePreview() {
       const sourceImageFile = getSelectedSourceImageFile();
+      renderSourceSelectionState(sourceImageFile);
       if (sourceImageFile) {
-        elements.sourceBadge.textContent = sourceImageFile.name;
         setSourcePreviewFromFile(sourceImageFile);
         return;
       }
       const sourceFrame = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim() || DEFAULT_SOURCE_FRAME;
-      elements.sourceBadge.textContent = sourceFrame;
       setSourcePreviewFromPath(sourceFrame);
     }
 
@@ -1447,17 +1638,6 @@
       return INFERENCE_PROFILE_CONFIG[getSelectedInferenceProfileId()];
     }
 
-    function normalizeMotionStrideValue(rawValue) {
-      let motionStride = Number.parseInt(String(rawValue || DEFAULT_MOTION_STRIDE), 10);
-      if (!Number.isFinite(motionStride) || motionStride < 1) {
-        motionStride = DEFAULT_MOTION_STRIDE;
-      }
-      if (motionStride > 6) {
-        motionStride = 6;
-      }
-      return motionStride;
-    }
-
     /**
      * Clamp a number to an inclusive range.
      *
@@ -1557,6 +1737,7 @@
       setTextContent(elements.runtimeQueuedJob, runtimeState.headQueuedJobId || EMPTY_METRIC_VALUE);
       elements.btnWarmup.disabled = runtimeState.runtimeRestarting;
       elements.btnRefreshLogs.disabled = runtimeState.runtimeRestarting;
+      updateGenerationFrameCountInputState();
       updateGenerateAvailability();
     }
 
@@ -1610,13 +1791,10 @@
           : "Select an audio file to benchmark."
       );
       setMetricValue(elements.metricUploadSize, formatByteCount(benchmarkState.audioSizeBytes));
-      {
-        const uploadHelpParts = [`Stride ${benchmarkState.motionStride || DEFAULT_MOTION_STRIDE}`];
-        if (benchmarkState.inferenceProfileLabel) {
-          uploadHelpParts.push(benchmarkState.inferenceProfileLabel);
-        }
-        setTextContent(elements.metricUploadHelp, uploadHelpParts.join(" • "));
-      }
+      setTextContent(
+        elements.metricUploadHelp,
+        benchmarkState.inferenceProfileLabel || "Preview profile."
+      );
       setMetricValue(elements.metricApiAck, formatSeconds(apiAckSec));
       setMetricValue(elements.metricQueueWait, formatSeconds(queueWaitSec));
       setTextContent(
@@ -1683,12 +1861,11 @@
       renderBenchmarkState();
     }
 
-    function beginBenchmarkRun(file, audioDurationSec, motionStride, inferenceProfileLabel) {
+    function beginBenchmarkRun(file, audioDurationSec, inferenceProfileLabel) {
       benchmarkState = createEmptyBenchmarkState();
       benchmarkState.audioName = file && file.name ? file.name : "";
       benchmarkState.audioSizeBytes = file ? Number(file.size || 0) : 0;
       benchmarkState.audioDurationSec = Number.isFinite(audioDurationSec) && audioDurationSec > 0 ? audioDurationSec : 0;
-      benchmarkState.motionStride = motionStride;
       benchmarkState.inferenceProfileLabel = String(inferenceProfileLabel || "");
       benchmarkState.clientSubmitAtMs = Date.now();
       renderBenchmarkState();
@@ -1765,6 +1942,7 @@
      */
     async function updateSelectedAudioBenchmark() {
       const file = elements.audioFileInput.files && elements.audioFileInput.files[0];
+      renderAudioSelectionState(file || null);
       if (!file) {
         resetBenchmarkState();
         return;
@@ -1773,7 +1951,6 @@
       benchmarkState.audioName = file.name || "";
       benchmarkState.audioSizeBytes = Number(file.size || 0);
       benchmarkState.audioDurationSec = metadata.durationSec;
-      benchmarkState.motionStride = Number.parseInt(String(elements.motionStrideInput.value || DEFAULT_MOTION_STRIDE), 10) || DEFAULT_MOTION_STRIDE;
       renderBenchmarkState();
     }
 
@@ -1931,7 +2108,6 @@
         running: payload.running,
         exitCode: payload.exitCode,
         sourceFrame: payload.sourceFrame || "",
-        audioMotionStride: payload.audioMotionStride || DEFAULT_MOTION_STRIDE,
         animationRegion: payload.animationRegion || "",
         stitchingEnabled: Boolean(payload.stitchingEnabled),
         relativeMotionEnabled: Boolean(payload.relativeMotionEnabled),
@@ -2443,9 +2619,6 @@
       if (payload.report) {
         benchmarkState.report = payload.report;
       }
-      if (Number(payload.audioMotionStride || 0) > 0) {
-        benchmarkState.motionStride = Number(payload.audioMotionStride);
-      }
       const progressPercent = (resolveJobProgressRatio(payload) * 100).toFixed(1);
       const frameIndex = Number(streamStatus.frameIndex || 0);
       const frameTotal = Number(streamStatus.frameTotal || 0);
@@ -2460,7 +2633,7 @@
         elements.drivingBadge.textContent = "embedded in avatar stream";
       }
       if (payload.sourceFrame) {
-        elements.sourceBadge.textContent = String(payload.sourceFrame);
+        renderSourceSelectionState(getSelectedSourceImageFile());
       }
       if (payload.sourceFrameUrl) {
         setSourcePreviewFromUrl(payload.sourceFrameUrl);
@@ -2899,7 +3072,8 @@
       }
       const sourceFrame = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim() || DEFAULT_SOURCE_FRAME;
       const sourceImageFile = getSelectedSourceImageFile();
-      const motionStride = normalizeMotionStrideValue(elements.motionStrideInput.value);
+      const motionStride = DEFAULT_MOTION_STRIDE;
+      const generationFrameCount = getSelectedGenerationFrameCount();
       const inferenceProfileConfig = getSelectedInferenceProfileConfig();
       const inferenceProfileLabel = String(inferenceProfileConfig.label || "");
       await checkApiHealth();
@@ -2912,9 +3086,8 @@
         attemptStreamPlayback(true);
       }
       const audioMetadata = await readLocalAudioMetadata(file);
-      elements.motionStrideInput.value = String(motionStride);
       updateSelectedSourcePreview();
-      beginBenchmarkRun(file, audioMetadata.durationSec, motionStride, inferenceProfileLabel);
+      beginBenchmarkRun(file, audioMetadata.durationSec, inferenceProfileLabel);
 
       const formData = new FormData();
       formData.append("audio", file, file.name);
@@ -2924,6 +3097,9 @@
       }
       formData.append("mode", "preview");
       formData.append("motion_stride", String(motionStride));
+      if (generationFrameCount !== null && runtimeState.generationFrameCountSupported) {
+        formData.append("generation_frame_count", String(generationFrameCount));
+      }
       formData.append("animation_region", inferenceProfileConfig.animationRegion);
       formData.append("stitching", inferenceProfileConfig.stitching ? "true" : "false");
       formData.append("relative_motion", inferenceProfileConfig.relativeMotion ? "true" : "false");
@@ -2944,7 +3120,6 @@
         const payload = await response.json();
         benchmarkState.apiAcceptedAtMs = Date.now();
         benchmarkState.serverCreatedAtMs = Number(payload.createdAtMs || 0);
-        benchmarkState.motionStride = Number(payload.audioMotionStride || motionStride);
         benchmarkState.queuePosition = Number(payload.queuePosition || 0);
         renderBenchmarkState();
         setStatusBadge(`queued ${payload.jobId}`, false);
@@ -3150,6 +3325,7 @@
           runtimeRestarting: Boolean(data.runtimeRestarting),
           runtimeRestartRequestedAtMs: Number(data.runtimeRestartRequestedAtMs || 0),
           processStartedAtMs: Number(data.processStartedAtMs || 0),
+          generationFrameCountSupported: Boolean(data.generationFrameCountSupported),
           fixedSourceEnabled: Boolean(data.fixedSourceEnabled),
           fixedSourceFrame: String(data.fixedSourceFrame || ""),
           fixedSourceError: String(data.fixedSourceError || ""),
@@ -3179,27 +3355,17 @@
         if (showStatusBadge) {
           setStatusBadge(`api ${data.status}`, data.status === "ok");
         }
-        const serverStride = Number.parseInt(String(data.defaultAudioMotionStride || DEFAULT_MOTION_STRIDE), 10);
-        if (
-          !motionStrideTouchedByUser
-          && !motionStrideInitializedFromServer
-          && Number.isFinite(serverStride)
-          && serverStride >= 1
-          && serverStride <= 6
-        ) {
-          elements.motionStrideInput.value = String(serverStride);
-          motionStrideInitializedFromServer = true;
-        }
         if (!runtimeState.allowCustomSourceFrame && runtimeState.fixedSourceFrame) {
           elements.sourceImageInput.value = "";
           elements.sourceFrameInput.value = runtimeState.fixedSourceFrame;
           elements.sourceImageInput.disabled = true;
           elements.sourceFrameInput.disabled = true;
-          elements.sourceBadge.textContent = runtimeState.fixedSourceFrame;
+          renderSourceSelectionState(null);
           setSourcePreviewFromPath(runtimeState.fixedSourceFrame);
         } else {
           elements.sourceImageInput.disabled = false;
           elements.sourceFrameInput.disabled = false;
+          renderSourceSelectionState(getSelectedSourceImageFile());
         }
         if (isUnifiedAvatarTransportActive()) {
           ensureUnifiedAvatarStreamConnected();
@@ -3224,6 +3390,7 @@
         avatarState = createEmptyAvatarState();
         elements.sourceImageInput.disabled = false;
         elements.sourceFrameInput.disabled = false;
+        updateGenerationFrameCountInputState();
         if (showStatusBadge) {
           setStatusBadge(`api unavailable (${String(error)})`, false);
         }
@@ -3277,15 +3444,6 @@
     elements.sourceFrameInput.addEventListener("change", () => {
       updateSelectedSourcePreview();
     });
-    function handleMotionStrideInputChange() {
-      motionStrideTouchedByUser = true;
-      elements.motionStrideInput.value = String(normalizeMotionStrideValue(elements.motionStrideInput.value));
-      benchmarkState.motionStride = Number.parseInt(String(elements.motionStrideInput.value || DEFAULT_MOTION_STRIDE), 10) || DEFAULT_MOTION_STRIDE;
-      renderBenchmarkState();
-    }
-
-    elements.motionStrideInput.addEventListener("input", handleMotionStrideInputChange);
-    elements.motionStrideInput.addEventListener("change", handleMotionStrideInputChange);
     elements.apiBaseInput.addEventListener("change", () => {
       stopStreamView();
       closeAvatarPeerConnection();
@@ -3313,7 +3471,9 @@
     elements.apiBaseInput.value = DEFAULT_API_BASE_URL;
     elements.apiTokenInput.value = DEFAULT_API_TOKEN;
     elements.sourceFrameInput.value = DEFAULT_SOURCE_FRAME;
-    elements.motionStrideInput.value = String(DEFAULT_MOTION_STRIDE);
+    elements.generationFrameCountInput.min = String(GENERATION_FRAME_COUNT_LIMITS.MIN);
+    elements.generationFrameCountInput.max = String(GENERATION_FRAME_COUNT_LIMITS.MAX);
+    renderAudioSelectionState(null);
     updateSelectedSourcePreview();
     setDrivingMedia("");
     setAvatarDisplayMode(AVATAR_MODE.IDLE);

@@ -9,10 +9,21 @@ import pickle
 import random
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
 from omegaconf import OmegaConf
+
+
+DEFAULT_MOTION_STRIDE = 2
+DEFAULT_ENABLE_EYE_TAMED_PRESET = True
+DEFAULT_EYE_TAMED_SOFT_INDICES = (0, 1, 2, 3, 4, 5, 7, 10, 13)
+DEFAULT_EYE_TAMED_HARD_INDICES = (11, 15)
+DEFAULT_EYE_SOFT_FACTOR = 0.45
+DEFAULT_EYE_HARD_FACTOR = 0.18
+DEFAULT_EYE_HARD_DY_MIN = -0.0045
+DEFAULT_EYE_HARD_DY_MAX = 0.0035
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,6 +36,55 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--driving-audio", required=True, help="Path to driving audio (.wav/.mp3/...)")
     parser.add_argument("--output-pkl", required=True, help="Output motion template .pkl")
     parser.add_argument("--seed", type=int, default=1234, help="Global seed for deterministic motion generation.")
+    parser.add_argument(
+        "--motion-stride",
+        type=int,
+        default=DEFAULT_MOTION_STRIDE,
+        help="Audio motion decimation factor used while building the template.",
+    )
+    parser.add_argument(
+        "--generation-frame-count",
+        type=int,
+        default=0,
+        help="Optional exact number of frames to generate. Zero keeps the automatic duration plan.",
+    )
+    parser.add_argument(
+        "--enable-eye-tamed-preset",
+        dest="enable_eye_tamed_preset",
+        action="store_true",
+        help="Apply conservative eye/upper-face damping to reduce unnatural eye opening.",
+    )
+    parser.add_argument(
+        "--disable-eye-tamed-preset",
+        dest="enable_eye_tamed_preset",
+        action="store_false",
+        help="Disable conservative eye/upper-face damping.",
+    )
+    parser.add_argument(
+        "--eye-soft-factor",
+        type=float,
+        default=DEFAULT_EYE_SOFT_FACTOR,
+        help="Damping factor [0..1] for soft upper-face eye-adjacent indices.",
+    )
+    parser.add_argument(
+        "--eye-hard-factor",
+        type=float,
+        default=DEFAULT_EYE_HARD_FACTOR,
+        help="Damping factor [0..1] for hard eyelid indices.",
+    )
+    parser.add_argument(
+        "--eye-hard-dy-min",
+        type=float,
+        default=DEFAULT_EYE_HARD_DY_MIN,
+        help="Minimum vertical eyelid delta allowed relative to frame zero.",
+    )
+    parser.add_argument(
+        "--eye-hard-dy-max",
+        type=float,
+        default=DEFAULT_EYE_HARD_DY_MAX,
+        help="Maximum vertical eyelid delta allowed relative to frame zero.",
+    )
+    parser.set_defaults(enable_eye_tamed_preset=DEFAULT_ENABLE_EYE_TAMED_PRESET)
     return parser.parse_args()
 
 
@@ -43,6 +103,76 @@ def set_global_seed(seed_value: int) -> None:
     torch.manual_seed(safe_seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(safe_seed)
+
+
+def build_motion_sequence(
+    converter: Any,
+    driving_audio_path: Path,
+    motion_stride: int,
+    generation_frame_count: int | None,
+) -> dict[str, Any]:
+    """
+    Build one motion payload while preserving the reduced-motion planning contract.
+    """
+    stream_meta, motion_iter = converter.prepare_audio_motion_stream(
+        str(driving_audio_path),
+        motion_stride=max(1, int(motion_stride)),
+        generation_frame_count=generation_frame_count,
+    )
+    motion_list = [motion_info[0] for motion_info in motion_iter]
+    return {
+        "n_frames": len(motion_list),
+        "output_fps": int(stream_meta.get("output_fps", 0) or 0),
+        "motion": motion_list,
+        "c_eyes_lst": [],
+        "c_lip_lst": [],
+    }
+
+
+def apply_eye_tamed_preset_to_motion_data(
+    motion_data: dict[str, Any],
+    soft_factor: float,
+    hard_factor: float,
+    hard_dy_min: float,
+    hard_dy_max: float,
+) -> dict[str, Any]:
+    """
+    Dampen eye-sensitive channels relative to frame zero and clamp excessive eye opening.
+    """
+    motion = motion_data.get("motion")
+    if not isinstance(motion, list) or not motion:
+        return motion_data
+
+    first_frame = motion[0]
+    if not isinstance(first_frame, dict) or "exp" not in first_frame:
+        return motion_data
+
+    base_exp = np.asarray(first_frame["exp"], dtype=np.float32).reshape(21, 3).copy()
+    safe_soft = float(np.clip(float(soft_factor), 0.0, 1.0))
+    safe_hard = float(np.clip(float(hard_factor), 0.0, 1.0))
+    safe_min = float(min(hard_dy_min, hard_dy_max))
+    safe_max = float(max(hard_dy_min, hard_dy_max))
+
+    processed_motion: list[dict[str, Any]] = []
+    for frame in motion:
+        if not isinstance(frame, dict) or "exp" not in frame:
+            processed_motion.append(frame)
+            continue
+        exp_array = np.asarray(frame["exp"], dtype=np.float32).reshape(21, 3).copy()
+        for index in DEFAULT_EYE_TAMED_SOFT_INDICES:
+            exp_array[index, :] = base_exp[index, :] + (exp_array[index, :] - base_exp[index, :]) * safe_soft
+        for index in DEFAULT_EYE_TAMED_HARD_INDICES:
+            exp_array[index, :] = base_exp[index, :] + (exp_array[index, :] - base_exp[index, :]) * safe_hard
+            delta_y = exp_array[index, 1] - base_exp[index, 1]
+            exp_array[index, 1] = base_exp[index, 1] + float(np.clip(delta_y, safe_min, safe_max))
+        next_frame = dict(frame)
+        next_frame["exp"] = exp_array.reshape(1, 21, 3)
+        processed_motion.append(next_frame)
+
+    processed_motion_data = dict(motion_data)
+    processed_motion_data["motion"] = processed_motion
+    processed_motion_data["n_frames"] = len(processed_motion)
+    return processed_motion_data
 
 
 def main() -> None:
@@ -99,11 +229,25 @@ def main() -> None:
         cfg_mode=str(cfg.infer_params.cfg_mode),
         cfg_scale=float(cfg.infer_params.cfg_scale),
     )
-    motion_data = converter.gen_motion_sequence(str(driving_audio_path))
+    generation_frame_count = max(0, int(args.generation_frame_count or 0))
+    motion_data = build_motion_sequence(
+        converter=converter,
+        driving_audio_path=driving_audio_path,
+        motion_stride=max(1, int(args.motion_stride)),
+        generation_frame_count=generation_frame_count or None,
+    )
+    if bool(args.enable_eye_tamed_preset):
+        motion_data = apply_eye_tamed_preset_to_motion_data(
+            motion_data=motion_data,
+            soft_factor=float(args.eye_soft_factor),
+            hard_factor=float(args.eye_hard_factor),
+            hard_dy_min=float(args.eye_hard_dy_min),
+            hard_dy_max=float(args.eye_hard_dy_max),
+        )
 
     output_pkl_path.parent.mkdir(parents=True, exist_ok=True)
     with output_pkl_path.open("wb") as handle:
-        pickle.dump(motion_data, handle)
+        pickle.dump(motion_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     print(f"[ok] joyvasa template -> {output_pkl_path}")
     print(f"[info] frames={motion_data.get('n_frames', 0)} fps={motion_data.get('output_fps', 0)}")

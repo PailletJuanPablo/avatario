@@ -6,6 +6,7 @@ DEFAULT_REPO_URL="https://github.com/PailletJuanPablo/avatario.git"
 DEFAULT_GIT_REF="main"
 DEFAULT_WORKSPACE_ROOT="/workspace"
 DEFAULT_REPO_DIR="${DEFAULT_WORKSPACE_ROOT}/animation"
+DEFAULT_IMAGE_BUNDLE_DIR="/app/runpod-bundle"
 
 print_info() {
   printf '[info] %s\n' "$1"
@@ -82,6 +83,35 @@ clone_or_update_repo() {
   fi
 }
 
+apply_image_bundle_overrides() {
+  local repo_dir="$1"
+  local bundle_dir="${RUNPOD_IMAGE_BUNDLE_DIR:-${DEFAULT_IMAGE_BUNDLE_DIR}}"
+  local relative_path
+  local source_path
+  local target_path
+  local override_paths=(
+    "requirements-runpod.txt"
+    "scripts/bootstrap_faster_liveportrait.sh"
+    "scripts/runpod_bootstrap.sh"
+    "scripts/runpod_validate_runtime.sh"
+    "faster_liveportrait_runner.py"
+  )
+
+  if [[ ! -d "${bundle_dir}" ]]; then
+    return
+  fi
+
+  for relative_path in "${override_paths[@]}"; do
+    source_path="${bundle_dir}/${relative_path}"
+    target_path="${repo_dir}/${relative_path}"
+    if [[ ! -f "${source_path}" ]]; then
+      continue
+    fi
+    mkdir -p "$(dirname "${target_path}")"
+    cp "${source_path}" "${target_path}"
+  done
+}
+
 main() {
   local repo_url="${RUNPOD_GIT_REPO:-${DEFAULT_REPO_URL}}"
   local git_ref="${RUNPOD_GIT_REF:-${DEFAULT_GIT_REF}}"
@@ -89,10 +119,9 @@ main() {
 
   install_entrypoint_dependencies
   clone_or_update_repo "${repo_url}" "${git_ref}" "${repo_dir}"
+  apply_image_bundle_overrides "${repo_dir}"
 
-  if [[ ! -x "${repo_dir}/scripts/runpod_bootstrap.sh" ]]; then
-    chmod +x "${repo_dir}/scripts/runpod_bootstrap.sh" || true
-  fi
+  chmod +x "${repo_dir}/scripts/"*.sh >/dev/null 2>&1 || true
 
   cd "${repo_dir}"
   exec bash "${repo_dir}/scripts/runpod_bootstrap.sh"

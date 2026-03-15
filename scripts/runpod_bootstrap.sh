@@ -18,14 +18,10 @@ DEFAULT_IDLE_VIDEO_PATH="inputs/idlevid.mp4"
 DEFAULT_CHECKPOINT_REPO_ID="warmshao/FasterLivePortrait"
 DEFAULT_JOYVASA_CHECKPOINT_REPO_ID="jdh-algo/JoyVASA"
 DEFAULT_CHINESE_HUBERT_REPO_ID="TencentGameMate/chinese-hubert-base"
+DEFAULT_IMAGE_BUNDLE_DIR="/app/runpod-bundle"
 RUNPOD_REQUIREMENTS_FILE_PATH="${PROJECT_ROOT}/requirements-runpod.txt"
-DEFAULT_TENSORRT_PIP_PACKAGES=(
-  "tensorrt-cu12"
-  "tensorrt-cu12-bindings"
-  "tensorrt-cu12-libs"
-)
+DEFAULT_TRT_PLUGIN_LIBRARY_PATH="${PROJECT_ROOT}/third_party/FasterLivePortrait/checkpoints/liveportrait_onnx/libgrid_sample_3d_plugin.so"
 DEFAULT_SYSTEM_PACKAGES=(
-  "build-essential"
   "ca-certificates"
   "curl"
   "ffmpeg"
@@ -159,6 +155,75 @@ ensure_runpod_system_dependencies() {
   install_apt_packages_if_missing "${DEFAULT_SYSTEM_PACKAGES[@]}" >/dev/null
 }
 
+find_latest_nvidia_library_candidate() {
+  local library_glob_patterns=("$@")
+  local pattern
+  local candidate_path
+  local candidate_paths=()
+
+  for pattern in "${library_glob_patterns[@]}"; do
+    while IFS= read -r candidate_path; do
+      if [[ -n "${candidate_path}" ]]; then
+        candidate_paths+=("${candidate_path}")
+      fi
+    done < <(compgen -G "${pattern}" || true)
+  done
+
+  if ((${#candidate_paths[@]} == 0)); then
+    return
+  fi
+
+  printf '%s\n' "${candidate_paths[@]}" | sort -V | tail -n 1
+}
+
+repair_driver_library_link_if_needed() {
+  local link_path="$1"
+  shift
+  local target_path=""
+
+  if [[ -L "${link_path}" && -s "${link_path}" ]]; then
+    return
+  fi
+  if [[ -f "${link_path}" && -s "${link_path}" ]]; then
+    return
+  fi
+
+  target_path="$(find_latest_nvidia_library_candidate "$@")"
+  if [[ -z "${target_path}" ]]; then
+    print_warning "Could not repair ${link_path}; no candidate library was found."
+    return
+  fi
+
+  rm -f "${link_path}"
+  ln -s "${target_path}" "${link_path}"
+  print_info "Repaired NVIDIA driver link: ${link_path} -> ${target_path}"
+}
+
+repair_nvidia_driver_links_if_needed() {
+  local ldconfig_bin=""
+
+  repair_driver_library_link_if_needed \
+    "/lib/x86_64-linux-gnu/libcuda.so.1" \
+    "/lib/x86_64-linux-gnu/libcuda.so.[0-9]*.[0-9]*" \
+    "/usr/lib/x86_64-linux-gnu/libcuda.so.[0-9]*.[0-9]*"
+
+  if [[ ! -L "/lib/x86_64-linux-gnu/libcuda.so" || ! -s "/lib/x86_64-linux-gnu/libcuda.so" ]]; then
+    rm -f "/lib/x86_64-linux-gnu/libcuda.so"
+    ln -s "/lib/x86_64-linux-gnu/libcuda.so.1" "/lib/x86_64-linux-gnu/libcuda.so"
+    print_info "Repaired NVIDIA driver link: /lib/x86_64-linux-gnu/libcuda.so -> /lib/x86_64-linux-gnu/libcuda.so.1"
+  fi
+
+  repair_driver_library_link_if_needed \
+    "/lib/x86_64-linux-gnu/libnvidia-ml.so.1" \
+    "/lib/x86_64-linux-gnu/libnvidia-ml.so.[0-9]*.[0-9]*" \
+    "/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.[0-9]*.[0-9]*"
+
+  if command_exists ldconfig; then
+    ldconfig_bin="$(command -v ldconfig)"
+    "${ldconfig_bin}" || true
+  fi
+}
+
 ensure_gpu_runtime() {
   local python_bin="$1"
   local cuda_available
@@ -181,32 +246,81 @@ PY
   fi
 }
 
-ensure_tensorrt_module() {
+ensure_trt_builder_runtime() {
   local python_bin="$1"
-  local pip_bin="$2"
-  local tensorrt_missing
+  local runtime_check_output
 
-  tensorrt_missing="$("${python_bin}" - <<'PY'
-import importlib.util
-print("1" if importlib.util.find_spec("tensorrt") is None else "0")
+  runtime_check_output="$("${python_bin}" - <<'PY'
+import sys
+
+import torch
+
+try:
+    import pycuda.autoinit  # noqa: F401
+    import tensorrt as trt
+except Exception as exc:
+    print(f"import_error={exc!r}")
+    sys.exit(1)
+
+if not torch.cuda.is_available():
+    print("torch_cuda_available=False")
+    sys.exit(1)
+
+try:
+    logger = trt.Logger(trt.Logger.ERROR)
+    builder = trt.Builder(logger)
+except Exception as exc:
+    print(f"builder_error={exc!r}")
+    sys.exit(1)
+
+if builder is None:
+    print("builder_error=Builder returned None")
+    sys.exit(1)
+
+print("trt_builder_ready=True")
 PY
-)"
-  if [[ "${tensorrt_missing}" != "1" ]]; then
-    return
-  fi
+)" || {
+    print_error "TensorRT runtime self-test failed."
+    print_error "${runtime_check_output}"
+    print_error "Terminate the Pod instead of continuing."
+    exit 1
+  }
 
-  print_info "Installing TensorRT Python packages for CUDA 12"
-  "${pip_bin}" install --no-cache-dir "${DEFAULT_TENSORRT_PIP_PACKAGES[@]}"
+  print_info "${runtime_check_output}"
+}
 
-  tensorrt_missing="$("${python_bin}" - <<'PY'
-import importlib.util
-print("1" if importlib.util.find_spec("tensorrt") is None else "0")
-PY
-)"
-  if [[ "${tensorrt_missing}" == "1" ]]; then
-    print_error "TensorRT Python module is still unavailable after installation."
+ensure_trt_plugin_runtime() {
+  local python_bin="$1"
+  local runtime_check_output
+
+  if [[ ! -f "${DEFAULT_TRT_PLUGIN_LIBRARY_PATH}" ]]; then
+    print_error "TensorRT plugin library not found: ${DEFAULT_TRT_PLUGIN_LIBRARY_PATH}"
     exit 1
   fi
+
+  runtime_check_output="$("${python_bin}" - <<PY
+import ctypes
+import os
+import sys
+
+plugin_path = os.path.abspath(${DEFAULT_TRT_PLUGIN_LIBRARY_PATH@Q})
+
+try:
+    ctypes.CDLL(plugin_path, mode=ctypes.RTLD_GLOBAL)
+except Exception as exc:
+    print(f"plugin_error={exc!r}")
+    sys.exit(1)
+
+print("trt_plugin_ready=True")
+PY
+)" || {
+    print_error "TensorRT plugin self-test failed."
+    print_error "${runtime_check_output}"
+    print_error "Terminate the Pod instead of continuing."
+    exit 1
+  }
+
+  print_info "${runtime_check_output}"
 }
 
 ensure_python_runtime_modules() {
@@ -291,17 +405,43 @@ ensure_project_layout() {
     "${PROJECT_ROOT}/inputs" \
     "${PROJECT_ROOT}/output" \
     "${PROJECT_ROOT}/output_fasterliveportrait" \
-    "${PROJECT_ROOT}/third_party/FasterLivePortrait/checkpoints" \
-    "${PROJECT_ROOT}/third_party/FasterLivePortrait/results" \
+    "${PROJECT_ROOT}/third_party" \
     "${STATE_ROOT}"
 }
 
 ensure_faster_liveportrait_repo() {
-  if [[ -f "${PROJECT_ROOT}/third_party/FasterLivePortrait/run.py" ]]; then
+  local faster_liveportrait_dir="${PROJECT_ROOT}/third_party/FasterLivePortrait"
+  if [[ -f "${faster_liveportrait_dir}/run.py" ]]; then
     return
+  fi
+  if [[ -e "${faster_liveportrait_dir}" ]]; then
+    print_warning "Removing incomplete FasterLivePortrait directory: ${faster_liveportrait_dir}"
+    rm -rf "${faster_liveportrait_dir}"
   fi
   print_info "Bootstrapping FasterLivePortrait dependency"
   bash "${PROJECT_ROOT}/scripts/bootstrap_faster_liveportrait.sh"
+  if [[ ! -f "${faster_liveportrait_dir}/run.py" ]]; then
+    print_error "FasterLivePortrait bootstrap did not produce run.py: ${faster_liveportrait_dir}"
+    exit 1
+  fi
+}
+
+apply_faster_liveportrait_overrides_if_present() {
+  local bundle_dir="${RUNPOD_IMAGE_BUNDLE_DIR:-${DEFAULT_IMAGE_BUNDLE_DIR}}"
+  local override_dir="${bundle_dir}/faster_liveportrait_overrides"
+  local target_dir="${PROJECT_ROOT}/third_party/FasterLivePortrait"
+
+  if [[ ! -d "${override_dir}" ]]; then
+    return
+  fi
+  if [[ ! -d "${target_dir}" ]]; then
+    print_error "FasterLivePortrait repo missing before applying overrides: ${target_dir}"
+    exit 1
+  fi
+
+  print_info "Applying bundled FasterLivePortrait overrides"
+  cp -a "${override_dir}/." "${target_dir}/"
+  chmod +x "${target_dir}/run_persistent_worker.py" >/dev/null 2>&1 || true
 }
 
 ensure_idle_video_exists() {
@@ -314,6 +454,111 @@ ensure_idle_video_exists() {
   fi
   print_error "Idle video not found: ${idle_video_path}"
   exit 1
+}
+
+resolve_idle_video_abs_path() {
+  local idle_video_path="${ANIMATION_IDLE_VIDEO}"
+  if [[ "${idle_video_path}" != /* ]]; then
+    idle_video_path="${PROJECT_ROOT}/${idle_video_path}"
+  fi
+  printf '%s\n' "${idle_video_path}"
+}
+
+write_source_meta_from_idle_video() {
+  local idle_video_path="$1"
+  local meta_path="$2"
+
+  "${PYTHON_BIN}" - "${idle_video_path}" "${meta_path}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+import cv2
+
+idle_video_path = Path(sys.argv[1]).resolve()
+meta_path = Path(sys.argv[2]).resolve()
+
+capture = cv2.VideoCapture(str(idle_video_path))
+if not capture.isOpened():
+    raise SystemExit(f"Unable to open idle video for metadata generation: {idle_video_path}")
+
+fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+capture.release()
+
+if fps <= 0:
+    fps = 25.0
+
+meta_path.parent.mkdir(parents=True, exist_ok=True)
+meta_path.write_text(
+    json.dumps(
+        {
+            "fps": fps,
+            "frameCount": frame_count,
+            "sourceVideo": str(idle_video_path),
+            "generatedBy": "scripts/runpod_bootstrap.sh",
+        },
+        indent=2,
+    ),
+    encoding="utf-8",
+)
+PY
+}
+
+extract_source_frames_from_idle_video() {
+  local idle_video_path="$1"
+  local frames_dir_path="$2"
+
+  find "${frames_dir_path}" -maxdepth 1 -type f -name 'frame_*.png' -delete
+  ffmpeg -hide_banner -loglevel error -y \
+    -i "${idle_video_path}" \
+    -start_number 1 \
+    "${frames_dir_path}/frame_%05d.png"
+}
+
+ensure_source_assets_exist() {
+  local frames_dir_path="${PROJECT_ROOT}/output/frames"
+  local meta_path="${PROJECT_ROOT}/output/meta.json"
+  local idle_video_path
+  local needs_frames="0"
+  local needs_meta="0"
+  local force_regeneration="${RUNPOD_REGENERATE_SOURCE_FRAMES:-0}"
+  local first_frame_path=""
+
+  mkdir -p "${frames_dir_path}"
+  idle_video_path="$(resolve_idle_video_abs_path)"
+
+  first_frame_path="$(find "${frames_dir_path}" -maxdepth 1 -type f -name 'frame_*.png' -print -quit)"
+  if [[ -z "${first_frame_path}" ]]; then
+    needs_frames="1"
+  fi
+  if [[ ! -f "${meta_path}" ]]; then
+    needs_meta="1"
+  fi
+
+  if [[ "${needs_frames}" == "0" && "${needs_meta}" == "0" && "${force_regeneration}" != "1" ]]; then
+    return
+  fi
+
+  print_info "Generating source assets from idle video: ${idle_video_path}"
+
+  if [[ "${needs_frames}" == "1" || "${force_regeneration}" == "1" ]]; then
+    extract_source_frames_from_idle_video "${idle_video_path}" "${frames_dir_path}"
+  fi
+
+  if [[ "${needs_meta}" == "1" || "${force_regeneration}" == "1" ]]; then
+    write_source_meta_from_idle_video "${idle_video_path}" "${meta_path}"
+  fi
+
+  first_frame_path="$(find "${frames_dir_path}" -maxdepth 1 -type f -name 'frame_*.png' -print -quit)"
+  if [[ -z "${first_frame_path}" ]]; then
+    print_error "Source frame generation failed. No frame_*.png files exist in ${frames_dir_path}"
+    exit 1
+  fi
+  if [[ ! -f "${meta_path}" ]]; then
+    print_error "Source metadata generation failed: ${meta_path}"
+    exit 1
+  fi
 }
 
 resolve_huggingface_cli_bin() {
@@ -404,6 +649,21 @@ ensure_checkpoints() {
     print_error "Missing checkpoints after bootstrap: ${missing_paths[*]}"
     exit 1
   fi
+}
+
+clear_prebuilt_trt_engines_if_requested() {
+  local engine_root="${PROJECT_ROOT}/third_party/FasterLivePortrait/checkpoints/liveportrait_onnx"
+
+  if [[ "${RUNPOD_FORCE_TRT_REBUILD:-1}" != "1" ]]; then
+    return
+  fi
+
+  if [[ ! -d "${engine_root}" ]]; then
+    return
+  fi
+
+  print_info "Removing bundled TRT engines so this Pod rebuilds device-compatible plans"
+  find "${engine_root}" -maxdepth 1 -type f \( -name '*.trt' -o -name '*.engine_ready.*.txt' \) -delete
 }
 
 generate_api_token() {
@@ -535,11 +795,13 @@ main() {
 
   PYTHON_BIN="$(resolve_python_bin)"
   PIP_BIN="$(resolve_pip_bin "${PYTHON_BIN}")"
-  ensure_gpu_runtime "${PYTHON_BIN}"
-  ensure_tensorrt_module "${PYTHON_BIN}" "${PIP_BIN}"
-  ensure_python_runtime_modules "${PYTHON_BIN}" "${PIP_BIN}"
   ensure_project_layout
   ensure_faster_liveportrait_repo
+  apply_faster_liveportrait_overrides_if_present
+  repair_nvidia_driver_links_if_needed
+  ensure_gpu_runtime "${PYTHON_BIN}"
+  ensure_trt_builder_runtime "${PYTHON_BIN}"
+  ensure_python_runtime_modules "${PYTHON_BIN}" "${PIP_BIN}"
 
   export ANIMATION_API_HOST="${ANIMATION_API_HOST:-${DEFAULT_API_HOST}}"
   export ANIMATION_API_PORT="${ANIMATION_API_PORT:-${DEFAULT_API_PORT}}"
@@ -558,6 +820,9 @@ main() {
 
   ensure_idle_video_exists
   ensure_checkpoints
+  ensure_trt_plugin_runtime "${PYTHON_BIN}"
+  ensure_source_assets_exist
+  clear_prebuilt_trt_engines_if_requested
   ensure_sshd
 
   print_info "Starting realtime_stream_api.py with backend=${ANIMATION_BACKEND} trt_runtime=${ANIMATION_TRT_RUNTIME}"

@@ -23,6 +23,39 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 
+def read_env_bool(env_key: str, default_value: bool) -> bool:
+    """
+    Read one boolean environment override with a safe fallback.
+    """
+    raw_value = os.getenv(env_key, "1" if default_value else "0").strip().lower()
+    if raw_value in {"1", "true", "yes", "on"}:
+        return True
+    if raw_value in {"0", "false", "no", "off"}:
+        return False
+    return bool(default_value)
+
+
+def read_env_float(
+    env_key: str,
+    default_value: float,
+    minimum_value: float | None = None,
+    maximum_value: float | None = None,
+) -> float:
+    """
+    Read one float environment override and clamp it when bounds are provided.
+    """
+    raw_value = os.getenv(env_key, str(default_value)).strip()
+    try:
+        parsed_value = float(raw_value or str(default_value))
+    except ValueError:
+        parsed_value = float(default_value)
+    if minimum_value is not None:
+        parsed_value = max(float(minimum_value), parsed_value)
+    if maximum_value is not None:
+        parsed_value = min(float(maximum_value), parsed_value)
+    return float(parsed_value)
+
+
 MODE_PREVIEW = "preview"
 MODE_FULL = "full"
 BACKEND_ONNX = "onnx"
@@ -58,7 +91,34 @@ AUDIO_TEMPLATE_META_NAME = "audio_template_meta.json"
 DEFAULT_AUDIO_TEMPLATE_CACHE_DIR = "output_fasterliveportrait/audio_template_cache"
 DEFAULT_SOURCE_CACHE_DIR = "output_fasterliveportrait/source_preprocess_cache"
 DEFAULT_PERSISTENT_WORKER_QUEUE_DIR = "output_fasterliveportrait/worker_queue"
-REDUCED_MOTION_TARGET_FPS_CAP = 10.0
+FIXED_AUDIO_MOTION_STRIDE = 2
+GENERATION_FRAME_COUNT_MIN = 1
+GENERATION_FRAME_COUNT_MAX = 1200
+FIXED_AUDIO_MOTION_TARGET_FPS_ENV_KEY = "ANIMATION_AUDIO_MOTION_TARGET_FPS"
+FIXED_AUDIO_MOTION_TARGET_FPS_DEFAULT = 14.0
+try:
+    FIXED_AUDIO_MOTION_TARGET_FPS = max(
+        1.0,
+        float(
+            os.getenv(
+                FIXED_AUDIO_MOTION_TARGET_FPS_ENV_KEY,
+                str(FIXED_AUDIO_MOTION_TARGET_FPS_DEFAULT),
+            ).strip()
+            or str(FIXED_AUDIO_MOTION_TARGET_FPS_DEFAULT)
+        ),
+    )
+except ValueError:
+    FIXED_AUDIO_MOTION_TARGET_FPS = FIXED_AUDIO_MOTION_TARGET_FPS_DEFAULT
+DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY = "ANIMATION_AUDIO_EYE_TAMED_PRESET"
+DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY = "ANIMATION_AUDIO_EYE_SOFT_FACTOR"
+DEFAULT_AUDIO_EYE_HARD_FACTOR_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_FACTOR"
+DEFAULT_AUDIO_EYE_HARD_DY_MIN_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_DY_MIN"
+DEFAULT_AUDIO_EYE_HARD_DY_MAX_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_DY_MAX"
+DEFAULT_AUDIO_EYE_TAMED_PRESET = read_env_bool(DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY, True)
+DEFAULT_AUDIO_EYE_SOFT_FACTOR = read_env_float(DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY, 0.45, 0.0, 1.0)
+DEFAULT_AUDIO_EYE_HARD_FACTOR = read_env_float(DEFAULT_AUDIO_EYE_HARD_FACTOR_ENV_KEY, 0.18, 0.0, 1.0)
+DEFAULT_AUDIO_EYE_HARD_DY_MIN = read_env_float(DEFAULT_AUDIO_EYE_HARD_DY_MIN_ENV_KEY, -0.0045)
+DEFAULT_AUDIO_EYE_HARD_DY_MAX = read_env_float(DEFAULT_AUDIO_EYE_HARD_DY_MAX_ENV_KEY, 0.0035)
 ENGINE_PRECISION_MARKER_SUFFIX = ".precision.txt"
 ENGINE_BATCH_MARKER_SUFFIX = ".batch.txt"
 TRT_INT8_CALIBRATION_BATCHES = 12
@@ -120,6 +180,12 @@ class RunnerConfig:
     use_persistent_trt_worker: bool
     driving_audio: Path | None
     audio_motion_stride: int
+    generation_frame_count: int | None
+    audio_eye_tamed_preset: bool
+    audio_eye_soft_factor: float
+    audio_eye_hard_factor: float
+    audio_eye_hard_dy_min: float
+    audio_eye_hard_dy_max: float
     render_batch_size: int
     trt_engine_batch_size: int
     stream_dir: Path
@@ -151,8 +217,51 @@ def parse_args() -> RunnerConfig:
     parser.add_argument(
         "--audio-motion-stride",
         type=int,
-        default=1,
-        help="Audio motion frame decimation factor. 1 keeps full motion, 2 uses ~half frames, etc.",
+        default=FIXED_AUDIO_MOTION_STRIDE,
+        help="Audio motion frame decimation factor. Default 2 uses the reduced-motion profile.",
+    )
+    parser.add_argument(
+        "--generation-frame-count",
+        type=int,
+        default=0,
+        help="Optional exact number of motion frames to generate from audio. Zero keeps automatic planning.",
+    )
+    parser.add_argument(
+        "--audio-eye-tamed-preset",
+        dest="audio_eye_tamed_preset",
+        action="store_true",
+        help="Apply conservative eye-opening damping when building audio motion templates.",
+    )
+    parser.add_argument(
+        "--no-audio-eye-tamed-preset",
+        dest="audio_eye_tamed_preset",
+        action="store_false",
+        help="Disable conservative eye-opening damping when building audio motion templates.",
+    )
+    parser.set_defaults(audio_eye_tamed_preset=DEFAULT_AUDIO_EYE_TAMED_PRESET)
+    parser.add_argument(
+        "--audio-eye-soft-factor",
+        type=float,
+        default=DEFAULT_AUDIO_EYE_SOFT_FACTOR,
+        help="Soft upper-face damping factor [0..1] used for audio template eye taming.",
+    )
+    parser.add_argument(
+        "--audio-eye-hard-factor",
+        type=float,
+        default=DEFAULT_AUDIO_EYE_HARD_FACTOR,
+        help="Hard eyelid damping factor [0..1] used for audio template eye taming.",
+    )
+    parser.add_argument(
+        "--audio-eye-hard-dy-min",
+        type=float,
+        default=DEFAULT_AUDIO_EYE_HARD_DY_MIN,
+        help="Minimum vertical eyelid delta allowed while building audio motion templates.",
+    )
+    parser.add_argument(
+        "--audio-eye-hard-dy-max",
+        type=float,
+        default=DEFAULT_AUDIO_EYE_HARD_DY_MAX,
+        help="Maximum vertical eyelid delta allowed while building audio motion templates.",
     )
     parser.add_argument(
         "--render-batch-size",
@@ -245,6 +354,21 @@ def parse_args() -> RunnerConfig:
         frame_step = 1
     render_batch_size = max(1, int(args.render_batch_size))
     trt_engine_batch_size = max(render_batch_size, int(args.trt_engine_batch_size))
+    generation_frame_count = int(args.generation_frame_count or 0)
+    if generation_frame_count < 0:
+        parser.error("--generation-frame-count must be zero or a positive integer")
+    if 0 < generation_frame_count < GENERATION_FRAME_COUNT_MIN:
+        parser.error(
+            f"--generation-frame-count must be >= {GENERATION_FRAME_COUNT_MIN} when provided"
+        )
+    if generation_frame_count > GENERATION_FRAME_COUNT_MAX:
+        parser.error(
+            f"--generation-frame-count must be <= {GENERATION_FRAME_COUNT_MAX}"
+        )
+    audio_eye_soft_factor = float(np.clip(float(args.audio_eye_soft_factor), 0.0, 1.0))
+    audio_eye_hard_factor = float(np.clip(float(args.audio_eye_hard_factor), 0.0, 1.0))
+    audio_eye_hard_dy_min = float(min(args.audio_eye_hard_dy_min, args.audio_eye_hard_dy_max))
+    audio_eye_hard_dy_max = float(max(args.audio_eye_hard_dy_min, args.audio_eye_hard_dy_max))
 
     project_root = Path(__file__).resolve().parent
     driving_audio = (project_root / args.driving_audio).resolve() if args.driving_audio else None
@@ -274,6 +398,12 @@ def parse_args() -> RunnerConfig:
         use_persistent_trt_worker=not args.disable_persistent_trt_worker,
         driving_audio=driving_audio,
         audio_motion_stride=max(1, int(args.audio_motion_stride)),
+        generation_frame_count=generation_frame_count or None,
+        audio_eye_tamed_preset=bool(args.audio_eye_tamed_preset),
+        audio_eye_soft_factor=audio_eye_soft_factor,
+        audio_eye_hard_factor=audio_eye_hard_factor,
+        audio_eye_hard_dy_min=audio_eye_hard_dy_min,
+        audio_eye_hard_dy_max=audio_eye_hard_dy_max,
         render_batch_size=render_batch_size,
         trt_engine_batch_size=trt_engine_batch_size,
         stream_dir=(project_root / args.stream_dir).resolve(),
@@ -393,13 +523,15 @@ def build_motion_sample_indices(source_count: int, target_count: int) -> list[in
 
 def resolve_motion_stride_target_fps(source_fps: float, motion_stride: int) -> int:
     """
-    Resolve one target FPS for reduced-motion audio templates.
+    Resolve one deterministic target FPS for reduced-motion generation.
     """
-    if motion_stride <= 1:
-        return max(1, int(round(float(source_fps))))
-    base_target_fps = float(source_fps) / float(motion_stride)
-    capped_target_fps = min(float(source_fps), base_target_fps, REDUCED_MOTION_TARGET_FPS_CAP)
-    return max(1, int(round(capped_target_fps)))
+    safe_source_fps = max(1.0, float(source_fps))
+    safe_motion_stride = max(1, int(motion_stride))
+    if safe_motion_stride <= 1:
+        return max(1, int(round(safe_source_fps)))
+    if safe_motion_stride == FIXED_AUDIO_MOTION_STRIDE:
+        return max(1, int(round(min(safe_source_fps, FIXED_AUDIO_MOTION_TARGET_FPS))))
+    return max(1, int(round(safe_source_fps / float(safe_motion_stride))))
 
 
 def build_strided_audio_template(
@@ -854,6 +986,7 @@ def is_audio_template_cache_hit(
     template_path: Path,
     meta_path: Path,
     expected_signature: dict[str, str | int],
+    expected_generation_profile: dict[str, str | int | float | bool],
 ) -> bool:
     """
     Validate template path and metadata signature for cache hit checks.
@@ -863,21 +996,49 @@ def is_audio_template_cache_hit(
     meta_payload = load_audio_template_meta(meta_path)
     if meta_payload is None:
         return False
-    return meta_payload.get("audioSignature") == expected_signature
+    return (
+        meta_payload.get("audioSignature") == expected_signature
+        and meta_payload.get("generationProfile") == expected_generation_profile
+    )
+
+
+def build_audio_template_generation_profile(
+    config: RunnerConfig,
+) -> dict[str, str | int | float | bool]:
+    """
+    Build one stable description of how audio motion templates are generated.
+    """
+    cfg_path = resolve_cfg_path(config)
+    return {
+        "backend": config.backend,
+        "cfg": cfg_path.name,
+        "motionStride": int(config.audio_motion_stride),
+        "generationFrameCount": int(config.generation_frame_count or 0),
+        "eyeTamedPreset": bool(config.audio_eye_tamed_preset),
+        "eyeSoftFactor": round(float(config.audio_eye_soft_factor), 6),
+        "eyeHardFactor": round(float(config.audio_eye_hard_factor), 6),
+        "eyeHardDyMin": round(float(config.audio_eye_hard_dy_min), 6),
+        "eyeHardDyMax": round(float(config.audio_eye_hard_dy_max), 6),
+    }
+
+
+def should_prebuild_audio_template(config: RunnerConfig) -> bool:
+    """
+    Use the slower audio-to-PKL path only when the request needs exact frame-count control.
+    """
+    return config.generation_frame_count is not None
 
 
 def build_audio_template_cache_key(
     audio_signature: dict[str, str | int],
-    backend: str,
-    cfg_name: str,
+    generation_profile: dict[str, str | int | float | bool],
 ) -> str:
     """
     Build stable key for cross-job audio template cache.
     """
     payload = {
         "audio": audio_signature,
-        "backend": backend,
-        "cfg": cfg_name,
+        "generationProfile": generation_profile,
     }
     payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha1(payload_json.encode("utf-8")).hexdigest()
@@ -890,8 +1051,8 @@ def resolve_global_audio_cache_paths(
     """
     Resolve global shared cache paths for audio templates.
     """
-    cfg_name = resolve_cfg_path(config).name
-    cache_key = build_audio_template_cache_key(audio_signature, config.backend, cfg_name)
+    generation_profile = build_audio_template_generation_profile(config)
+    cache_key = build_audio_template_cache_key(audio_signature, generation_profile)
     cache_root = config.audio_template_cache_dir / config.backend
     template_path = cache_root / f"{cache_key}.pkl"
     meta_path = cache_root / f"{cache_key}.{AUDIO_TEMPLATE_META_NAME}"
@@ -907,13 +1068,14 @@ def build_audio_template_meta_payload(
     """
     Build metadata payload for local/global audio template cache.
     """
-    cfg_path = resolve_cfg_path(config)
+    generation_profile = build_audio_template_generation_profile(config)
     return {
         "audioSignature": audio_signature,
+        "generationProfile": generation_profile,
         "audioTemplateInputWav": to_viewer_path(normalized_audio_path, config.project_root),
         "templatePath": to_viewer_path(template_path, config.project_root),
-        "backend": config.backend,
-        "cfg": cfg_path.name,
+        "backend": generation_profile["backend"],
+        "cfg": generation_profile["cfg"],
         "updatedAtMs": int(time.time() * 1000),
     }
 
@@ -947,16 +1109,10 @@ def build_driving_video(config: RunnerConfig, driving_video: Path, source_fps: f
     if not any(config.frames_dir.glob("frame_*.png")):
         raise RuntimeError(f"No frame_*.png files found in {config.frames_dir}")
 
-    target_fps = source_fps / config.frame_step if config.frame_step > 1 else source_fps
-    if target_fps <= 0:
-        target_fps = source_fps
+    target_fps = float(resolve_motion_stride_target_fps(source_fps, config.frame_step))
 
     if config.frame_step > 1:
-        video_filter = (
-            f"select=not(mod(n\\,{config.frame_step})),"
-            f"setpts=N/({target_fps:.6f})/TB,"
-            "scale=720:420:flags=lanczos,format=yuv420p"
-        )
+        video_filter = f"fps={target_fps:.6f},scale=720:420:flags=lanczos,format=yuv420p"
     else:
         video_filter = "scale=720:420:flags=lanczos,format=yuv420p"
 
@@ -1014,7 +1170,42 @@ def build_driving_template_from_audio_local(
         "--output-pkl",
         str(output_template),
     ]
+    command.extend(build_audio_to_pkl_extra_args(config))
     run_command(command)
+
+
+def build_audio_to_pkl_extra_args(config: RunnerConfig) -> list[str]:
+    """
+    Build extra audio-to-PKL tuning arguments shared by local and docker invocations.
+    """
+    command = [
+        "--motion-stride",
+        str(int(config.audio_motion_stride)),
+        "--eye-soft-factor",
+        f"{float(config.audio_eye_soft_factor):.6f}",
+        "--eye-hard-factor",
+        f"{float(config.audio_eye_hard_factor):.6f}",
+        "--eye-hard-dy-min",
+        f"{float(config.audio_eye_hard_dy_min):.6f}",
+        "--eye-hard-dy-max",
+        f"{float(config.audio_eye_hard_dy_max):.6f}",
+    ]
+    if config.generation_frame_count is not None:
+        command.extend(
+            [
+                "--generation-frame-count",
+                str(int(config.generation_frame_count)),
+            ]
+        )
+    command.append("--enable-eye-tamed-preset" if config.audio_eye_tamed_preset else "--disable-eye-tamed-preset")
+    return command
+
+
+def build_audio_to_pkl_shell_args(config: RunnerConfig) -> str:
+    """
+    Build shell-quoted extra audio-to-PKL tuning arguments.
+    """
+    return " ".join(shlex.quote(token) for token in build_audio_to_pkl_extra_args(config))
 
 
 def build_driving_template_from_audio_docker(
@@ -1036,6 +1227,7 @@ def build_driving_template_from_audio_docker(
     cfg_rel = to_project_relative(cfg_path, project_root, "FasterLivePortrait cfg")
     audio_rel = to_project_relative(driving_audio, project_root, "Driving audio")
     template_rel = to_project_relative(output_template, project_root, "Output template")
+    extra_args = build_audio_to_pkl_shell_args(config)
 
     script = (
         f"export LD_LIBRARY_PATH={DEFAULT_TRT_DOCKER_LD_PATH}:$LD_LIBRARY_PATH; "
@@ -1049,6 +1241,8 @@ def build_driving_template_from_audio_docker(
         f"--driving-audio /workspace/{audio_rel} "
         f"--output-pkl /workspace/{template_rel}"
     )
+    if extra_args:
+        script += f" {extra_args}"
     run_docker_shell(config, "/workspace", script)
 
 
@@ -1557,7 +1751,26 @@ def resolve_worker_queue_paths(config: RunnerConfig) -> tuple[Path, Path, Path, 
     return queue_root, requests_dir, responses_dir, heartbeat_path, worker_log_path
 
 
-def heartbeat_is_fresh(heartbeat_path: Path) -> bool:
+def process_pid_is_alive(pid: object) -> bool:
+    """
+    Check whether a numeric process id still exists on the current host.
+    """
+    if not isinstance(pid, int):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def heartbeat_is_fresh(heartbeat_path: Path, require_live_pid: bool = False) -> bool:
     """
     Check whether worker heartbeat is recent enough.
     """
@@ -1568,7 +1781,11 @@ def heartbeat_is_fresh(heartbeat_path: Path) -> bool:
     if not isinstance(updated_at_ms, int):
         return False
     age_ms = int(time.time() * 1000) - updated_at_ms
-    return age_ms <= int(PERSISTENT_WORKER_HEARTBEAT_STALE_SEC * 1000)
+    if age_ms > int(PERSISTENT_WORKER_HEARTBEAT_STALE_SEC * 1000):
+        return False
+    if not require_live_pid:
+        return True
+    return process_pid_is_alive(payload.get("pid"))
 
 
 def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
@@ -1641,7 +1858,7 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
     requests_dir.mkdir(parents=True, exist_ok=True)
     responses_dir.mkdir(parents=True, exist_ok=True)
 
-    if heartbeat_is_fresh(heartbeat_path):
+    if heartbeat_is_fresh(heartbeat_path, require_live_pid=True):
         return
 
     cfg_path = resolve_cfg_path(config)
@@ -1681,7 +1898,7 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
 
     deadline = time.time() + PERSISTENT_WORKER_STARTUP_TIMEOUT_SEC
     while time.time() < deadline:
-        if heartbeat_is_fresh(heartbeat_path):
+        if heartbeat_is_fresh(heartbeat_path, require_live_pid=True):
             print(f"[info] persistent TRT local worker ready: {heartbeat_path}")
             return
         time.sleep(PERSISTENT_WORKER_POLL_SLEEP_SEC)
@@ -1742,13 +1959,21 @@ def build_local_driving_args(config: RunnerConfig, driving_input: Path) -> list[
     """
     Build local run.py driving arguments using one single audio/video contract.
     """
-    if config.driving_audio is not None:
-        return [
+    if is_audio_file(driving_input):
+        command = [
             "--driving_audio",
             str(driving_input),
             "--motion_stride",
             str(int(config.audio_motion_stride)),
         ]
+        if config.generation_frame_count is not None:
+            command.extend(
+                [
+                    "--generation_frame_count",
+                    str(int(config.generation_frame_count)),
+                ]
+            )
+        return command
     return [
         "--dri_video",
         str(driving_input),
@@ -1759,11 +1984,15 @@ def build_docker_driving_args(config: RunnerConfig, driving_workspace_path: str)
     """
     Build docker run.py driving arguments using one single audio/video contract.
     """
-    if config.driving_audio is not None:
-        return (
+    driving_suffix = Path(driving_workspace_path).suffix.lower()
+    if driving_suffix in DRIVING_AUDIO_EXTENSIONS:
+        command = (
             f"--driving_audio {shlex.quote(driving_workspace_path)} "
             f"--motion_stride {int(config.audio_motion_stride)} "
         )
+        if config.generation_frame_count is not None:
+            command += f"--generation_frame_count {int(config.generation_frame_count)} "
+        return command
     return f"--dri_video {shlex.quote(driving_workspace_path)} "
 
 
@@ -1771,7 +2000,7 @@ def build_worker_driving_payload(config: RunnerConfig, driving_input: Path, cont
     """
     Build persistent worker driving payload fields using one single audio/video contract.
     """
-    if config.driving_audio is None:
+    if not is_audio_file(driving_input):
         driving_value = (
             to_container_workspace_path(driving_input, config.project_root, "Driving input")
             if containerized
@@ -1781,6 +2010,7 @@ def build_worker_driving_payload(config: RunnerConfig, driving_input: Path, cont
             "driVideo": driving_value,
             "drivingAudio": "",
             "motionStride": 1,
+            "generationFrameCount": 0,
         }
 
     driving_value = (
@@ -1792,6 +2022,7 @@ def build_worker_driving_payload(config: RunnerConfig, driving_input: Path, cont
         "driVideo": "",
         "drivingAudio": driving_value,
         "motionStride": int(config.audio_motion_stride),
+        "generationFrameCount": int(config.generation_frame_count or 0),
     }
 
 
@@ -2150,12 +2381,9 @@ def main() -> None:
     source_fps = read_fps(config.meta_path)
     driving_video, driving_template, _ = resolve_driving_paths(config)
     audio_template = resolve_audio_template_path(config)
-    strided_audio_template = audio_template.with_name(
-        f"{audio_template.stem}_stride{config.audio_motion_stride}{audio_template.suffix}"
-    )
     audio_template_meta = resolve_audio_template_meta_path(config)
     audio_template_input_wav = resolve_audio_template_input_wav_path(config)
-    target_driving_fps = source_fps / config.frame_step if config.frame_step > 1 else source_fps
+    target_driving_fps = float(resolve_motion_stride_target_fps(source_fps, config.frame_step))
     print(
         "[info] backend={} trt_runtime={} trt_precision={} mode={} render_batch_size={} trt_engine_batch_size={} video_encoder={} source_fps={:.6f} target_driving_fps={:.6f}".format(
             config.backend,
@@ -2176,10 +2404,42 @@ def main() -> None:
         print(f"[info] normalizing driving audio for progressive render: {driving_audio}")
         normalize_audio_for_joyvasa(driving_audio, audio_template_input_wav)
         assert_path_exists(audio_template_input_wav, "Normalized driving audio")
-        template_used = False
-        driving_input = audio_template_input_wav
+        if should_prebuild_audio_template(config):
+            audio_signature = build_audio_signature(audio_template_input_wav)
+            generation_profile = build_audio_template_generation_profile(config)
+            template_used = (
+                not config.rebuild_driving_template
+                and is_audio_template_cache_hit(
+                    audio_template,
+                    audio_template_meta,
+                    audio_signature,
+                    generation_profile,
+                )
+            )
+            if template_used:
+                print(f"[info] using cached audio template: {audio_template}")
+            else:
+                if config.rebuild_driving_template and audio_template.exists():
+                    print("[info] forcing audio template rebuild from normalized audio")
+                build_driving_template_from_audio(config, audio_template_input_wav, audio_template)
+                assert_path_exists(audio_template, "Audio motion template")
+                write_audio_template_meta(
+                    audio_template_meta,
+                    build_audio_template_meta_payload(
+                        audio_signature=audio_signature,
+                        template_path=audio_template,
+                        config=config,
+                        normalized_audio_path=audio_template_input_wav,
+                    ),
+                )
+                print(f"[ok] audio motion template -> {audio_template}")
+            driving_input = audio_template
+            driving_fps = read_template_fps(audio_template, source_fps)
+        else:
+            template_used = False
+            driving_input = audio_template_input_wav
+            driving_fps = float(resolve_motion_stride_target_fps(source_fps, config.audio_motion_stride))
         driving_media = driving_audio
-        driving_fps = source_fps
     else:
         if config.skip_driving_video_build and driving_video.exists():
             print(f"[info] reusing driving video: {driving_video}")
@@ -2210,7 +2470,7 @@ def main() -> None:
     phase_inference_seconds = time.time() - phase_inference_started_at
 
     phase_postprocess_started_at = time.time()
-    if driving_audio is not None:
+    if driving_audio is not None and driving_input.suffix.lower() != ".pkl":
         exported_audio_template = copy_template_if_present(run_output_dir, audio_template, driving_input.name)
         if exported_audio_template:
             driving_fps = read_template_fps(audio_template, driving_fps)

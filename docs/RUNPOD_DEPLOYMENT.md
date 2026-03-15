@@ -4,148 +4,225 @@
 
 This runbook deploys the realtime avatar API on Runpod Pods with `TensorRT` as the only supported inference backend for this flow.
 
-The deployment assets are:
-
-- `Dockerfile.runpod`
-- `requirements-runpod.txt`
-- `scripts/runpod_bootstrap.sh`
-- `scripts/runpod_pytorch_quickstart.sh`
-- `scripts/runpod_image_start.sh`
-
-`ONNX` artifacts are still required because FasterLivePortrait builds local TensorRT engines from `checkpoints/liveportrait_onnx/*.onnx`. This runbook does not use `ONNX Runtime` as the active inference backend.
-The bootstrap downloads three checkpoint sources:
-
-- `warmshao/FasterLivePortrait`
-- `jdh-algo/JoyVASA`
-- `TencentGameMate/chinese-hubert-base`
+The Pod does not run `shaoguo/faster_liveportrait:v3` directly. It runs a derived image built from [Dockerfile.runpod](/e:/animation/Dockerfile.runpod), which keeps the TRT8 userspace from that base image and adds the Runpod bootstrap bundle.
 
 ## Verified Repository Facts
 
 | Fact | Source |
 | --- | --- |
-| The API defaults to the `trt` backend when `ANIMATION_BACKEND` is unset. | [realtime_stream_api.py](/e:/animation/realtime_stream_api.py#L225) |
-| The local TRT flow builds engines from `liveportrait_onnx/*.onnx` files. | [faster_liveportrait_runner.py](/e:/animation/faster_liveportrait_runner.py#L1369) |
-| The TensorRT build script imports `onnx`, `pycuda`, and `tensorrt`. | [third_party/FasterLivePortrait/scripts/onnx2trt.py](/e:/animation/third_party/FasterLivePortrait/scripts/onnx2trt.py#L15) |
-| The FasterLivePortrait runtime imports `cv2`, `ffmpeg`, `PIL`, `tqdm`, `insightface`, `mediapipe`, `onnxruntime`, and `torchgeometry` in the TRT execution path. | [third_party/FasterLivePortrait/run.py](/e:/animation/third_party/FasterLivePortrait/run.py#L27), [third_party/FasterLivePortrait/src/models/__init__.py](/e:/animation/third_party/FasterLivePortrait/src/models/__init__.py#L7), [third_party/FasterLivePortrait/src/models/predictor.py](/e:/animation/third_party/FasterLivePortrait/src/models/predictor.py#L7), [third_party/FasterLivePortrait/src/utils/crop.py](/e:/animation/third_party/FasterLivePortrait/src/utils/crop.py#L14) |
+| The Runpod image is based on `shaoguo/faster_liveportrait:v3`. | [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L1) |
+| The Runpod image forces `LD_LIBRARY_PATH=/opt/TensorRT-8.6.1.6/lib`. | [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L17) |
+| The image entrypoint is `bash /app/scripts/runpod_image_start.sh`. | [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L26) |
+| The image bundles the Runpod overrides under `/app/runpod-bundle`, including `requirements-runpod.txt`, `scripts/bootstrap_faster_liveportrait.sh`, `scripts/runpod_bootstrap.sh`, `scripts/runpod_validate_runtime.sh`, `faster_liveportrait_runner.py`, and the selected `third_party/FasterLivePortrait` overrides. | [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L20), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L21), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L22), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L23), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L24), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L25), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L26), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L27), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L28), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L29), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L30), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L31), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L32), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L33), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L34), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L35), [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L36) |
+| The image startup script executes the repo bootstrap from the cloned workspace. | [scripts/runpod_image_start.sh](/e:/animation/scripts/runpod_image_start.sh#L24), [scripts/runpod_image_start.sh](/e:/animation/scripts/runpod_image_start.sh#L26) |
+| The entrypoint clones `https://github.com/PailletJuanPablo/avatario.git` at `main` into `/workspace/animation`. | [scripts/runpod_entrypoint.sh](/e:/animation/scripts/runpod_entrypoint.sh#L5), [scripts/runpod_entrypoint.sh](/e:/animation/scripts/runpod_entrypoint.sh#L6), [scripts/runpod_entrypoint.sh](/e:/animation/scripts/runpod_entrypoint.sh#L7), [scripts/runpod_entrypoint.sh](/e:/animation/scripts/runpod_entrypoint.sh#L8) |
+| The entrypoint overlays the cloned repo with the bundled Runpod files before executing the bootstrap, and the bootstrap applies the bundled `FasterLivePortrait` overrides after cloning the upstream dependency. | [scripts/runpod_entrypoint.sh](/e:/animation/scripts/runpod_entrypoint.sh#L86), [scripts/runpod_entrypoint.sh](/e:/animation/scripts/runpod_entrypoint.sh#L122), [scripts/runpod_entrypoint.sh](/e:/animation/scripts/runpod_entrypoint.sh#L127), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L429), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L731) |
+| The bootstrap only supports `ANIMATION_BACKEND=trt`. | [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L717), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L718) |
+| The bootstrap defaults are `ANIMATION_API_PORT=8010`, `ANIMATION_TRT_RUNTIME=local`, `ANIMATION_TRT_PRECISION=fp16`, and `ANIMATION_IDLE_VIDEO=inputs/idlevid.mp4`. | [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L12), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L15), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L16), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L17) |
+| The bootstrap repairs broken NVIDIA driver links such as `libcuda.so.1` and `libnvidia-ml.so.1` before validating CUDA. | [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L147), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L183), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L202) |
+| The bootstrap downloads checkpoints from `warmshao/FasterLivePortrait`, `jdh-algo/JoyVASA`, and `TencentGameMate/chinese-hubert-base`. | [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L18), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L19), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L20), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L491) |
+| The bootstrap removes incomplete `third_party/FasterLivePortrait` clones, applies the bundled overrides, and generates `output/frames` plus `output/meta.json` from `inputs/idlevid.mp4` when those assets are missing. | [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L412), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L429), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L447), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L730), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L731) |
+| The bootstrap can delete prebuilt `.trt` plans when `RUNPOD_FORCE_TRT_REBUILD=1`. | [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L557), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L560), [scripts/runpod_bootstrap.sh](/e:/animation/scripts/runpod_bootstrap.sh#L726) |
+| The bundled validation script checks CUDA, `trt.Builder(...)`, the TRT plugin, `/api/health`, and waits for warmup to finish without `warmupError`. | [scripts/runpod_validate_runtime.sh](/e:/animation/scripts/runpod_validate_runtime.sh#L100), [scripts/runpod_validate_runtime.sh](/e:/animation/scripts/runpod_validate_runtime.sh#L117), [scripts/runpod_validate_runtime.sh](/e:/animation/scripts/runpod_validate_runtime.sh#L119), [scripts/runpod_validate_runtime.sh](/e:/animation/scripts/runpod_validate_runtime.sh#L123), [scripts/runpod_validate_runtime.sh](/e:/animation/scripts/runpod_validate_runtime.sh#L124) |
+| The local publish helper defaults to `pailletjp/avatario-runpod:thin` and can skip the `latest` tag. | [scripts/build_runpod_image.ps1](/e:/animation/scripts/build_runpod_image.ps1#L1), [scripts/build_runpod_image.ps1](/e:/animation/scripts/build_runpod_image.ps1#L2), [scripts/build_runpod_image.ps1](/e:/animation/scripts/build_runpod_image.ps1#L5), [scripts/build_runpod_image.ps1](/e:/animation/scripts/build_runpod_image.ps1#L30), [scripts/build_runpod_image.ps1](/e:/animation/scripts/build_runpod_image.ps1#L36) |
 
-## Recommended Path
+## Preconditions
 
-Use a custom Runpod image built from `Dockerfile.runpod`.
+1. Docker Desktop is installed on the local machine that will publish the image.
+2. Docker is authenticated against Docker Hub on that machine.
+3. The local workspace contains this repository and the current `Dockerfile.runpod` plus Runpod scripts.
+4. A Runpod account is available and can create Pods.
+5. If SSH access is required, the public SSH key is already added to the Runpod account before creating the Pod.
 
-This avoids:
+## Base Image Boundary
 
-- reinstalling TensorRT Python packages on every Pod start
-- discovering missing runtime modules one by one
-- paying Pod time for large dependency builds before the API starts
+This repository's Runpod image is intentionally derived from `shaoguo/faster_liveportrait:v3` because [Dockerfile.runpod](/e:/animation/Dockerfile.runpod#L17) points the runtime to `/opt/TensorRT-8.6.1.6/lib`.
 
-## Build the Custom Image
+That choice preserves the TRT8 userspace that matches the local flow validated for this project. It is not a statement that the upstream `shaoguo/faster_liveportrait:v3` image is universally safe to run on Runpod without checks.
 
-Build and push the image from a machine with Docker access:
+Runpod compatibility is accepted only after the Pod passes the runtime validation described in this runbook.
 
-```bash
-docker build -f Dockerfile.runpod -t <dockerhub-user>/avatario-runpod:latest .
-docker push <dockerhub-user>/avatario-runpod:latest
+The deployment flow in this repository does not depend on `/start.sh`. The image entrypoint is [scripts/runpod_image_start.sh](/e:/animation/scripts/runpod_image_start.sh), which directly executes [scripts/runpod_entrypoint.sh](/e:/animation/scripts/runpod_entrypoint.sh).
+
+## Safe Deployment Sequence
+
+```mermaid
+flowchart LR
+    A["Local machine"] -->|"build_runpod_image.ps1"| B["Docker Hub: pailletjp/avatario-runpod:thin"]
+    B -->|"Runpod pulls image"| C["Runpod Pod"]
+    C -->|"runpod_image_start.sh"| D["Clone repo into /workspace/animation"]
+    D -->|"runpod_entrypoint.sh"| E["Overlay bundled Runpod files"]
+    E -->|"runpod_bootstrap.sh"| F["Install runtime deps"]
+    F --> G["Download checkpoints"]
+    G --> H["Generate output/frames + output/meta.json if missing"]
+    H --> I["Start realtime_stream_api.py"]
+    I --> J["/api/health and UI ready"]
 ```
 
-## Pod Settings
+## Step 1: Publish the Thin Image
 
-Use these Pod settings in Runpod:
+Run this exact command from the repository root on the local machine:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_runpod_image.ps1 -ImageName pailletjp/avatario-runpod -Tag thin -SkipLatestTag
+```
+
+What this does:
+
+1. Builds `Dockerfile.runpod`.
+2. Tags the result as `pailletjp/avatario-runpod:thin`.
+3. Pushes only `thin`.
+4. Does not create or push `latest`.
+
+Expected output:
+
+- one `Building Runpod image ...` step
+- one `Pushing pailletjp/avatario-runpod:thin` step
+- one final `[ok] Runpod image ready: pailletjp/avatario-runpod:thin`
+
+If the push is interrupted, rerun the same command. Docker reuses already uploaded layers.
+
+## Step 2: Create the Runpod Pod
+
+Use these exact Pod settings in the Runpod UI:
 
 | Setting | Value |
 | --- | --- |
-| Container image | `<dockerhub-user>/avatario-runpod:latest` |
-| GPU | `RTX 4000 Ada` or another NVIDIA GPU with sufficient VRAM |
+| Container image | `pailletjp/avatario-runpod:thin` |
+| GPU | `RTX 4000 Ada` |
 | Container disk | `20 GB` minimum |
-| Volume disk | `0 GB` for disposable tests, persistent volume when you want cached checkpoints and TRT engines |
+| Volume disk | `0 GB` for a disposable test |
 | Volume mount path | `/workspace` |
-| HTTP ports | optional `8888` only if you want Jupyter |
-| TCP ports | `22`, `8010` |
+| HTTP ports | `8888` optional, only if Jupyter is needed |
+| TCP ports | `22,8010` |
+| Start Command | leave empty so Runpod uses the image `CMD` |
 
-Do not configure `8010` as both HTTP and TCP in the same template. Runpod rejects duplicate port declarations.
+Do not configure `8010` as both HTTP and TCP in the same Pod template.
 
-## Start Command
+## Step 3: Configure Environment Variables
 
-Preferred start command for the custom image:
+Set these environment variables in the Runpod Pod:
 
-```bash
-bash /app/scripts/runpod_image_start.sh
+```text
+ANIMATION_API_PORT=8010
+ANIMATION_BACKEND=trt
+ANIMATION_TRT_RUNTIME=local
+ANIMATION_TRT_PRECISION=fp16
+ANIMATION_VIDEO_ENCODER=cpu
+RUNPOD_FORCE_TRT_REBUILD=1
+ANIMATION_API_TOKEN=change-me
 ```
 
-This start script launches the base Runpod image services through `/start.sh`, copies the image contents into `/workspace/animation`, and then runs the bootstrap from there. That keeps the image aligned with the base Runpod startup path while still allowing checkpoint and TensorRT engine reuse when a persistent Runpod volume is attached.
+Notes:
 
-Fallback start command for the official Runpod PyTorch image:
+- `ANIMATION_API_TOKEN` is optional. If omitted, the bootstrap generates a token and stores it in `.runpod/api_token`.
+- `RUNPOD_FORCE_TRT_REBUILD=1` is the safe default for a fresh GPU because it prevents reuse of incompatible prebuilt plans.
 
-```bash
-bash -lc 'command -v curl >/dev/null 2>&1 || (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates); curl -fsSL https://raw.githubusercontent.com/PailletJuanPablo/avatario/main/scripts/runpod_pytorch_quickstart.sh | bash'
-```
+## Step 4: Start the Pod Safely
 
-The fallback path is slower because it installs Python runtime dependencies and TensorRT packages inside the Pod.
+1. Deploy the Pod.
+2. Wait until the Pod state becomes `Running`.
+3. Open the Pod logs or Web Terminal.
+4. Before trusting the deployment, treat the Pod as unverified until the validation gate in Step 5 passes.
+5. Do not interrupt the first startup while these tasks are still happening:
+   1. repo clone into `/workspace/animation`
+   2. overlay of the bundled Runpod files
+   3. Python runtime installation from `requirements-runpod.txt`
+   4. checkpoint download from Hugging Face
+   5. `output/frames` and `output/meta.json` generation when missing
+   6. first TRT engine build
 
-## Environment Variables
-
-Recommended variables:
-
-| Variable | Value |
-| --- | --- |
-| `ANIMATION_API_PORT` | `8010` |
-| `ANIMATION_BACKEND` | `trt` |
-| `ANIMATION_TRT_RUNTIME` | `local` |
-| `ANIMATION_TRT_PRECISION` | `fp16` |
-| `ANIMATION_VIDEO_ENCODER` | `cpu` |
-| `ANIMATION_API_TOKEN` | optional fixed token |
-
-`scripts/runpod_bootstrap.sh` exits immediately when `ANIMATION_BACKEND` is not `trt`.
-
-## Validation Procedure
-
-1. Confirm CUDA access before any large install step:
-
-```bash
-python - <<'PY'
-import torch
-print("cuda_available =", torch.cuda.is_available())
-print("device_count =", torch.cuda.device_count())
-if torch.cuda.is_available():
-    print("device_0 =", torch.cuda.get_device_name(0))
-PY
-```
-
-2. Start the bootstrap.
-
-3. Wait until the script prints:
+The bootstrap prints:
 
 - `Local health URL`
 - `Token`
+- optional `Proxy UI URL`
 - optional `Direct TCP UI URL`
+- optional `SSH command`
 
-4. Validate the API locally:
+Do not use the service URL before those lines appear.
+
+Do not override the `Start Command` for the normal flow. The rebuilt image already starts through [scripts/runpod_image_start.sh](/e:/animation/scripts/runpod_image_start.sh) via the image `CMD`.
+
+## Step 5: Validate the Running Pod
+
+This is the compatibility gate for Runpod. Do not consider the Pod usable until this step passes.
+
+Run this inside the Pod after startup:
 
 ```bash
-curl -H "Authorization: Bearer <token>" http://127.0.0.1:8010/api/health
+bash /workspace/animation/scripts/runpod_validate_runtime.sh
 ```
 
-5. Open the direct TCP URL when `8010/tcp` is exposed:
+Expected checks:
+
+1. `torch_cuda_available = True`
+2. `trt_builder_ready = True`
+3. `trt_plugin_ready = True`
+4. `curl` against `http://127.0.0.1:8010/api/health` succeeds
+5. warmup reaches `warmupPhase=completed` with an empty `warmupError`
+
+Then run the health check directly if needed:
+
+```bash
+curl -H "Authorization: Bearer change-me" http://127.0.0.1:8010/api/health
+```
+
+If the token was not fixed with `ANIMATION_API_TOKEN`, use the token printed by the bootstrap or stored in:
+
+```text
+/workspace/animation/.runpod/api_token
+```
+
+## Step 6: Open the Service
+
+Use the direct TCP URL printed by the bootstrap. The format is:
 
 ```text
 http://<public-ip>:<mapped-port>/?token=<token>
 ```
 
-Direct TCP is preferred for long-lived websocket sessions.
+Use the direct TCP URL instead of the proxy URL for long-lived websocket sessions.
 
-## Failure Policy
+## Step 7: Safe Failure Handling
 
-Terminate the Pod immediately when either of these checks fails:
+Terminate the Pod immediately if any of these checks fails:
 
-- `torch.cuda.is_available()` returns `False`
-- `curl http://127.0.0.1:8010/api/health` does not become healthy after bootstrap
+1. `torch.cuda.is_available()` is `False`
+2. `trt.Builder(...)` fails
+3. the TRT plugin load check fails
+4. `/api/health` never becomes healthy
 
-Use the application log for triage:
+Use this log command for triage:
 
 ```bash
-tail -n 120 /app/output_fasterliveportrait/runpod_api.log
+tail -n 120 /workspace/animation/output_fasterliveportrait/runpod_api.log
 ```
 
-## References
+If a debugging session ever requires keeping a failing container alive, use a temporary rescue `Start Command` only for that investigation. It is not part of the normal deployment flow.
+
+Manual rerun command inside the container:
+
+```bash
+cd /workspace/animation
+bash scripts/runpod_bootstrap.sh
+```
+
+## Step 8: Safe Re-Run Procedure
+
+Use this when the Pod must be recreated:
+
+1. Stop or terminate the current Pod.
+2. Do not change the image tag.
+3. Recreate the Pod with the same image and environment variables.
+4. Keep `RUNPOD_FORCE_TRT_REBUILD=1`.
+5. Re-run:
+
+```bash
+bash /workspace/animation/scripts/runpod_validate_runtime.sh
+```
+
+## External References
 
 - Runpod Pod templates: https://docs.runpod.io/pods/templates/create-custom-template
 - Runpod template management: https://docs.runpod.io/pods/templates/manage-templates

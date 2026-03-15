@@ -41,8 +41,8 @@ main() {
   fi
 
   if [[ -e "${FASTER_LIVEPORTRAIT_DIR}" ]]; then
-    print_error "Path exists but FasterLivePortrait is incomplete: ${FASTER_LIVEPORTRAIT_DIR}"
-    exit 1
+    print_info "Removing incomplete FasterLivePortrait checkout: ${FASTER_LIVEPORTRAIT_DIR}"
+    rm -rf "${FASTER_LIVEPORTRAIT_DIR}"
   fi
 
   clone_faster_liveportrait_repo

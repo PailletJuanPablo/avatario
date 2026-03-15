@@ -1,46 +1,42 @@
-FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+FROM shaoguo/faster_liveportrait:v3
 
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
-    PIP_DEFAULT_TIMEOUT=1000 \
-    PIP_RETRIES=10 \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
     ANIMATION_API_HOST=0.0.0.0 \
     ANIMATION_API_PORT=8010 \
     ANIMATION_BACKEND=trt \
     ANIMATION_TRT_RUNTIME=local \
     ANIMATION_TRT_PRECISION=fp16 \
     ANIMATION_WARMUP_ENABLED=1 \
-    ANIMATION_AUDIO_MOTION_STRIDE=1 \
-    ANIMATION_RENDER_BATCH_SIZE=4 \
-    ANIMATION_TRT_ENGINE_BATCH_SIZE=4 \
-    ANIMATION_VIDEO_ENCODER=cpu
+    ANIMATION_AUDIO_MOTION_STRIDE=2 \
+    ANIMATION_AUDIO_MOTION_TARGET_FPS=14 \
+    ANIMATION_RENDER_BATCH_SIZE=1 \
+    ANIMATION_TRT_ENGINE_BATCH_SIZE=1 \
+    ANIMATION_VIDEO_ENCODER=cpu \
+    LD_LIBRARY_PATH=/opt/TensorRT-8.6.1.6/lib
 
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      build-essential \
-      ca-certificates \
-      curl \
-      ffmpeg \
-      git \
-      libglib2.0-0 \
-      libsm6 \
-      libxext6 \
-      libxrender1 && \
-    rm -rf /var/lib/apt/lists/*
+COPY scripts/runpod_entrypoint.sh /app/scripts/runpod_entrypoint.sh
+COPY scripts/runpod_image_start.sh /app/scripts/runpod_image_start.sh
+COPY requirements-runpod.txt /app/runpod-bundle/requirements-runpod.txt
+COPY scripts/bootstrap_faster_liveportrait.sh /app/runpod-bundle/scripts/bootstrap_faster_liveportrait.sh
+COPY scripts/runpod_bootstrap.sh /app/runpod-bundle/scripts/runpod_bootstrap.sh
+COPY scripts/runpod_validate_runtime.sh /app/runpod-bundle/scripts/runpod_validate_runtime.sh
+COPY faster_liveportrait_runner.py /app/runpod-bundle/faster_liveportrait_runner.py
+COPY third_party/FasterLivePortrait/api.py /app/runpod-bundle/faster_liveportrait_overrides/api.py
+COPY third_party/FasterLivePortrait/run.py /app/runpod-bundle/faster_liveportrait_overrides/run.py
+COPY third_party/FasterLivePortrait/run_persistent_worker.py /app/runpod-bundle/faster_liveportrait_overrides/run_persistent_worker.py
+COPY third_party/FasterLivePortrait/configs/onnx_infer.yaml /app/runpod-bundle/faster_liveportrait_overrides/configs/onnx_infer.yaml
+COPY third_party/FasterLivePortrait/configs/onnx_mp_infer.yaml /app/runpod-bundle/faster_liveportrait_overrides/configs/onnx_mp_infer.yaml
+COPY third_party/FasterLivePortrait/configs/trt_infer.yaml /app/runpod-bundle/faster_liveportrait_overrides/configs/trt_infer.yaml
+COPY third_party/FasterLivePortrait/configs/trt_mp_infer.yaml /app/runpod-bundle/faster_liveportrait_overrides/configs/trt_mp_infer.yaml
+COPY third_party/FasterLivePortrait/scripts/onnx2trt.py /app/runpod-bundle/faster_liveportrait_overrides/scripts/onnx2trt.py
+COPY third_party/FasterLivePortrait/src/models/predictor.py /app/runpod-bundle/faster_liveportrait_overrides/src/models/predictor.py
+COPY third_party/FasterLivePortrait/src/models/warping_spade_model.py /app/runpod-bundle/faster_liveportrait_overrides/src/models/warping_spade_model.py
+COPY third_party/FasterLivePortrait/src/pipelines/faster_live_portrait_pipeline.py /app/runpod-bundle/faster_liveportrait_overrides/src/pipelines/faster_live_portrait_pipeline.py
+COPY third_party/FasterLivePortrait/src/pipelines/joyvasa_audio_to_motion_pipeline.py /app/runpod-bundle/faster_liveportrait_overrides/src/pipelines/joyvasa_audio_to_motion_pipeline.py
 
-COPY requirements-runpod.txt /tmp/requirements-runpod.txt
-
-RUN python -m pip install --no-cache-dir \
-      tensorrt-cu12 \
-      tensorrt-cu12-bindings \
-      tensorrt-cu12-libs && \
-    python -m pip install --no-cache-dir -r /tmp/requirements-runpod.txt
-
-COPY . /app
-
-RUN bash /app/scripts/bootstrap_faster_liveportrait.sh
+RUN chmod +x /app/scripts/*.sh /app/runpod-bundle/scripts/*.sh
 
 EXPOSE 8010
 

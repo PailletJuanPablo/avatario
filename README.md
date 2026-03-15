@@ -98,7 +98,7 @@ curl -X POST "http://127.0.0.1:8010/api/avatar/enqueue" `
   -H "Authorization: Bearer change-me" `
   -F "audio=@voice.mp3" `
   -F "mode=preview" `
-  -F "motion_stride=1"
+  -F "motion_stride=2"
 ```
 
 The response returns:
@@ -149,7 +149,10 @@ If you want to run the TRT path on Runpod Pods without Docker-in-Docker, see:
 
 - `docs/RUNPOD_DEPLOYMENT.md`
 
-The recommended Runpod path now uses a custom image built from `Dockerfile.runpod` so the Pod does not spend startup time discovering missing TRT runtime dependencies.
+The recommended Runpod path now uses a thin custom image built from `Dockerfile.runpod`; the Pod clones the repo into `/workspace`, downloads checkpoints, and regenerates the minimal source assets it needs instead of baking the full local workspace into the image.
+
+Build/push helper: `scripts/build_runpod_image.ps1`
+Pod smoke test helper: `scripts/runpod_validate_runtime.sh`
 
 ## Contrato runtime
 
@@ -166,7 +169,8 @@ Variables útiles (en `docker-compose.yml`):
 - `ANIMATION_TRT_PRECISION` = `fp32|fp16|int8`
 - `ANIMATION_WARMUP_ENABLED` = `0|1`
 - `ANIMATION_FIXED_SOURCE_FRAME` = ruta local de la imagen fija a precargar y reutilizar en warmup + worker persistente
-- `ANIMATION_AUDIO_MOTION_STRIDE` = `1..6`
+- `ANIMATION_AUDIO_MOTION_STRIDE` = `1..6` (default `2`)
+- `ANIMATION_AUDIO_MOTION_TARGET_FPS` = output fps for reduced audio motion (default `14`)
 
 ## Limpieza de legacy/output
 

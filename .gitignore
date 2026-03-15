@@ -22,6 +22,7 @@ output_liveportrait_dataset_poc/
 output_liveportrait_test/
 output_mediapipe_v2/
 output_new_contract/
+.local_trt_backup_*/
 *.log
 *.err
 .tmp_*
