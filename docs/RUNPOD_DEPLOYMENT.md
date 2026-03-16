@@ -108,7 +108,9 @@ ANIMATION_API_PORT=8010
 ANIMATION_BACKEND=trt
 ANIMATION_TRT_RUNTIME=local
 ANIMATION_TRT_PRECISION=fp16
-ANIMATION_VIDEO_ENCODER=cpu
+ANIMATION_VIDEO_ENCODER=auto
+ANIMATION_RENDER_BATCH_SIZE=4
+ANIMATION_TRT_ENGINE_BATCH_SIZE=4
 RUNPOD_FORCE_TRT_REBUILD=1
 ANIMATION_API_TOKEN=change-me
 ```
@@ -116,7 +118,27 @@ ANIMATION_API_TOKEN=change-me
 Notes:
 
 - `ANIMATION_API_TOKEN` is optional. If omitted, the bootstrap generates a token and stores it in `.runpod/api_token`.
+- `ANIMATION_VIDEO_ENCODER=auto` allows the runtime to use `h264_nvenc` when FFmpeg exposes it and falls back to `libx264` otherwise.
+- `ANIMATION_RENDER_BATCH_SIZE` controls the render mini-batch used by audio and `.pkl` generation jobs.
+- `ANIMATION_TRT_ENGINE_BATCH_SIZE` controls the maximum TensorRT batch capacity for the batched render engines. Keep it greater than or equal to `ANIMATION_RENDER_BATCH_SIZE`.
 - `RUNPOD_FORCE_TRT_REBUILD=1` is the safe default for a fresh GPU because it prevents reuse of incompatible prebuilt plans.
+
+## Performance Tuning
+
+Use these variables when the Pod is GPU-bound and more throughput is needed:
+
+- `ANIMATION_RENDER_BATCH_SIZE`: Default `4`. Increase this first to raise batched render throughput for audio-driven and `.pkl`-driven jobs.
+- `ANIMATION_TRT_ENGINE_BATCH_SIZE`: Default `4`. Increase this together with `ANIMATION_RENDER_BATCH_SIZE` so the TRT plans can accept the larger runtime batch.
+- `ANIMATION_VIDEO_ENCODER`: Use `auto` or `nvenc` when the Pod GPU exposes NVENC. `cpu` keeps video encoding on `libx264`.
+- `ANIMATION_AUDIO_MOTION_STRIDE`: Default `2`. Higher values reduce generated motion frames and output FPS for audio-driven jobs.
+- `ANIMATION_PASTE_BACK_ENABLED=0`: Skips full-frame paste-back work and returns crop-only output.
+- `ANIMATION_STITCHING_ENABLED=0`: Disables stitching refinement and removes the stitching TRT stage from the render path.
+
+Operational notes:
+
+- Keep `RUNPOD_FORCE_TRT_REBUILD=1` when changing `ANIMATION_TRT_ENGINE_BATCH_SIZE` so the Pod rebuilds TRT plans for the new batch capacity.
+- Preview mode already supports deferred paste-back when paste-back and stitching stay enabled, which reduces work inside the core render loop.
+- Source preprocessing and video-driving input decode remain outside the batched TRT render path, so batch tuning mainly improves the frame render stage.
 
 ## Step 4: Start the Pod Safely
 

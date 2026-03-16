@@ -170,7 +170,7 @@ Variables útiles (en `docker-compose.yml`):
 - `ANIMATION_WARMUP_ENABLED` = `0|1`
 - `ANIMATION_FIXED_SOURCE_FRAME` = ruta local de la imagen fija a precargar y reutilizar en warmup + worker persistente
 - `ANIMATION_AUDIO_MOTION_STRIDE` = `1..6` (default `2`)
-- `ANIMATION_AUDIO_MOTION_TARGET_FPS` = output fps for reduced audio motion (default `14`)
+- `ANIMATION_AUDIO_MOTION_TARGET_FPS` = output fps for reduced audio motion (default `18`)
 
 ## Limpieza de legacy/output
 

@@ -95,7 +95,7 @@ FIXED_AUDIO_MOTION_STRIDE = 2
 GENERATION_FRAME_COUNT_MIN = 1
 GENERATION_FRAME_COUNT_MAX = 1200
 FIXED_AUDIO_MOTION_TARGET_FPS_ENV_KEY = "ANIMATION_AUDIO_MOTION_TARGET_FPS"
-FIXED_AUDIO_MOTION_TARGET_FPS_DEFAULT = 14.0
+FIXED_AUDIO_MOTION_TARGET_FPS_DEFAULT = 22.0
 try:
     FIXED_AUDIO_MOTION_TARGET_FPS = max(
         1.0,
@@ -637,7 +637,15 @@ def run_command(command: Sequence[str], cwd: Path | None = None) -> None:
     printable = " ".join(command)
     print(f"\n[cmd] {printable}")
     runtime_env = build_runtime_env()
-    subprocess.run(command, cwd=str(cwd) if cwd else None, check=True, env=runtime_env)
+    started_at = time.perf_counter()
+    try:
+        subprocess.run(command, cwd=str(cwd) if cwd else None, check=True, env=runtime_env)
+    except subprocess.CalledProcessError:
+        duration_sec = time.perf_counter() - started_at
+        print(f"[error] command failed duration_sec={duration_sec:.3f}: {printable}")
+        raise
+    duration_sec = time.perf_counter() - started_at
+    print(f"[info] command completed duration_sec={duration_sec:.3f}: {printable}")
 
 
 def start_detached_process(command: Sequence[str], cwd: Path, log_path: Path) -> None:
@@ -1591,22 +1599,44 @@ def ensure_trt_engines(config: RunnerConfig) -> None:
         engine_path = checkpoints_dir / engine_name
         precision_marker = read_engine_precision_marker(engine_path)
         batch_marker = read_engine_batch_marker(engine_path)
+        rebuild_reasons: list[str] = []
         requires_rebuild = not engine_path.exists()
+        if requires_rebuild:
+            rebuild_reasons.append("missing_engine")
         if not requires_rebuild:
             if target_precision == TRT_PRECISION_FP16 and precision_marker in {"", TRT_PRECISION_FP16}:
                 requires_rebuild = False
             else:
                 requires_rebuild = precision_marker != target_precision
+                if requires_rebuild:
+                    rebuild_reasons.append(
+                        f"precision_marker={precision_marker or 'missing'} expected={target_precision}"
+                    )
         if not requires_rebuild:
             requires_rebuild = batch_marker != max(1, int(target_batch_size))
+            if requires_rebuild:
+                rebuild_reasons.append(
+                    f"batch_marker={batch_marker} expected={max(1, int(target_batch_size))}"
+                )
 
         if not requires_rebuild:
             continue
 
         source_onnx_path = checkpoints_dir / onnx_name
         assert_path_exists(source_onnx_path, "Source ONNX for TRT build")
+        print(
+            "[info] TRT engine rebuild queued engine={} source={} precision={} max_batch_size={} reasons={}".format(
+                engine_name,
+                onnx_name,
+                target_precision,
+                max(1, int(target_batch_size)),
+                ",".join(rebuild_reasons),
+            )
+        )
         build_jobs.append(
             {
+                "engine_name": engine_name,
+                "onnx_name": onnx_name,
                 "onnx_path": source_onnx_path.as_posix(),
                 "engine_path": engine_path.as_posix(),
                 "precision": target_precision,
@@ -1658,6 +1688,14 @@ def ensure_trt_engines(config: RunnerConfig) -> None:
         for build_job in build_jobs:
             onnx_rel = to_project_relative(Path(build_job["onnx_path"]), config.faster_repo_dir, "TRT source ONNX")
             engine_rel = to_project_relative(Path(build_job["engine_path"]), config.faster_repo_dir, "TRT engine output")
+            print(
+                "[info] TRT engine build start engine={} precision={} max_batch_size={}".format(
+                    build_job["engine_name"],
+                    build_job["precision"],
+                    build_job["max_batch_size"],
+                )
+            )
+            build_started_at = time.perf_counter()
             command = [
                 str(config.python_executable),
                 "scripts/onnx2trt.py",
@@ -1686,6 +1724,12 @@ def ensure_trt_engines(config: RunnerConfig) -> None:
                     ]
                 )
             run_command(command, cwd=config.faster_repo_dir)
+            print(
+                "[info] TRT engine build done engine={} duration_sec={:.3f}".format(
+                    build_job["engine_name"],
+                    time.perf_counter() - build_started_at,
+                )
+            )
     for build_job in build_jobs:
         engine_path = Path(build_job["engine_path"])
         write_engine_precision_marker(engine_path, build_job["precision"])

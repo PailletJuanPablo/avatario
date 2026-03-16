@@ -819,7 +819,7 @@
     });
     const VIDEO_STREAM_START_PROGRESS_QUERY_KEY = "startProgress";
     const VIDEO_STREAM_START_MODE_QUERY_KEY = "startMode";
-    const BUFFERED_STREAM_START_PROGRESS_RATIO = 0.35;
+    const BUFFERED_STREAM_START_PROGRESS_RATIO = 0.18;
     const BUFFERED_STREAM_START_PROGRESS_PERCENT = Math.round(BUFFERED_STREAM_START_PROGRESS_RATIO * 100);
     const INFERENCE_PROFILE = Object.freeze({
       QUALITY: "quality",
@@ -889,9 +889,14 @@
     const STREAM_SEEK_THRESHOLD_SECONDS = 2.0;
     const STREAM_REMOVE_MIN_SPAN_SECONDS = 0.5;
     const STREAM_LATENCY_TIMER_MS = 220;
-    const STREAM_CATCH_UP_PLAYBACK_RATE = 1.01;
+    const STREAM_CATCH_UP_PLAYBACK_RATE = 1.05;
     const STREAM_NORMAL_PLAYBACK_RATE = 1.0;
-    const STREAM_RATE_SWITCH_THRESHOLD_SECONDS = 0.9;
+    const STREAM_RATE_SWITCH_THRESHOLD_SECONDS = 0.55;
+    const STREAM_BUFFER_REBOUND_THRESHOLD_SECONDS = 0.18;
+    const STREAM_BUFFER_REBOUND_SEEK_BACK_SECONDS = 0.14;
+    const STREAM_BUFFER_REBOUND_RECOVERY_BUFFER_SECONDS = 0.75;
+    const STREAM_BUFFER_REBOUND_RECOVERY_PLAYBACK_RATE = 1.12;
+    const STREAM_BUFFER_REBOUND_COOLDOWN_MS = 420;
     const STREAM_HARD_SEEK_ENABLED = false;
     const STREAM_STALL_RECONNECT_THRESHOLD_MS = 1800;
     const STREAM_STALL_RECONNECT_COOLDOWN_MS = 2500;
@@ -1105,6 +1110,7 @@
     let lastStreamChunkAtMs = 0;
     let lastStreamPlaybackProgressAtMs = 0;
     let lastObservedStreamTimeSec = 0;
+    let lastStreamBufferReboundAtMs = 0;
     let lastStreamReconnectAtMs = 0;
     let currentDrivingMediaUrl = "";
     let lastJobPanelRenderMs = 0;
@@ -2404,6 +2410,7 @@
       } catch (_error) {}
       streamVideoSocket = null;
       lastStreamChunkAtMs = 0;
+      lastStreamBufferReboundAtMs = 0;
     }
 
     function resetStreamMediaSourceState() {
@@ -2411,6 +2418,7 @@
       streamAppendQueue.length = 0;
       streamSourceBuffer = null;
       lastObservedStreamTimeSec = 0;
+      lastStreamBufferReboundAtMs = 0;
       lastStreamPlaybackProgressAtMs = Date.now();
       if (streamMediaSource && streamMediaSource.readyState === "open") {
         try {
@@ -2460,12 +2468,58 @@
       const end = video.buffered.end(video.buffered.length - 1);
       const now = Number.isFinite(video.currentTime) ? video.currentTime : 0;
       const behind = end - now;
-      const targetRate = behind > STREAM_RATE_SWITCH_THRESHOLD_SECONDS
-        ? STREAM_CATCH_UP_PLAYBACK_RATE
-        : STREAM_NORMAL_PLAYBACK_RATE;
+      const targetRate = currentStreamStartMode === VIDEO_STREAM_START_MODE.BUFFERED
+        ? (
+          behind > STREAM_BUFFER_REBOUND_RECOVERY_BUFFER_SECONDS
+            ? STREAM_BUFFER_REBOUND_RECOVERY_PLAYBACK_RATE
+            : (
+              behind > STREAM_RATE_SWITCH_THRESHOLD_SECONDS
+                ? STREAM_CATCH_UP_PLAYBACK_RATE
+                : STREAM_NORMAL_PLAYBACK_RATE
+            )
+        )
+        : (
+          behind > STREAM_RATE_SWITCH_THRESHOLD_SECONDS
+            ? STREAM_CATCH_UP_PLAYBACK_RATE
+            : STREAM_NORMAL_PLAYBACK_RATE
+        );
       if (Math.abs((video.playbackRate || STREAM_NORMAL_PLAYBACK_RATE) - targetRate) > 0.001) {
         video.playbackRate = targetRate;
       }
+    }
+
+    function reboundBufferedStreamIfNeeded() {
+      if (currentStreamStartMode !== VIDEO_STREAM_START_MODE.BUFFERED) {
+        return;
+      }
+      const video = elements.streamVideo;
+      if (!video || !video.buffered || video.buffered.length === 0) {
+        return;
+      }
+      const end = video.buffered.end(video.buffered.length - 1);
+      const start = video.buffered.start(video.buffered.length - 1);
+      const now = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      const behind = end - now;
+      if (behind > STREAM_BUFFER_REBOUND_THRESHOLD_SECONDS) {
+        return;
+      }
+      const nowMs = Date.now();
+      if (
+        lastStreamBufferReboundAtMs > 0
+        && (nowMs - lastStreamBufferReboundAtMs) < STREAM_BUFFER_REBOUND_COOLDOWN_MS
+      ) {
+        return;
+      }
+      const reboundTarget = Math.max(start, now - STREAM_BUFFER_REBOUND_SEEK_BACK_SECONDS);
+      if (reboundTarget >= now - 0.01) {
+        return;
+      }
+      try {
+        video.currentTime = reboundTarget;
+        lastObservedStreamTimeSec = reboundTarget;
+        lastStreamPlaybackProgressAtMs = nowMs;
+        lastStreamBufferReboundAtMs = nowMs;
+      } catch (_error) {}
     }
 
     function trimOldStreamBuffer() {
@@ -2490,11 +2544,12 @@
     }
 
     function maintainStreamLatency() {
+      trimOldStreamBuffer();
       if (currentStreamStartMode === VIDEO_STREAM_START_MODE.BUFFERED) {
-        trimOldStreamBuffer();
+        reboundBufferedStreamIfNeeded();
+        adjustStreamPlaybackRate();
         return;
       }
-      trimOldStreamBuffer();
       nudgeStreamToLiveEdge();
       adjustStreamPlaybackRate();
     }

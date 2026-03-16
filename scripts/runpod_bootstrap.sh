@@ -33,21 +33,59 @@ DEFAULT_SYSTEM_PACKAGES=(
 )
 HEALTHCHECK_MAX_ATTEMPTS="${RUNPOD_HEALTHCHECK_MAX_ATTEMPTS:-180}"
 HEALTHCHECK_SLEEP_SECONDS="${RUNPOD_HEALTHCHECK_SLEEP_SECONDS:-2}"
+BOOTSTRAP_STARTED_AT_SEC="$(date +%s)"
 
 API_PID=""
 PYTHON_BIN=""
 PIP_BIN=""
 
+format_utc_timestamp() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+log_with_level() {
+  local level="$1"
+  shift
+  local message="$*"
+  local timestamp
+  timestamp="$(format_utc_timestamp)"
+  if [[ "${level}" == "warn" || "${level}" == "error" ]]; then
+    printf '[%s] [%s] %s\n' "${level}" "${timestamp}" "${message}" >&2
+    return
+  fi
+  printf '[%s] [%s] %s\n' "${level}" "${timestamp}" "${message}"
+}
+
 print_info() {
-  printf '[info] %s\n' "$1"
+  log_with_level "info" "$*"
 }
 
 print_warning() {
-  printf '[warn] %s\n' "$1" >&2
+  log_with_level "warn" "$*"
 }
 
 print_error() {
-  printf '[error] %s\n' "$1" >&2
+  log_with_level "error" "$*"
+}
+
+run_timed_step() {
+  local step_name="$1"
+  shift
+  local started_at
+  local finished_at
+  local duration_sec
+
+  started_at="$(date +%s)"
+  print_info "step-start name=${step_name}"
+  if ! "$@"; then
+    finished_at="$(date +%s)"
+    duration_sec=$((finished_at - started_at))
+    print_error "step-failed name=${step_name} duration_sec=${duration_sec}"
+    return 1
+  fi
+  finished_at="$(date +%s)"
+  duration_sec=$((finished_at - started_at))
+  print_info "step-done name=${step_name} duration_sec=${duration_sec}"
 }
 
 command_exists() {
@@ -765,10 +803,22 @@ wait_for_healthcheck() {
   local api_token="$2"
   local healthcheck_url="http://127.0.0.1:${api_port}/api/health"
   local attempt_number
+  local started_at
+  local finished_at
+  local duration_sec
+
+  started_at="$(date +%s)"
+  print_info "healthcheck-start url=${healthcheck_url} max_attempts=${HEALTHCHECK_MAX_ATTEMPTS} sleep_seconds=${HEALTHCHECK_SLEEP_SECONDS}"
 
   for ((attempt_number = 1; attempt_number <= HEALTHCHECK_MAX_ATTEMPTS; attempt_number += 1)); do
     if curl -fsS -H "Authorization: Bearer ${api_token}" "${healthcheck_url}" >/dev/null 2>&1; then
+      finished_at="$(date +%s)"
+      duration_sec=$((finished_at - started_at))
+      print_info "healthcheck-ready url=${healthcheck_url} attempts=${attempt_number} duration_sec=${duration_sec}"
       return
+    fi
+    if ((attempt_number == 1 || attempt_number % 15 == 0)); then
+      print_info "healthcheck-waiting url=${healthcheck_url} attempt=${attempt_number}"
     fi
     sleep "${HEALTHCHECK_SLEEP_SECONDS}"
   done
@@ -789,19 +839,23 @@ cleanup() {
 }
 
 main() {
+  local bootstrap_duration_sec
+
   trap cleanup EXIT INT TERM
 
-  ensure_runpod_system_dependencies
+  print_info "bootstrap-start project_root=${PROJECT_ROOT}"
+  run_timed_step "system-dependencies" ensure_runpod_system_dependencies
 
   PYTHON_BIN="$(resolve_python_bin)"
   PIP_BIN="$(resolve_pip_bin "${PYTHON_BIN}")"
-  ensure_project_layout
-  ensure_faster_liveportrait_repo
-  apply_faster_liveportrait_overrides_if_present
-  repair_nvidia_driver_links_if_needed
-  ensure_gpu_runtime "${PYTHON_BIN}"
-  ensure_trt_builder_runtime "${PYTHON_BIN}"
-  ensure_python_runtime_modules "${PYTHON_BIN}" "${PIP_BIN}"
+  print_info "runtime-binaries python=${PYTHON_BIN} pip=${PIP_BIN}"
+  run_timed_step "project-layout" ensure_project_layout
+  run_timed_step "faster-liveportrait-repo" ensure_faster_liveportrait_repo
+  run_timed_step "apply-overrides" apply_faster_liveportrait_overrides_if_present
+  run_timed_step "repair-nvidia-links" repair_nvidia_driver_links_if_needed
+  run_timed_step "validate-gpu-runtime" ensure_gpu_runtime "${PYTHON_BIN}"
+  run_timed_step "validate-trt-builder" ensure_trt_builder_runtime "${PYTHON_BIN}"
+  run_timed_step "python-runtime-modules" ensure_python_runtime_modules "${PYTHON_BIN}" "${PIP_BIN}"
 
   export ANIMATION_API_HOST="${ANIMATION_API_HOST:-${DEFAULT_API_HOST}}"
   export ANIMATION_API_PORT="${ANIMATION_API_PORT:-${DEFAULT_API_PORT}}"
@@ -811,19 +865,19 @@ main() {
   export ANIMATION_WARMUP_ENABLED="${ANIMATION_WARMUP_ENABLED:-1}"
   export ANIMATION_IDLE_VIDEO="${ANIMATION_IDLE_VIDEO:-${DEFAULT_IDLE_VIDEO_PATH}}"
   export ANIMATION_API_TOKEN="$(resolve_api_token "${PYTHON_BIN}")"
-  export ANIMATION_VIDEO_ENCODER="${ANIMATION_VIDEO_ENCODER:-cpu}"
+  export ANIMATION_VIDEO_ENCODER="${ANIMATION_VIDEO_ENCODER:-auto}"
 
   if [[ "${ANIMATION_BACKEND}" != "${DEFAULT_BACKEND}" ]]; then
     print_error "Runpod bootstrap only supports ANIMATION_BACKEND=${DEFAULT_BACKEND}. Current value: ${ANIMATION_BACKEND}"
     exit 1
   fi
 
-  ensure_idle_video_exists
-  ensure_checkpoints
-  ensure_trt_plugin_runtime "${PYTHON_BIN}"
-  ensure_source_assets_exist
-  clear_prebuilt_trt_engines_if_requested
-  ensure_sshd
+  run_timed_step "idle-video" ensure_idle_video_exists
+  run_timed_step "checkpoints" ensure_checkpoints
+  run_timed_step "validate-trt-plugin" ensure_trt_plugin_runtime "${PYTHON_BIN}"
+  run_timed_step "source-assets" ensure_source_assets_exist
+  run_timed_step "clear-prebuilt-trt-engines" clear_prebuilt_trt_engines_if_requested
+  run_timed_step "sshd" ensure_sshd
 
   print_info "Starting realtime_stream_api.py with backend=${ANIMATION_BACKEND} trt_runtime=${ANIMATION_TRT_RUNTIME}"
   mkdir -p "$(dirname "${LOG_FILE_PATH}")"
@@ -842,7 +896,9 @@ main() {
   ) &
   API_PID=$!
 
-  wait_for_healthcheck "${ANIMATION_API_PORT}" "${ANIMATION_API_TOKEN}"
+  run_timed_step "api-healthcheck" wait_for_healthcheck "${ANIMATION_API_PORT}" "${ANIMATION_API_TOKEN}"
+  bootstrap_duration_sec=$(( $(date +%s) - BOOTSTRAP_STARTED_AT_SEC ))
+  print_info "bootstrap-ready duration_sec=${bootstrap_duration_sec} log_path=${LOG_FILE_PATH}"
   print_access_summary "${ANIMATION_API_PORT}" "${ANIMATION_API_TOKEN}"
 
   wait "${API_PID}"
