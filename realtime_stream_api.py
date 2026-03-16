@@ -415,12 +415,12 @@ AVATAR_STREAM_OUTPUT_MAX_HEIGHT = read_env_int(
 )
 AVATAR_VIDEO_FALLBACK_WIDTH = AVATAR_STREAM_OUTPUT_MAX_WIDTH
 AVATAR_VIDEO_FALLBACK_HEIGHT = AVATAR_STREAM_OUTPUT_MAX_HEIGHT
-AVATAR_FALLBACK_BOUNCE_WINDOW_FRAMES = 4
+AVATAR_FALLBACK_BOUNCE_WINDOW_FRAMES = 3
 VIDEO_STREAM_START_MODE_QUERY_KEY = "startMode"
 VIDEO_STREAM_START_MODE_BUFFERED = "buffered"
 VIDEO_STREAM_START_MODE_LIVE = "live"
 VIDEO_STREAM_START_PROGRESS_QUERY_KEY = "startProgress"
-VIDEO_STREAM_BUFFERED_START_PROGRESS_DEFAULT = 0.18
+VIDEO_STREAM_BUFFERED_START_PROGRESS_DEFAULT = 0.35
 VIDEO_STREAM_START_MODE_CHOICES = {
     VIDEO_STREAM_START_MODE_BUFFERED,
     VIDEO_STREAM_START_MODE_LIVE,
@@ -517,11 +517,8 @@ AVATAR_RETURN_TO_IDLE_FLOW_CONSISTENCY_THRESHOLD = 1.5
 AVATAR_RETURN_TO_IDLE_FLOW_CONSISTENCY_SCALE = 0.05
 AVATAR_RETURN_TO_IDLE_FLOW_MASK_BLUR_KERNEL = 5
 AVATAR_RETURN_TO_IDLE_FLOW_WEIGHT_EPSILON = 1e-6
-AVATAR_READY_BUFFER_MIN_SEC = 0.55
-AVATAR_READY_DYNAMIC_MARGIN_SEC = 0.2
-AVATAR_CATCH_UP_MIN_BUFFER_FRAMES = 6
-AVATAR_CATCH_UP_STEP_GAIN = 0.35
-AVATAR_CATCH_UP_MAX_STEP_MULTIPLIER = 2.75
+AVATAR_READY_BUFFER_MIN_SEC = 1.2
+AVATAR_READY_DYNAMIC_MARGIN_SEC = 0.45
 AVATAR_READY_BUFFER_MAX_PROGRESS_ENV_KEY = "ANIMATION_AVATAR_READY_BUFFER_MAX_PROGRESS"
 AVATAR_READY_BUFFER_MAX_PROGRESS = read_env_float(
     AVATAR_READY_BUFFER_MAX_PROGRESS_ENV_KEY,
@@ -1498,6 +1495,13 @@ def build_avatar_stream_command(
     return command
 
 
+def fps_values_match(left_fps: float, right_fps: float, tolerance: float = 0.01) -> bool:
+    """
+    Compare two FPS values using a small tolerance suitable for stream restarts.
+    """
+    return abs(float(left_fps) - float(right_fps)) <= float(tolerance)
+
+
 @dataclass
 class JobRecord:
     job_id: str
@@ -1967,6 +1971,25 @@ def resolve_finished_avatar_encoder_exception(encoder: AvatarStreamEncoder | Non
     return None
 
 
+def resolve_avatar_idle_output_fps(idle_looper: "IdleVideoLooper") -> float:
+    """
+    Resolve the idle stream FPS from the source loop, falling back to the stream default.
+    """
+    return max(1.0, float(idle_looper.source_fps or AVATAR_VIDEO_OUTPUT_FPS))
+
+
+def resolve_avatar_stream_output_fps(
+    idle_looper: "IdleVideoLooper",
+    talking_state: "AvatarTalkingFrameState | None",
+) -> float:
+    """
+    Resolve the exact FPS the continuous avatar stream should emit right now.
+    """
+    if talking_state is not None and float(talking_state.playback_fps or 0.0) > 0:
+        return max(1.0, float(talking_state.playback_fps))
+    return resolve_avatar_idle_output_fps(idle_looper)
+
+
 class WebRtcOfferRequest(BaseModel):
     """
     Browser SDP offer payload.
@@ -2335,6 +2358,7 @@ async def stream_continuous_avatar_video(
     timeline_offset_sec = 0.0
     emit_initialization_segment = True
     encoder: AvatarStreamEncoder | None = None
+    encoder_output_fps = resolve_avatar_idle_output_fps(idle_looper)
     audio_write_fd: int | None = None
     audio_task: asyncio.Task[Any] | None = None
     audio_stop_event: asyncio.Event | None = None
@@ -2342,25 +2366,29 @@ async def stream_continuous_avatar_video(
     talking_job: JobRecord | None = None
     pending_idle_return_frames: deque[np.ndarray] = deque()
     pending_talking_intro_frames: deque[np.ndarray] = deque()
-    frame_interval_sec = 1.0 / max(1.0, AVATAR_VIDEO_OUTPUT_FPS)
+    frame_interval_sec = 1.0 / max(1.0, encoder_output_fps)
     next_emit_at = time.perf_counter()
     last_output_frame_image: np.ndarray | None = None
 
-    async def start_output_pipeline() -> None:
+    async def start_output_pipeline(target_fps: float) -> None:
         nonlocal encoder
+        nonlocal encoder_output_fps
         nonlocal audio_write_fd
         nonlocal audio_task
         nonlocal audio_stop_event
         nonlocal emit_initialization_segment
+        nonlocal frame_interval_sec
+        nonlocal next_emit_at
         audio_read_fd: int | None = None
         if use_continuous_audio_pipe:
             audio_read_fd, audio_write_fd = os.pipe()
         else:
             audio_write_fd = None
         try:
+            encoder_output_fps = max(1.0, float(target_fps))
             encoder = await create_avatar_stream_encoder(
                 chunk_sender,
-                AVATAR_VIDEO_OUTPUT_FPS,
+                encoder_output_fps,
                 canvas_size=canvas_size,
                 timestamp_offset_sec=timeline_offset_sec,
                 audio_pipe_fd=audio_read_fd,
@@ -2372,12 +2400,29 @@ async def stream_continuous_avatar_video(
                 with contextlib.suppress(OSError):
                     os.close(audio_read_fd)
         emit_initialization_segment = False
+        frame_interval_sec = 1.0 / encoder_output_fps
+        next_emit_at = time.perf_counter()
         if audio_write_fd is not None:
             audio_stop_event = asyncio.Event()
             audio_task = asyncio.create_task(pump_continuous_avatar_audio(audio_write_fd, audio_stop_event))
         else:
             audio_stop_event = None
             audio_task = None
+
+    async def ensure_output_pipeline(target_fps: float) -> None:
+        nonlocal encoder
+        nonlocal timeline_offset_sec
+
+        safe_target_fps = max(1.0, float(target_fps))
+        if encoder is None:
+            await start_output_pipeline(safe_target_fps)
+            return
+        if fps_values_match(encoder_output_fps, safe_target_fps):
+            return
+        timeline_offset_sec += await stop_avatar_stream_encoder(encoder)
+        await stop_continuous_avatar_audio(audio_task, audio_stop_event, audio_write_fd)
+        encoder = None
+        await start_output_pipeline(safe_target_fps)
 
     def arm_idle_return_transition(last_frame_image: np.ndarray | None) -> None:
         """
@@ -2389,7 +2434,7 @@ async def stream_continuous_avatar_video(
             build_avatar_return_to_idle_frame_sequence(
                 start_frame_image=last_frame_image,
                 canvas_size=canvas_size,
-                frames_per_second=AVATAR_VIDEO_OUTPUT_FPS,
+                frames_per_second=resolve_avatar_idle_output_fps(idle_looper),
             )
         )
         if pending_idle_return_frames:
@@ -2407,7 +2452,12 @@ async def stream_continuous_avatar_video(
         pending_talking_intro_frames.clear()
         if resolve_avatar_idle_to_talking_frame_count(state.playback_fps) <= 0:
             return
-        intro_frame_image, is_finished = resolve_avatar_talking_frame(job, state, canvas_size)
+        intro_frame_image, is_finished = resolve_avatar_talking_frame(
+            job,
+            state,
+            canvas_size,
+            output_fps=state.playback_fps,
+        )
         if is_finished:
             mark_avatar_job_finished(job)
             return
@@ -2420,7 +2470,7 @@ async def stream_continuous_avatar_video(
             )
         )
 
-    await start_output_pipeline()
+    await start_output_pipeline(encoder_output_fps)
 
     try:
         while True:
@@ -2456,13 +2506,24 @@ async def stream_continuous_avatar_video(
                         next_frame_index=max(1, start_frame_index),
                         playback_started_at_perf=time.perf_counter(),
                     )
+                    talking_state.playback_fps = max(
+                        1.0,
+                        float(resolve_stream_playback_fps(candidate_status) or resolve_avatar_idle_output_fps(idle_looper)),
+                    )
+                    await ensure_output_pipeline(resolve_avatar_stream_output_fps(idle_looper, talking_state))
                     arm_talking_intro_transition(last_output_frame_image, talking_job, talking_state)
             frame_image = None
             if talking_state is not None and talking_job is not None:
+                await ensure_output_pipeline(resolve_avatar_stream_output_fps(idle_looper, talking_state))
                 if pending_talking_intro_frames:
                     frame_image = pending_talking_intro_frames.popleft()
                 else:
-                    frame_image, is_finished = resolve_avatar_talking_frame(talking_job, talking_state, canvas_size)
+                    frame_image, is_finished = resolve_avatar_talking_frame(
+                        talking_job,
+                        talking_state,
+                        canvas_size,
+                        output_fps=encoder_output_fps,
+                    )
                     if is_finished:
                         arm_idle_return_transition(talking_state.last_frame_image)
                         mark_avatar_job_finished(talking_job)
@@ -2471,6 +2532,7 @@ async def stream_continuous_avatar_video(
                         frame_image = None
 
             if frame_image is None:
+                await ensure_output_pipeline(resolve_avatar_idle_output_fps(idle_looper))
                 if pending_idle_return_frames:
                     frame_image = pending_idle_return_frames.popleft()
                 else:
@@ -3787,54 +3849,6 @@ def resolve_avatar_bounce_frame_image(
     return state.last_frame_image
 
 
-def resolve_avatar_highest_buffered_frame_index(state: AvatarTalkingFrameState) -> int:
-    """
-    Resolve the newest talking frame that is already decoded and safe to display.
-    """
-    if state.source_frame_images:
-        return max(int(frame_index) for frame_index in state.source_frame_images.keys())
-    return max(0, int(state.last_output_source_frame_index))
-
-
-def resolve_avatar_source_position_step(
-    state: AvatarTalkingFrameState,
-    desired_source_position_zero_based: float,
-    base_source_position_step: float,
-) -> float:
-    """
-    Allow the avatar stream to catch up faster once enough decoded frames are buffered.
-    """
-    safe_base_step = max(0.0, float(base_source_position_step))
-    if safe_base_step <= 0 or state.virtual_source_position_zero_based is None:
-        return safe_base_step
-
-    current_source_position_zero_based = float(state.virtual_source_position_zero_based)
-    highest_buffered_source_position_zero_based = max(
-        0.0,
-        float(resolve_avatar_highest_buffered_frame_index(state) - 1),
-    )
-    buffered_headroom_frames = max(
-        0.0,
-        highest_buffered_source_position_zero_based - current_source_position_zero_based,
-    )
-    if buffered_headroom_frames < float(AVATAR_CATCH_UP_MIN_BUFFER_FRAMES):
-        return safe_base_step
-
-    catch_up_distance = max(
-        0.0,
-        float(desired_source_position_zero_based) - current_source_position_zero_based,
-    )
-    if catch_up_distance <= safe_base_step:
-        return safe_base_step
-
-    boosted_step_multiplier = 1.0 + min(
-        max(0.0, AVATAR_CATCH_UP_MAX_STEP_MULTIPLIER - 1.0),
-        max(0.0, buffered_headroom_frames - float(AVATAR_CATCH_UP_MIN_BUFFER_FRAMES))
-        * float(AVATAR_CATCH_UP_STEP_GAIN),
-    )
-    return min(catch_up_distance, safe_base_step * boosted_step_multiplier)
-
-
 def update_avatar_talking_frame_state(job: JobRecord, state: AvatarTalkingFrameState) -> dict[str, Any] | None:
     """
     Refresh one talking job frame buffer so the continuous avatar stream can emit frames sequentially.
@@ -3878,6 +3892,7 @@ def resolve_avatar_talking_frame(
     job: JobRecord,
     state: AvatarTalkingFrameState,
     canvas_size: tuple[int, int],
+    output_fps: float,
 ) -> tuple[np.ndarray | None, bool]:
     """
     Resolve the next frame for one talking job inside the continuous avatar stream.
@@ -3889,19 +3904,12 @@ def resolve_avatar_talking_frame(
     )
     if state.virtual_source_position_zero_based is None:
         state.virtual_source_position_zero_based = float(state.start_frame_index - 1)
-    source_position_step = resolve_avatar_source_position_step(
-        state,
-        desired_source_position_zero_based,
-        float(state.playback_fps) / float(max(1.0, AVATAR_VIDEO_OUTPUT_FPS)),
-    )
+    source_position_step = float(state.playback_fps) / float(max(1.0, float(output_fps)))
     candidate_source_position_zero_based = min(
         desired_source_position_zero_based,
         float(state.virtual_source_position_zero_based) + max(source_position_step, 0.0),
     )
-    maximum_available_source_position_zero_based = max(
-        0.0,
-        float(resolve_avatar_highest_buffered_frame_index(state) - 1),
-    )
+    maximum_available_source_position_zero_based = max(0.0, float(state.last_known_frame_index - 1))
     source_position_zero_based = min(
         candidate_source_position_zero_based,
         maximum_available_source_position_zero_based,
@@ -5329,15 +5337,14 @@ def create_app() -> FastAPI:
         stream_start_progress = resolve_video_stream_start_progress(websocket)
         use_buffered_start = stream_start_mode == VIDEO_STREAM_START_MODE_BUFFERED
         ffmpeg_process: asyncio.subprocess.Process | None = None
-        ffmpeg_input_fps = VIDEO_STREAM_INTERPOLATION_TARGET_FPS
+        ffmpeg_input_fps = 0.0
 
         next_frame_index = 1
         last_known_frame_index = 0
         last_known_frame_total = 0
         estimated_generation_fps = VIDEO_STREAM_INPUT_FPS
-        frame_interval_sec = 1.0 / max(1.0, ffmpeg_input_fps)
+        frame_interval_sec = 1.0
         next_emit_at = 0.0
-        stream_started_at = time.perf_counter()
         pending_raw_frames: deque[bytes] = deque()
         pending_stream_frames: deque[bytes] = deque()
         previous_raw_frame_bytes: bytes | None = None
@@ -5397,12 +5404,11 @@ def create_app() -> FastAPI:
             stderr_task = asyncio.create_task(drain_stderr())
 
         try:
-            if not use_buffered_start:
-                await ensure_ffmpeg_process(VIDEO_STREAM_INTERPOLATION_TARGET_FPS)
             while True:
                 stream_status = read_json(job.status_abs)
                 status_frame_index = parse_status_int(stream_status, "frameIndex")
                 status_frame_total = parse_status_int(stream_status, "frameTotal")
+                playback_fps = resolve_stream_playback_fps(stream_status)
                 estimated_generation_fps = estimate_generation_fps(stream_status, estimated_generation_fps)
                 if status_frame_index > last_known_frame_index:
                     last_known_frame_index = status_frame_index
@@ -5418,8 +5424,7 @@ def create_app() -> FastAPI:
                         continue
                     buffered_start_ready = True
 
-                if use_buffered_start and ffmpeg_process is None:
-                    playback_fps = resolve_stream_playback_fps(stream_status)
+                if ffmpeg_process is None:
                     state = determine_job_state(job, stream_status)
                     running = bool(job.process is not None and job.process.poll() is None)
                     if playback_fps <= 0 and running and state not in {"done", "error"}:
@@ -5428,25 +5433,6 @@ def create_app() -> FastAPI:
                     await ensure_ffmpeg_process(
                         playback_fps if playback_fps > 0 else VIDEO_STREAM_INTERPOLATION_TARGET_FPS
                     )
-
-                if not use_buffered_start:
-                    # Keep stream near live edge by syncing frame index to wall clock.
-                    elapsed_sec = max(0.0, time.perf_counter() - stream_started_at)
-                    expected_live_index = int(
-                        max(0.0, elapsed_sec - VIDEO_STREAM_REALTIME_TARGET_DELAY_SEC) * estimated_generation_fps
-                    ) + 1
-                    if expected_live_index > next_frame_index:
-                        desired_live_index = min(expected_live_index, max(1, last_known_frame_index))
-                        if desired_live_index > next_frame_index:
-                            next_frame_index = desired_live_index
-
-                    # Keep stream near live edge by skipping stale backlog when producer lags.
-                    backlog_frames = last_known_frame_index - next_frame_index + 1
-                    if backlog_frames > VIDEO_STREAM_MAX_BACKLOG_FRAMES:
-                        next_frame_index = max(
-                            1,
-                            last_known_frame_index - VIDEO_STREAM_TARGET_LATENCY_FRAMES + 1,
-                        )
 
                 # Fill a small server-side buffer with newest available frames.
                 while (
@@ -5463,7 +5449,7 @@ def create_app() -> FastAPI:
                 while len(pending_raw_frames) > VIDEO_STREAM_SERVER_BUFFER_FRAMES:
                     pending_raw_frames.popleft()
 
-                interpolation_steps = 0 if use_buffered_start else resolve_interpolation_steps(estimated_generation_fps)
+                interpolation_steps = 0
                 while pending_raw_frames and len(pending_stream_frames) < VIDEO_STREAM_SERVER_BUFFER_FRAMES * (
                     VIDEO_STREAM_INTERPOLATION_MAX_STEPS + 1
                 ):

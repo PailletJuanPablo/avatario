@@ -20,6 +20,20 @@ print_error() {
   printf '[error] %s\n' "$1" >&2
 }
 
+print_repo_revision() {
+  local repo_dir="$1"
+  local git_ref
+
+  if [[ ! -d "${repo_dir}/.git" ]]; then
+    return
+  fi
+
+  git_ref="$(git -C "${repo_dir}" rev-parse --short HEAD 2>/dev/null || true)"
+  if [[ -n "${git_ref}" ]]; then
+    print_info "Repository revision: ${git_ref}"
+  fi
+}
+
 command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
@@ -61,11 +75,14 @@ clone_or_update_repo() {
   if [[ ! -d "${repo_dir}/.git" ]]; then
     print_info "Cloning repository ${repo_url} (${git_ref}) into ${repo_dir}"
     git clone --branch "${git_ref}" --depth 1 "${repo_url}" "${repo_dir}"
+    print_repo_revision "${repo_dir}"
     return
   fi
 
   print_info "Repository already present at ${repo_dir}"
   if [[ "${RUNPOD_GIT_AUTO_UPDATE:-0}" != "1" ]]; then
+    print_warning "RUNPOD_GIT_AUTO_UPDATE=0; keeping the existing checkout on the volume"
+    print_repo_revision "${repo_dir}"
     return
   fi
 
@@ -80,7 +97,10 @@ clone_or_update_repo() {
   fi
   if ! git -C "${repo_dir}" pull --ff-only origin "${git_ref}"; then
     print_warning "git pull failed; keeping existing checkout"
+    print_repo_revision "${repo_dir}"
+    return
   fi
+  print_repo_revision "${repo_dir}"
 }
 
 apply_image_bundle_overrides() {

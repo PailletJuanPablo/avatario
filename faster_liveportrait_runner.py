@@ -2365,6 +2365,7 @@ def write_report(
         "phaseTimingsSeconds": phase_timings_seconds,
         "sourceFps": source_fps,
         "drivingFps": driving_fps,
+        "motionTargetFps": float(FIXED_AUDIO_MOTION_TARGET_FPS),
         "inputs": {
             "sourceFrame": str(config.source_frame),
             "framesDir": str(config.frames_dir),
@@ -2439,6 +2440,13 @@ def main() -> None:
             config.video_encoder,
             source_fps,
             target_driving_fps,
+        )
+    )
+    print(
+        "[info] motion-config audio_motion_stride={} fixed_audio_motion_stride={} effective_audio_motion_target_fps={:.6f}".format(
+            config.audio_motion_stride,
+            FIXED_AUDIO_MOTION_STRIDE,
+            FIXED_AUDIO_MOTION_TARGET_FPS,
         )
     )
 
