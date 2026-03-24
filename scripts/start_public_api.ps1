@@ -2,8 +2,10 @@ param(
   [string]$HostAddress = "0.0.0.0",
   [int]$Port = 8010,
   [string]$Backend = "trt",
-  [string]$TrtRuntime = "docker",
-  [string]$TrtPrecision = "fp16"
+  [string]$TrtRuntime = "local",
+  [string]$TrtPrecision = "fp16",
+  [string]$DockerGpuDevice = "",
+  [switch]$NoWarmup
 )
 
 $ErrorActionPreference = "Stop"
@@ -70,22 +72,41 @@ $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $pythonExecutable = Resolve-PythonExecutable
 $stdoutLogPath = Join-Path $projectRoot "output_fasterliveportrait\\host_api_stdout.log"
 $stderrLogPath = Join-Path $projectRoot "output_fasterliveportrait\\host_api_stderr.log"
+$previousDockerGpuDevice = [Environment]::GetEnvironmentVariable("ANIMATION_DOCKER_GPU_DEVICE", "Process")
+
+if ([string]::IsNullOrWhiteSpace($DockerGpuDevice)) {
+  Remove-Item Env:ANIMATION_DOCKER_GPU_DEVICE -ErrorAction SilentlyContinue
+} else {
+  $env:ANIMATION_DOCKER_GPU_DEVICE = $DockerGpuDevice
+}
 
 Ensure-FirewallRule -RulePort $Port
 Stop-ExistingApiProcess
 
+$argumentList = @(
+  "realtime_stream_api.py",
+  "--host", $HostAddress,
+  "--port", "$Port",
+  "--backend", $Backend,
+  "--trt-runtime", $TrtRuntime,
+  "--trt-precision", $TrtPrecision
+)
+
+if ($NoWarmup) {
+  $argumentList += "--no-warmup"
+}
+
 Start-Process `
   -FilePath $pythonExecutable `
-  -ArgumentList @(
-    "realtime_stream_api.py",
-    "--host", $HostAddress,
-    "--port", "$Port",
-    "--backend", $Backend,
-    "--trt-runtime", $TrtRuntime,
-    "--trt-precision", $TrtPrecision
-  ) `
+  -ArgumentList $argumentList `
   -WorkingDirectory $projectRoot `
   -RedirectStandardOutput $stdoutLogPath `
   -RedirectStandardError $stderrLogPath
+
+if ([string]::IsNullOrWhiteSpace($previousDockerGpuDevice)) {
+  Remove-Item Env:ANIMATION_DOCKER_GPU_DEVICE -ErrorAction SilentlyContinue
+} else {
+  $env:ANIMATION_DOCKER_GPU_DEVICE = $previousDockerGpuDevice
+}
 
 Write-Output "API started on ${HostAddress}:$Port"

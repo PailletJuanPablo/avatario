@@ -39,3 +39,4 @@ third_party/FasterLivePortrait/assets/
 third_party/LivePortrait/pretrained_weights/
 third_party/LivePortrait/assets/
 third_party/
+/.venv-liveportrait

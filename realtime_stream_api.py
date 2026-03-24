@@ -286,6 +286,46 @@ DEFAULT_AUDIO_MOTION_STRIDE = read_env_int(
     1,
     6,
 )
+DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY = "ANIMATION_AUDIO_EYE_TAMED_PRESET"
+DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY = "ANIMATION_AUDIO_EYE_SOFT_FACTOR"
+DEFAULT_AUDIO_EYE_HARD_FACTOR_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_FACTOR"
+DEFAULT_AUDIO_EYE_HARD_DY_MIN_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_DY_MIN"
+DEFAULT_AUDIO_EYE_HARD_DY_MAX_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_DY_MAX"
+DEFAULT_AUDIO_EYE_TAMED_PRESET = (
+    os.getenv(DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY, "1").strip().lower() not in {"0", "false", "no"}
+)
+DEFAULT_AUDIO_EYE_SOFT_FACTOR = read_env_float(
+    DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY,
+    0.45,
+    0.0,
+    1.0,
+)
+DEFAULT_AUDIO_EYE_HARD_FACTOR = read_env_float(
+    DEFAULT_AUDIO_EYE_HARD_FACTOR_ENV_KEY,
+    0.18,
+    0.0,
+    1.0,
+)
+DEFAULT_AUDIO_EYE_HARD_DY_MIN = read_env_float(
+    DEFAULT_AUDIO_EYE_HARD_DY_MIN_ENV_KEY,
+    -0.0045,
+    -1.0,
+    1.0,
+)
+DEFAULT_AUDIO_EYE_HARD_DY_MAX = read_env_float(
+    DEFAULT_AUDIO_EYE_HARD_DY_MAX_ENV_KEY,
+    0.0035,
+    -1.0,
+    1.0,
+)
+if DEFAULT_AUDIO_EYE_HARD_DY_MIN > DEFAULT_AUDIO_EYE_HARD_DY_MAX:
+    (
+        DEFAULT_AUDIO_EYE_HARD_DY_MIN,
+        DEFAULT_AUDIO_EYE_HARD_DY_MAX,
+    ) = (
+        DEFAULT_AUDIO_EYE_HARD_DY_MAX,
+        DEFAULT_AUDIO_EYE_HARD_DY_MIN,
+    )
 GENERATION_FRAME_COUNT_MIN = 1
 GENERATION_FRAME_COUNT_MAX = 1200
 DEFAULT_RENDER_BATCH_SIZE = max(
@@ -1524,6 +1564,11 @@ class JobRecord:
     audio_duration_sec: float
     audio_motion_stride: int
     generation_frame_count: int | None
+    audio_eye_tamed_preset: bool
+    audio_eye_soft_factor: float
+    audio_eye_hard_factor: float
+    audio_eye_hard_dy_min: float
+    audio_eye_hard_dy_max: float
     animation_region: str
     stitching_enabled: bool
     relative_motion_enabled: bool
@@ -3245,6 +3290,14 @@ def build_runner_command(job: JobRecord) -> list[str]:
         normalize_rel_path(str(job.audio_input_rel)),
         "--audio-motion-stride",
         str(job.audio_motion_stride),
+        "--audio-eye-soft-factor",
+        f"{float(job.audio_eye_soft_factor):.6f}",
+        "--audio-eye-hard-factor",
+        f"{float(job.audio_eye_hard_factor):.6f}",
+        "--audio-eye-hard-dy-min",
+        f"{float(job.audio_eye_hard_dy_min):.6f}",
+        "--audio-eye-hard-dy-max",
+        f"{float(job.audio_eye_hard_dy_max):.6f}",
         "--render-batch-size",
         str(DEFAULT_RENDER_BATCH_SIZE),
         "--trt-engine-batch-size",
@@ -3272,6 +3325,7 @@ def build_runner_command(job: JobRecord) -> list[str]:
                 str(job.generation_frame_count),
             ]
         )
+    command.append("--audio-eye-tamed-preset" if job.audio_eye_tamed_preset else "--no-audio-eye-tamed-preset")
     if job.defer_paste_back_enabled:
         command.append("--defer-paste-back")
     elif not job.paste_back_enabled:
@@ -4649,6 +4703,11 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "audioDurationSec": job.audio_duration_sec,
         "audioMotionStride": job.audio_motion_stride,
         "generationFrameCount": job.generation_frame_count,
+        "audioEyeTamedPreset": job.audio_eye_tamed_preset,
+        "audioEyeSoftFactor": job.audio_eye_soft_factor,
+        "audioEyeHardFactor": job.audio_eye_hard_factor,
+        "audioEyeHardDyMin": job.audio_eye_hard_dy_min,
+        "audioEyeHardDyMax": job.audio_eye_hard_dy_max,
         "animationRegion": job.animation_region,
         "stitchingEnabled": job.stitching_enabled,
         "relativeMotionEnabled": job.relative_motion_enabled,
@@ -4733,6 +4792,11 @@ async def create_and_enqueue_audio_job(
     mode: str,
     motion_stride: int,
     generation_frame_count: int | None,
+    audio_eye_tamed_preset: bool,
+    audio_eye_soft_factor: float,
+    audio_eye_hard_factor: float,
+    audio_eye_hard_dy_min: float,
+    audio_eye_hard_dy_max: float,
     animation_region: str,
     stitching: bool,
     relative_motion: bool,
@@ -4768,6 +4832,22 @@ async def create_and_enqueue_audio_job(
                     f"Allowed range: {GENERATION_FRAME_COUNT_MIN}..{GENERATION_FRAME_COUNT_MAX}"
                 ),
             )
+    normalized_audio_eye_soft_factor = float(audio_eye_soft_factor)
+    normalized_audio_eye_hard_factor = float(audio_eye_hard_factor)
+    if not math.isfinite(normalized_audio_eye_soft_factor):
+        raise HTTPException(status_code=400, detail="Invalid audio_eye_soft_factor.")
+    if not math.isfinite(normalized_audio_eye_hard_factor):
+        raise HTTPException(status_code=400, detail="Invalid audio_eye_hard_factor.")
+    normalized_audio_eye_soft_factor = min(1.0, max(0.0, normalized_audio_eye_soft_factor))
+    normalized_audio_eye_hard_factor = min(1.0, max(0.0, normalized_audio_eye_hard_factor))
+    raw_audio_eye_hard_dy_min = float(audio_eye_hard_dy_min)
+    raw_audio_eye_hard_dy_max = float(audio_eye_hard_dy_max)
+    if not math.isfinite(raw_audio_eye_hard_dy_min):
+        raise HTTPException(status_code=400, detail="Invalid audio_eye_hard_dy_min.")
+    if not math.isfinite(raw_audio_eye_hard_dy_max):
+        raise HTTPException(status_code=400, detail="Invalid audio_eye_hard_dy_max.")
+    normalized_audio_eye_hard_dy_min = min(raw_audio_eye_hard_dy_min, raw_audio_eye_hard_dy_max)
+    normalized_audio_eye_hard_dy_max = max(raw_audio_eye_hard_dy_min, raw_audio_eye_hard_dy_max)
     normalized_animation_region = str(animation_region or "").strip().lower()
     if normalized_animation_region not in ANIMATION_REGION_CHOICES:
         raise HTTPException(
@@ -4814,6 +4894,11 @@ async def create_and_enqueue_audio_job(
         audio_duration_sec=audio_duration_sec,
         audio_motion_stride=int(motion_stride),
         generation_frame_count=normalized_generation_frame_count,
+        audio_eye_tamed_preset=bool(audio_eye_tamed_preset),
+        audio_eye_soft_factor=normalized_audio_eye_soft_factor,
+        audio_eye_hard_factor=normalized_audio_eye_hard_factor,
+        audio_eye_hard_dy_min=normalized_audio_eye_hard_dy_min,
+        audio_eye_hard_dy_max=normalized_audio_eye_hard_dy_max,
         animation_region=normalized_animation_region,
         stitching_enabled=bool(stitching),
         relative_motion_enabled=bool(relative_motion),
@@ -4897,6 +4982,7 @@ def create_app() -> FastAPI:
             "trtPrecision": DEFAULT_TRT_PRECISION,
             "skipTrtEngineBuild": DEFAULT_SKIP_TRT_ENGINE_BUILD,
             "defaultAudioMotionStride": DEFAULT_AUDIO_MOTION_STRIDE,
+            "defaultMode": DEFAULT_MODE,
             "generationFrameCountSupported": True,
             "generationFrameCountMin": GENERATION_FRAME_COUNT_MIN,
             "generationFrameCountMax": GENERATION_FRAME_COUNT_MAX,
@@ -4906,6 +4992,11 @@ def create_app() -> FastAPI:
             "defaultStitchingEnabled": DEFAULT_STITCHING_ENABLED,
             "defaultRelativeMotionEnabled": DEFAULT_RELATIVE_MOTION_ENABLED,
             "defaultPasteBackEnabled": DEFAULT_PASTE_BACK_ENABLED,
+            "defaultAudioEyeTamedPreset": DEFAULT_AUDIO_EYE_TAMED_PRESET,
+            "defaultAudioEyeSoftFactor": DEFAULT_AUDIO_EYE_SOFT_FACTOR,
+            "defaultAudioEyeHardFactor": DEFAULT_AUDIO_EYE_HARD_FACTOR,
+            "defaultAudioEyeHardDyMin": DEFAULT_AUDIO_EYE_HARD_DY_MIN,
+            "defaultAudioEyeHardDyMax": DEFAULT_AUDIO_EYE_HARD_DY_MAX,
             "defaultVideoEncoder": DEFAULT_VIDEO_ENCODER,
             "authEnabled": API_TOKEN_ENABLED,
             "authHeaderName": "Authorization",
@@ -5048,6 +5139,11 @@ def create_app() -> FastAPI:
         mode: str = Form(DEFAULT_MODE),
         motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
         generation_frame_count: int | None = Form(None),
+        audio_eye_tamed_preset: bool = Form(DEFAULT_AUDIO_EYE_TAMED_PRESET),
+        audio_eye_soft_factor: float = Form(DEFAULT_AUDIO_EYE_SOFT_FACTOR),
+        audio_eye_hard_factor: float = Form(DEFAULT_AUDIO_EYE_HARD_FACTOR),
+        audio_eye_hard_dy_min: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MIN),
+        audio_eye_hard_dy_max: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MAX),
         animation_region: str = Form(DEFAULT_ANIMATION_REGION),
         stitching: bool = Form(DEFAULT_STITCHING_ENABLED),
         relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
@@ -5060,6 +5156,11 @@ def create_app() -> FastAPI:
             mode=mode,
             motion_stride=motion_stride,
             generation_frame_count=generation_frame_count,
+            audio_eye_tamed_preset=audio_eye_tamed_preset,
+            audio_eye_soft_factor=audio_eye_soft_factor,
+            audio_eye_hard_factor=audio_eye_hard_factor,
+            audio_eye_hard_dy_min=audio_eye_hard_dy_min,
+            audio_eye_hard_dy_max=audio_eye_hard_dy_max,
             animation_region=animation_region,
             stitching=stitching,
             relative_motion=relative_motion,
@@ -5075,6 +5176,11 @@ def create_app() -> FastAPI:
         mode: str = Form(DEFAULT_MODE),
         motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
         generation_frame_count: int | None = Form(None),
+        audio_eye_tamed_preset: bool = Form(DEFAULT_AUDIO_EYE_TAMED_PRESET),
+        audio_eye_soft_factor: float = Form(DEFAULT_AUDIO_EYE_SOFT_FACTOR),
+        audio_eye_hard_factor: float = Form(DEFAULT_AUDIO_EYE_HARD_FACTOR),
+        audio_eye_hard_dy_min: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MIN),
+        audio_eye_hard_dy_max: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MAX),
         animation_region: str = Form(DEFAULT_ANIMATION_REGION),
         stitching: bool = Form(DEFAULT_STITCHING_ENABLED),
         relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
@@ -5087,6 +5193,11 @@ def create_app() -> FastAPI:
             mode=mode,
             motion_stride=motion_stride,
             generation_frame_count=generation_frame_count,
+            audio_eye_tamed_preset=audio_eye_tamed_preset,
+            audio_eye_soft_factor=audio_eye_soft_factor,
+            audio_eye_hard_factor=audio_eye_hard_factor,
+            audio_eye_hard_dy_min=audio_eye_hard_dy_min,
+            audio_eye_hard_dy_max=audio_eye_hard_dy_max,
             animation_region=animation_region,
             stitching=stitching,
             relative_motion=relative_motion,

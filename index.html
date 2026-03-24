@@ -592,6 +592,79 @@
       padding: 12px;
     }
 
+    .tuning-card {
+      display: grid;
+      gap: 14px;
+    }
+
+    .tuning-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px 14px;
+      align-items: center;
+    }
+
+    .tuning-copy {
+      display: grid;
+      gap: 6px;
+    }
+
+    .tuning-hint {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      max-width: 880px;
+    }
+
+    .tuning-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+
+    .tuning-field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .tuning-field input,
+    .tuning-field select {
+      width: 100%;
+    }
+
+    .tuning-toggle-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+
+    .tuning-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 46px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(4, 14, 26, 0.38);
+      color: var(--text);
+    }
+
+    .tuning-toggle input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      padding: 0;
+      accent-color: var(--accent);
+    }
+
+    .tuning-divider {
+      height: 1px;
+      border: 0;
+      background: rgba(31, 59, 96, 0.7);
+    }
+
     @media (min-width: 1024px) {
       .row {
         grid-template-columns: 2fr 1fr;
@@ -634,10 +707,6 @@
         <span class="compact-picker-value" id="sourceImagePickerValue">Runtime source</span>
       </label>
       <input class="visually-hidden-input" id="sourceImageInput" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp">
-      <label class="compact-field compact-number-field">
-        <span class="compact-label">Frames</span>
-        <input class="compact-number-input" id="generationFrameCountInput" type="number" min="1" max="1200" step="1" inputmode="numeric" placeholder="Auto" disabled title="Available after backend reload">
-      </label>
       <button class="primary compact-button" id="btnGenerate"><span class="compact-button-label">Generate</span></button>
       <button class="primary compact-button compact-icon-button" id="btnPlay" title="Play" aria-label="Play"><span class="compact-icon play" aria-hidden="true"></span></button>
       <button class="compact-button compact-icon-button" id="btnPause" title="Pause" aria-label="Pause"><span class="compact-icon pause" aria-hidden="true"></span></button>
@@ -649,6 +718,80 @@
           <option value="concat">Concat</option>
         </select>
       </label>
+    </section>
+
+    <section class="card tuning-card">
+      <div class="tuning-head">
+        <div class="tuning-copy">
+          <h2 class="panel-title">Advanced Tuning</h2>
+          <p class="tuning-hint">These controls are applied to the next audio-driven generation request. The eye-taming controls affect the JoyVASA motion template before render, so they are useful to inspect how upper-face motion changes.</p>
+        </div>
+        <button id="btnResetTuning" type="button">Reset Tuning</button>
+      </div>
+      <div class="tuning-grid">
+        <label class="tuning-field">
+          <span class="compact-label">Mode</span>
+          <select id="modeSelect">
+            <option value="preview">Preview</option>
+            <option value="full">Full</option>
+          </select>
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Motion Stride</span>
+          <input id="motionStrideInput" type="number" min="1" max="6" step="1" inputmode="numeric">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Frame Override</span>
+          <input id="generationFrameCountInput" type="number" min="1" max="1200" step="1" inputmode="numeric" placeholder="Auto" disabled title="Available after backend reload">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Animation Region</span>
+          <select id="animationRegionSelect">
+            <option value="all">all</option>
+            <option value="exp">exp</option>
+            <option value="pose">pose</option>
+            <option value="lip">lip</option>
+            <option value="eyes">eyes</option>
+          </select>
+        </label>
+      </div>
+      <div class="tuning-toggle-grid">
+        <label class="tuning-toggle" for="stitchingCheck">
+          <input id="stitchingCheck" type="checkbox">
+          <span>Stitching</span>
+        </label>
+        <label class="tuning-toggle" for="relativeMotionCheck">
+          <input id="relativeMotionCheck" type="checkbox">
+          <span>Relative Motion</span>
+        </label>
+        <label class="tuning-toggle" for="pasteBackCheck">
+          <input id="pasteBackCheck" type="checkbox">
+          <span>Paste Back</span>
+        </label>
+        <label class="tuning-toggle" for="audioEyeTamedPresetCheck">
+          <input id="audioEyeTamedPresetCheck" type="checkbox">
+          <span>Audio Eye Taming</span>
+        </label>
+      </div>
+      <hr class="tuning-divider">
+      <div class="tuning-grid">
+        <label class="tuning-field">
+          <span class="compact-label">Eye Soft Factor</span>
+          <input id="audioEyeSoftFactorInput" type="number" min="0" max="1" step="0.01" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Eye Hard Factor</span>
+          <input id="audioEyeHardFactorInput" type="number" min="0" max="1" step="0.01" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Eye Hard DY Min</span>
+          <input id="audioEyeHardDyMinInput" type="number" min="-1" max="1" step="0.0001" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Eye Hard DY Max</span>
+          <input id="audioEyeHardDyMaxInput" type="number" min="-1" max="1" step="0.0001" inputmode="decimal">
+        </label>
+      </div>
     </section>
 
     <section class="stack viewer-stack">
@@ -758,12 +901,6 @@
       <span id="sourceBadge">runtime</span>
       <input id="apiBaseInput" type="text" value="">
       <input id="sourceFrameInput" type="text" value="output/frames/frame_00061.png">
-      <select id="inferenceProfileSelect">
-        <option value="quality" selected>Quality</option>
-        <option value="fastNoPaste">Fast / No paste-back</option>
-        <option value="expFast">Fast / Expression only</option>
-        <option value="lipFast">Fast / Lips only</option>
-      </select>
       <button id="btnReset">Restart runtime</button>
       <button id="btnWarmup">Warmup Runtime</button>
       <button id="btnStopStream">Stop Stream</button>
@@ -813,6 +950,18 @@
     const JOB_STATE_ERROR = "error";
     const JOB_STATE_RUNNING = "running";
     const DEFAULT_MOTION_STRIDE = 2;
+    const DEFAULT_MODE = "preview";
+    const DEFAULT_AUDIO_EYE_TAMED_PRESET = true;
+    const DEFAULT_AUDIO_EYE_SOFT_FACTOR = 0.45;
+    const DEFAULT_AUDIO_EYE_HARD_FACTOR = 0.18;
+    const DEFAULT_AUDIO_EYE_HARD_DY_MIN = -0.0045;
+    const DEFAULT_AUDIO_EYE_HARD_DY_MAX = 0.0035;
+    const MOTION_STRIDE_LIMITS = Object.freeze({
+      MIN: 1,
+      MAX: 6
+    });
+    const VALID_MODE_VALUES = Object.freeze(["preview", "full"]);
+    const VALID_ANIMATION_REGION_VALUES = Object.freeze(["all", "exp", "pose", "lip", "eyes"]);
     const VIDEO_STREAM_START_MODE = Object.freeze({
       BUFFERED: "buffered",
       LIVE: "live"
@@ -821,42 +970,6 @@
     const VIDEO_STREAM_START_MODE_QUERY_KEY = "startMode";
     const BUFFERED_STREAM_START_PROGRESS_RATIO = 0.35;
     const BUFFERED_STREAM_START_PROGRESS_PERCENT = Math.round(BUFFERED_STREAM_START_PROGRESS_RATIO * 100);
-    const INFERENCE_PROFILE = Object.freeze({
-      QUALITY: "quality",
-      FAST_NO_PASTE: "fastNoPaste",
-      EXP_FAST: "expFast",
-      LIP_FAST: "lipFast"
-    });
-    const INFERENCE_PROFILE_CONFIG = Object.freeze({
-      [INFERENCE_PROFILE.QUALITY]: {
-        animationRegion: "all",
-        stitching: true,
-        relativeMotion: true,
-        pasteBack: true,
-        label: "Quality"
-      },
-      [INFERENCE_PROFILE.FAST_NO_PASTE]: {
-        animationRegion: "all",
-        stitching: true,
-        relativeMotion: true,
-        pasteBack: false,
-        label: "Fast / No paste-back"
-      },
-      [INFERENCE_PROFILE.EXP_FAST]: {
-        animationRegion: "exp",
-        stitching: false,
-        relativeMotion: true,
-        pasteBack: false,
-        label: "Fast / Expression only"
-      },
-      [INFERENCE_PROFILE.LIP_FAST]: {
-        animationRegion: "lip",
-        stitching: false,
-        relativeMotion: true,
-        pasteBack: false,
-        label: "Fast / Lips only"
-      }
-    });
     const RUNTIME_POLL_INTERVAL_MS = 3000;
     const RUNTIME_LOG_POLL_INTERVAL_MS = 15000;
     const RUNTIME_LOG_LINES = 180;
@@ -968,8 +1081,19 @@
       sourceImagePickerValue: document.getElementById("sourceImagePickerValue"),
       sourceImageInput: document.getElementById("sourceImageInput"),
       sourceFrameInput: document.getElementById("sourceFrameInput"),
-      inferenceProfileSelect: document.getElementById("inferenceProfileSelect"),
+      modeSelect: document.getElementById("modeSelect"),
+      motionStrideInput: document.getElementById("motionStrideInput"),
+      animationRegionSelect: document.getElementById("animationRegionSelect"),
+      stitchingCheck: document.getElementById("stitchingCheck"),
+      relativeMotionCheck: document.getElementById("relativeMotionCheck"),
+      pasteBackCheck: document.getElementById("pasteBackCheck"),
+      audioEyeTamedPresetCheck: document.getElementById("audioEyeTamedPresetCheck"),
+      audioEyeSoftFactorInput: document.getElementById("audioEyeSoftFactorInput"),
+      audioEyeHardFactorInput: document.getElementById("audioEyeHardFactorInput"),
+      audioEyeHardDyMinInput: document.getElementById("audioEyeHardDyMinInput"),
+      audioEyeHardDyMaxInput: document.getElementById("audioEyeHardDyMaxInput"),
       btnGenerate: document.getElementById("btnGenerate"),
+      btnResetTuning: document.getElementById("btnResetTuning"),
       btnWarmup: document.getElementById("btnWarmup"),
       btnRefreshLogs: document.getElementById("btnRefreshLogs"),
       btnStopStream: document.getElementById("btnStopStream"),
@@ -1013,6 +1137,22 @@
       containerLogText: document.getElementById("containerLogText"),
       workerLogText: document.getElementById("workerLogText")
     };
+
+    function createDefaultTuningState() {
+      return {
+        mode: DEFAULT_MODE,
+        motionStride: DEFAULT_MOTION_STRIDE,
+        animationRegion: "all",
+        stitching: true,
+        relativeMotion: true,
+        pasteBack: true,
+        audioEyeTamedPreset: DEFAULT_AUDIO_EYE_TAMED_PRESET,
+        audioEyeSoftFactor: DEFAULT_AUDIO_EYE_SOFT_FACTOR,
+        audioEyeHardFactor: DEFAULT_AUDIO_EYE_HARD_FACTOR,
+        audioEyeHardDyMin: DEFAULT_AUDIO_EYE_HARD_DY_MIN,
+        audioEyeHardDyMax: DEFAULT_AUDIO_EYE_HARD_DY_MAX
+      };
+    }
 
     function createEmptyBenchmarkState() {
       return {
@@ -1089,6 +1229,8 @@
       };
     }
 
+    let tuningDefaults = createDefaultTuningState();
+    let tuningControlsInitialized = false;
     let currentJobId = "";
     let currentJobState = "";
     let statusSocket = null;
@@ -1627,17 +1769,6 @@
       targetElement.textContent = value;
     }
 
-    function getSelectedInferenceProfileId() {
-      const profileId = String(elements.inferenceProfileSelect.value || INFERENCE_PROFILE.QUALITY);
-      return Object.prototype.hasOwnProperty.call(INFERENCE_PROFILE_CONFIG, profileId)
-        ? profileId
-        : INFERENCE_PROFILE.QUALITY;
-    }
-
-    function getSelectedInferenceProfileConfig() {
-      return INFERENCE_PROFILE_CONFIG[getSelectedInferenceProfileId()];
-    }
-
     /**
      * Clamp a number to an inclusive range.
      *
@@ -1654,6 +1785,188 @@
         return maximum;
       }
       return value;
+    }
+
+    function normalizeSelectValue(rawValue, allowedValues, fallbackValue) {
+      const normalizedValue = String(rawValue || "").trim().toLowerCase();
+      return allowedValues.includes(normalizedValue) ? normalizedValue : fallbackValue;
+    }
+
+    function normalizeNumberInputValue(rawValue, fallbackValue, minimumValue, maximumValue) {
+      const numericValue = Number(rawValue);
+      if (!Number.isFinite(numericValue)) {
+        return fallbackValue;
+      }
+      return clampNumber(numericValue, minimumValue, maximumValue);
+    }
+
+    function resolveTuningDefaultsFromHealthPayload(healthPayload) {
+      return {
+        mode: normalizeSelectValue(healthPayload.defaultMode, VALID_MODE_VALUES, DEFAULT_MODE),
+        motionStride: Math.round(
+          normalizeNumberInputValue(
+            healthPayload.defaultAudioMotionStride,
+            DEFAULT_MOTION_STRIDE,
+            MOTION_STRIDE_LIMITS.MIN,
+            MOTION_STRIDE_LIMITS.MAX
+          )
+        ),
+        animationRegion: normalizeSelectValue(
+          healthPayload.defaultAnimationRegion,
+          VALID_ANIMATION_REGION_VALUES,
+          "all"
+        ),
+        stitching: Boolean(healthPayload.defaultStitchingEnabled),
+        relativeMotion: Boolean(healthPayload.defaultRelativeMotionEnabled),
+        pasteBack: Boolean(healthPayload.defaultPasteBackEnabled),
+        audioEyeTamedPreset: Boolean(healthPayload.defaultAudioEyeTamedPreset),
+        audioEyeSoftFactor: normalizeNumberInputValue(
+          healthPayload.defaultAudioEyeSoftFactor,
+          DEFAULT_AUDIO_EYE_SOFT_FACTOR,
+          0,
+          1
+        ),
+        audioEyeHardFactor: normalizeNumberInputValue(
+          healthPayload.defaultAudioEyeHardFactor,
+          DEFAULT_AUDIO_EYE_HARD_FACTOR,
+          0,
+          1
+        ),
+        audioEyeHardDyMin: normalizeNumberInputValue(
+          healthPayload.defaultAudioEyeHardDyMin,
+          DEFAULT_AUDIO_EYE_HARD_DY_MIN,
+          -1,
+          1
+        ),
+        audioEyeHardDyMax: normalizeNumberInputValue(
+          healthPayload.defaultAudioEyeHardDyMax,
+          DEFAULT_AUDIO_EYE_HARD_DY_MAX,
+          -1,
+          1
+        )
+      };
+    }
+
+    function applyTuningConfigToControls(config, clearFrameOverride = false) {
+      const safeConfig = config || tuningDefaults;
+      elements.modeSelect.value = normalizeSelectValue(safeConfig.mode, VALID_MODE_VALUES, DEFAULT_MODE);
+      elements.motionStrideInput.value = String(
+        Math.round(
+          normalizeNumberInputValue(
+            safeConfig.motionStride,
+            DEFAULT_MOTION_STRIDE,
+            MOTION_STRIDE_LIMITS.MIN,
+            MOTION_STRIDE_LIMITS.MAX
+          )
+        )
+      );
+      elements.animationRegionSelect.value = normalizeSelectValue(
+        safeConfig.animationRegion,
+        VALID_ANIMATION_REGION_VALUES,
+        "all"
+      );
+      elements.stitchingCheck.checked = Boolean(safeConfig.stitching);
+      elements.relativeMotionCheck.checked = Boolean(safeConfig.relativeMotion);
+      elements.pasteBackCheck.checked = Boolean(safeConfig.pasteBack);
+      elements.audioEyeTamedPresetCheck.checked = Boolean(safeConfig.audioEyeTamedPreset);
+      elements.audioEyeSoftFactorInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioEyeSoftFactor, DEFAULT_AUDIO_EYE_SOFT_FACTOR, 0, 1)
+      );
+      elements.audioEyeHardFactorInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioEyeHardFactor, DEFAULT_AUDIO_EYE_HARD_FACTOR, 0, 1)
+      );
+      elements.audioEyeHardDyMinInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioEyeHardDyMin, DEFAULT_AUDIO_EYE_HARD_DY_MIN, -1, 1)
+      );
+      elements.audioEyeHardDyMaxInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioEyeHardDyMax, DEFAULT_AUDIO_EYE_HARD_DY_MAX, -1, 1)
+      );
+      if (clearFrameOverride) {
+        elements.generationFrameCountInput.value = "";
+      }
+    }
+
+    function initializeTuningControls(healthPayload) {
+      tuningDefaults = resolveTuningDefaultsFromHealthPayload(healthPayload || {});
+      if (tuningControlsInitialized) {
+        return;
+      }
+      applyTuningConfigToControls(tuningDefaults, true);
+      tuningControlsInitialized = true;
+    }
+
+    function resetTuningControls() {
+      applyTuningConfigToControls(tuningDefaults, true);
+      updateGenerationFrameCountInputState();
+    }
+
+    function getSelectedTuningConfig() {
+      const motionStride = Math.round(
+        normalizeNumberInputValue(
+          elements.motionStrideInput.value,
+          tuningDefaults.motionStride,
+          MOTION_STRIDE_LIMITS.MIN,
+          MOTION_STRIDE_LIMITS.MAX
+        )
+      );
+      const audioEyeHardDyMin = normalizeNumberInputValue(
+        elements.audioEyeHardDyMinInput.value,
+        tuningDefaults.audioEyeHardDyMin,
+        -1,
+        1
+      );
+      const audioEyeHardDyMax = normalizeNumberInputValue(
+        elements.audioEyeHardDyMaxInput.value,
+        tuningDefaults.audioEyeHardDyMax,
+        -1,
+        1
+      );
+      return {
+        mode: normalizeSelectValue(elements.modeSelect.value, VALID_MODE_VALUES, tuningDefaults.mode),
+        motionStride,
+        generationFrameCount: getSelectedGenerationFrameCount(),
+        animationRegion: normalizeSelectValue(
+          elements.animationRegionSelect.value,
+          VALID_ANIMATION_REGION_VALUES,
+          tuningDefaults.animationRegion
+        ),
+        stitching: Boolean(elements.stitchingCheck.checked),
+        relativeMotion: Boolean(elements.relativeMotionCheck.checked),
+        pasteBack: Boolean(elements.pasteBackCheck.checked),
+        audioEyeTamedPreset: Boolean(elements.audioEyeTamedPresetCheck.checked),
+        audioEyeSoftFactor: normalizeNumberInputValue(
+          elements.audioEyeSoftFactorInput.value,
+          tuningDefaults.audioEyeSoftFactor,
+          0,
+          1
+        ),
+        audioEyeHardFactor: normalizeNumberInputValue(
+          elements.audioEyeHardFactorInput.value,
+          tuningDefaults.audioEyeHardFactor,
+          0,
+          1
+        ),
+        audioEyeHardDyMin: Math.min(audioEyeHardDyMin, audioEyeHardDyMax),
+        audioEyeHardDyMax: Math.max(audioEyeHardDyMin, audioEyeHardDyMax)
+      };
+    }
+
+    function buildTuningLabel(tuningConfig) {
+      if (!tuningConfig) {
+        return "Custom tuning";
+      }
+      const parts = [
+        String(tuningConfig.mode || DEFAULT_MODE),
+        `stride ${Number(tuningConfig.motionStride || DEFAULT_MOTION_STRIDE)}`,
+        String(tuningConfig.animationRegion || "all"),
+        tuningConfig.stitching ? "stitch" : "no-stitch",
+        tuningConfig.relativeMotion ? "relative" : "absolute",
+        tuningConfig.pasteBack ? "paste" : "crop"
+      ];
+      if (tuningConfig.audioEyeTamedPreset) {
+        parts.push("eye tame");
+      }
+      return parts.join(" | ");
     }
 
     /**
@@ -2107,11 +2420,19 @@
         state: payload.state,
         running: payload.running,
         exitCode: payload.exitCode,
+        mode: payload.mode || "",
         sourceFrame: payload.sourceFrame || "",
+        audioMotionStride: payload.audioMotionStride || 0,
+        generationFrameCount: payload.generationFrameCount ?? null,
         animationRegion: payload.animationRegion || "",
         stitchingEnabled: Boolean(payload.stitchingEnabled),
         relativeMotionEnabled: Boolean(payload.relativeMotionEnabled),
         pasteBackEnabled: Boolean(payload.pasteBackEnabled),
+        audioEyeTamedPreset: Boolean(payload.audioEyeTamedPreset),
+        audioEyeSoftFactor: payload.audioEyeSoftFactor ?? null,
+        audioEyeHardFactor: payload.audioEyeHardFactor ?? null,
+        audioEyeHardDyMin: payload.audioEyeHardDyMin ?? null,
+        audioEyeHardDyMax: payload.audioEyeHardDyMax ?? null,
         progress: streamStatus.progress || 0,
         frameIndex: streamStatus.frameIndex || 0,
         frameTotal: streamStatus.frameTotal || 0,
@@ -3072,10 +3393,8 @@
       }
       const sourceFrame = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim() || DEFAULT_SOURCE_FRAME;
       const sourceImageFile = getSelectedSourceImageFile();
-      const motionStride = DEFAULT_MOTION_STRIDE;
-      const generationFrameCount = getSelectedGenerationFrameCount();
-      const inferenceProfileConfig = getSelectedInferenceProfileConfig();
-      const inferenceProfileLabel = String(inferenceProfileConfig.label || "");
+      const tuningConfig = getSelectedTuningConfig();
+      const inferenceProfileLabel = buildTuningLabel(tuningConfig);
       await checkApiHealth();
       if (isUnifiedAvatarTransportActive()) {
         elements.muteCheck.checked = false;
@@ -3095,15 +3414,20 @@
       if (sourceImageFile) {
         formData.append("source_image", sourceImageFile, sourceImageFile.name);
       }
-      formData.append("mode", "preview");
-      formData.append("motion_stride", String(motionStride));
-      if (generationFrameCount !== null && runtimeState.generationFrameCountSupported) {
-        formData.append("generation_frame_count", String(generationFrameCount));
+      formData.append("mode", tuningConfig.mode);
+      formData.append("motion_stride", String(tuningConfig.motionStride));
+      if (tuningConfig.generationFrameCount !== null && runtimeState.generationFrameCountSupported) {
+        formData.append("generation_frame_count", String(tuningConfig.generationFrameCount));
       }
-      formData.append("animation_region", inferenceProfileConfig.animationRegion);
-      formData.append("stitching", inferenceProfileConfig.stitching ? "true" : "false");
-      formData.append("relative_motion", inferenceProfileConfig.relativeMotion ? "true" : "false");
-      formData.append("paste_back", inferenceProfileConfig.pasteBack ? "true" : "false");
+      formData.append("animation_region", tuningConfig.animationRegion);
+      formData.append("stitching", tuningConfig.stitching ? "true" : "false");
+      formData.append("relative_motion", tuningConfig.relativeMotion ? "true" : "false");
+      formData.append("paste_back", tuningConfig.pasteBack ? "true" : "false");
+      formData.append("audio_eye_tamed_preset", tuningConfig.audioEyeTamedPreset ? "true" : "false");
+      formData.append("audio_eye_soft_factor", String(tuningConfig.audioEyeSoftFactor));
+      formData.append("audio_eye_hard_factor", String(tuningConfig.audioEyeHardFactor));
+      formData.append("audio_eye_hard_dy_min", String(tuningConfig.audioEyeHardDyMin));
+      formData.append("audio_eye_hard_dy_max", String(tuningConfig.audioEyeHardDyMax));
 
       elements.btnGenerate.disabled = true;
       setStatusBadge("submitting job", false);
@@ -3306,6 +3630,7 @@
           throw new Error(`HTTP ${response.status}`);
         }
         const data = await response.json();
+        initializeTuningControls(data);
         runtimeState = {
           backend: String(data.backend || ""),
           trtRuntime: String(data.trtRuntime || ""),
@@ -3423,6 +3748,7 @@
     });
 
     elements.btnGenerate.addEventListener("click", createJob);
+    elements.btnResetTuning.addEventListener("click", resetTuningControls);
     elements.btnRefreshLogs.addEventListener("click", () => {
       refreshRuntimeLogs().catch(() => {});
     });
@@ -3471,8 +3797,11 @@
     elements.apiBaseInput.value = DEFAULT_API_BASE_URL;
     elements.apiTokenInput.value = DEFAULT_API_TOKEN;
     elements.sourceFrameInput.value = DEFAULT_SOURCE_FRAME;
+    elements.motionStrideInput.min = String(MOTION_STRIDE_LIMITS.MIN);
+    elements.motionStrideInput.max = String(MOTION_STRIDE_LIMITS.MAX);
     elements.generationFrameCountInput.min = String(GENERATION_FRAME_COUNT_LIMITS.MIN);
     elements.generationFrameCountInput.max = String(GENERATION_FRAME_COUNT_LIMITS.MAX);
+    applyTuningConfigToControls(tuningDefaults, true);
     renderAudioSelectionState(null);
     updateSelectedSourcePreview();
     setDrivingMedia("");

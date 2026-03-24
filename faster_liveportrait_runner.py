@@ -16,11 +16,17 @@ import subprocess
 import sys
 import time
 import uuid
-import cv2
-import numpy as np
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
+
+from runtime_env import apply_runtime_library_environment, build_process_env
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+apply_runtime_library_environment(PROJECT_ROOT)
+
+import cv2
+import numpy as np
 
 
 def read_env_bool(env_key: str, default_value: bool) -> bool:
@@ -624,10 +630,7 @@ def build_runtime_env() -> dict[str, str]:
     """
     Build runtime environment for subprocess execution.
     """
-    runtime_env = dict(os.environ)
-    runtime_env["PYTHONIOENCODING"] = "utf-8"
-    runtime_env["PYTHONUTF8"] = "1"
-    return runtime_env
+    return build_process_env(PROJECT_ROOT, os.environ)
 
 
 def run_command(command: Sequence[str], cwd: Path | None = None) -> None:
@@ -730,6 +733,16 @@ def resolve_docker_gpus_argument(config: RunnerConfig) -> str:
     return f"device={value}"
 
 
+def resolve_docker_visible_devices(config: RunnerConfig) -> str:
+    """
+    Resolve CUDA_VISIBLE_DEVICES value for containerized TRT runs.
+    """
+    value = str(config.docker_gpu_device).strip()
+    if not value or value.lower() == "all":
+        return ""
+    return value
+
+
 def inspect_container_running(container_name: str) -> bool | None:
     """
     Inspect container running state.
@@ -772,11 +785,18 @@ def ensure_runtime_container(config: RunnerConfig) -> None:
         f"{to_docker_host_path(config.project_root)}:/workspace",
         "-w",
         "/workspace",
-        config.docker_image,
-        "bash",
-        "-lc",
-        "tail -f /dev/null",
     ]
+    visible_devices = resolve_docker_visible_devices(config)
+    if visible_devices:
+        command.extend(["-e", f"CUDA_VISIBLE_DEVICES={visible_devices}"])
+    command.extend(
+        [
+            config.docker_image,
+            "bash",
+            "-lc",
+            "tail -f /dev/null",
+        ]
+    )
     run_command(command)
 
 
@@ -784,6 +804,10 @@ def run_docker_shell(config: RunnerConfig, workdir: str, script: str) -> None:
     """
     Execute shell script inside Docker runtime using ephemeral or persistent mode.
     """
+    visible_devices = resolve_docker_visible_devices(config)
+    shell_prefix = ""
+    if visible_devices:
+        shell_prefix = f"export CUDA_VISIBLE_DEVICES={shlex.quote(visible_devices)}; "
     if config.docker_reuse_container:
         ensure_runtime_container(config)
         command = [
@@ -792,7 +816,7 @@ def run_docker_shell(config: RunnerConfig, workdir: str, script: str) -> None:
             config.docker_container_name,
             "bash",
             "-lc",
-            f"cd {shlex.quote(workdir)} && {script}",
+            f"{shell_prefix}cd {shlex.quote(workdir)} && {script}",
         ]
         run_command(command)
         return
@@ -806,12 +830,18 @@ def run_docker_shell(config: RunnerConfig, workdir: str, script: str) -> None:
         "-v",
         f"{to_docker_host_path(config.project_root)}:/workspace",
         "-w",
-        workdir,
-        config.docker_image,
-        "bash",
-        "-lc",
-        script,
     ]
+    if visible_devices:
+        command.extend(["-e", f"CUDA_VISIBLE_DEVICES={visible_devices}"])
+    command.extend(
+        [
+            workdir,
+            config.docker_image,
+            "bash",
+            "-lc",
+            f"{shell_prefix}{script}",
+        ]
+    )
     run_command(command)
 
 
@@ -1799,17 +1829,38 @@ def process_pid_is_alive(pid: object) -> bool:
     """
     Check whether a numeric process id still exists on the current host.
     """
-    if not isinstance(pid, int):
-        return False
-    if pid <= 0:
-        return False
     try:
-        os.kill(pid, 0)
+        safe_pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if safe_pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            completed = subprocess.run(
+                [
+                    "tasklist",
+                    "/FI",
+                    f"PID eq {safe_pid}",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except Exception:
+            return False
+        stdout_text = str(completed.stdout or "").lower()
+        if "no tasks are running" in stdout_text:
+            return False
+        return str(safe_pid) in stdout_text
+    try:
+        os.kill(safe_pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
-    except OSError:
+    except (OSError, SystemError, ValueError):
         return False
     return True
 
