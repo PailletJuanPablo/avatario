@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from runtime_env import apply_runtime_library_environment
+
 import av
 from av import AudioFrame, VideoFrame
 from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSessionDescription
@@ -42,6 +44,7 @@ import numpy as np
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+apply_runtime_library_environment(PROJECT_ROOT)
 RUNNER_SCRIPT = PROJECT_ROOT / "faster_liveportrait_runner.py"
 RUNNER_PYTHON = PROJECT_ROOT / ".venv-liveportrait" / "Scripts" / "python.exe"
 if not RUNNER_PYTHON.exists():
@@ -271,6 +274,7 @@ if DEFAULT_TRT_RUNTIME not in TRT_RUNTIME_CHOICES:
     DEFAULT_TRT_RUNTIME = TRT_RUNTIME_DOCKER
 
 DEFAULT_TRT_PRECISION = os.getenv("ANIMATION_TRT_PRECISION", "fp16").strip().lower() or "fp16"
+DEFAULT_DOCKER_GPU_DEVICE = os.getenv("ANIMATION_DOCKER_GPU_DEVICE", "").strip()
 DEFAULT_SKIP_TRT_ENGINE_BUILD = (
     os.getenv("ANIMATION_SKIP_TRT_ENGINE_BUILD", "0").strip().lower() in {"1", "true", "yes"}
 )
@@ -1983,10 +1987,8 @@ def resolve_avatar_stream_output_fps(
     talking_state: "AvatarTalkingFrameState | None",
 ) -> float:
     """
-    Resolve the exact FPS the continuous avatar stream should emit right now.
+    Resolve the stable FPS used by the continuous avatar stream encoder.
     """
-    if talking_state is not None and float(talking_state.playback_fps or 0.0) > 0:
-        return max(1.0, float(talking_state.playback_fps))
     return resolve_avatar_idle_output_fps(idle_looper)
 
 
@@ -2450,13 +2452,14 @@ async def stream_continuous_avatar_video(
         Prepare one short idle-to-talking bridge before the avatar starts emitting talking frames.
         """
         pending_talking_intro_frames.clear()
-        if resolve_avatar_idle_to_talking_frame_count(state.playback_fps) <= 0:
+        stream_output_fps = resolve_avatar_stream_output_fps(idle_looper, state)
+        if resolve_avatar_idle_to_talking_frame_count(stream_output_fps) <= 0:
             return
         intro_frame_image, is_finished = resolve_avatar_talking_frame(
             job,
             state,
             canvas_size,
-            output_fps=state.playback_fps,
+            output_fps=stream_output_fps,
         )
         if is_finished:
             mark_avatar_job_finished(job)
@@ -2466,7 +2469,7 @@ async def stream_continuous_avatar_video(
                 start_frame_image=start_frame_image,
                 end_frame_image=intro_frame_image,
                 canvas_size=canvas_size,
-                frames_per_second=state.playback_fps,
+                frames_per_second=stream_output_fps,
             )
         )
 
@@ -2553,7 +2556,7 @@ async def stream_continuous_avatar_video(
                     audio_write_fd = None
                     timeline_offset_sec += await stop_avatar_stream_encoder(encoder)
                     encoder = None
-                    await start_output_pipeline()
+                    await start_output_pipeline(resolve_avatar_stream_output_fps(idle_looper, talking_state))
                     next_emit_at = time.perf_counter()
                     continue
 
@@ -3255,6 +3258,13 @@ def build_runner_command(job: JobRecord) -> list[str]:
         "--animation-region",
         job.animation_region,
     ]
+    if DEFAULT_DOCKER_GPU_DEVICE:
+        command.extend(
+            [
+                "--docker-gpu-device",
+                DEFAULT_DOCKER_GPU_DEVICE,
+            ]
+        )
     if job.generation_frame_count is not None:
         command.extend(
             [

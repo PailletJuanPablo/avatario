@@ -23,6 +23,8 @@ COPY scripts/bootstrap_faster_liveportrait.sh /app/runpod-bundle/scripts/bootstr
 COPY scripts/runpod_bootstrap.sh /app/runpod-bundle/scripts/runpod_bootstrap.sh
 COPY scripts/runpod_validate_runtime.sh /app/runpod-bundle/scripts/runpod_validate_runtime.sh
 COPY faster_liveportrait_runner.py /app/runpod-bundle/faster_liveportrait_runner.py
+COPY realtime_stream_api.py /app/runpod-bundle/realtime_stream_api.py
+COPY runtime_env.py /app/runpod-bundle/runtime_env.py
 COPY third_party/FasterLivePortrait/api.py /app/runpod-bundle/faster_liveportrait_overrides/api.py
 COPY third_party/FasterLivePortrait/run.py /app/runpod-bundle/faster_liveportrait_overrides/run.py
 COPY third_party/FasterLivePortrait/run_persistent_worker.py /app/runpod-bundle/faster_liveportrait_overrides/run_persistent_worker.py

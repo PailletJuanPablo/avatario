@@ -115,6 +115,8 @@ apply_image_bundle_overrides() {
     "scripts/runpod_bootstrap.sh"
     "scripts/runpod_validate_runtime.sh"
     "faster_liveportrait_runner.py"
+    "realtime_stream_api.py"
+    "runtime_env.py"
   )
 
   if [[ ! -d "${bundle_dir}" ]]; then
