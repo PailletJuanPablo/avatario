@@ -318,6 +318,24 @@ DEFAULT_AUDIO_EYE_HARD_DY_MAX = read_env_float(
     -1.0,
     1.0,
 )
+DEFAULT_DRIVING_MULTIPLIER = read_env_float(
+    "ANIMATION_DRIVING_MULTIPLIER",
+    1.0,
+    0.0,
+    2.0,
+)
+DEFAULT_CFG_SCALE = read_env_float(
+    "ANIMATION_CFG_SCALE",
+    1.2,
+    0.0,
+    10.0,
+)
+DEFAULT_JOYVASA_INFERENCE_STEPS = read_env_int(
+    "ANIMATION_JOYVASA_INFERENCE_STEPS",
+    15,
+    1,
+    100,
+)
 if DEFAULT_AUDIO_EYE_HARD_DY_MIN > DEFAULT_AUDIO_EYE_HARD_DY_MAX:
     (
         DEFAULT_AUDIO_EYE_HARD_DY_MIN,
@@ -506,7 +524,7 @@ AVATAR_MODE_CHOICES = {AVATAR_MODE_IDLE, AVATAR_MODE_TALKING}
 AVATAR_TRANSPORT_WEBSOCKET = "websocket"
 AVATAR_TRANSPORT_WEBRTC = "webrtc"
 AVATAR_STREAM_SEGMENT_IDLE_KEY = "__idle__"
-DEFAULT_IDLE_VIDEO_PATH = "inputs/idlevid.mp4"
+DEFAULT_IDLE_VIDEO_PATH = "inputs/idlevid_breath.mp4"
 AVATAR_IDLE_VIDEO_REL = Path(
     os.getenv("ANIMATION_IDLE_VIDEO", DEFAULT_IDLE_VIDEO_PATH).strip() or DEFAULT_IDLE_VIDEO_PATH
 )
@@ -1569,6 +1587,9 @@ class JobRecord:
     audio_eye_hard_factor: float
     audio_eye_hard_dy_min: float
     audio_eye_hard_dy_max: float
+    driving_multiplier: float
+    cfg_scale: float
+    joyvasa_inference_steps: int
     animation_region: str
     stitching_enabled: bool
     relative_motion_enabled: bool
@@ -3298,6 +3319,12 @@ def build_runner_command(job: JobRecord) -> list[str]:
         f"{float(job.audio_eye_hard_dy_min):.6f}",
         "--audio-eye-hard-dy-max",
         f"{float(job.audio_eye_hard_dy_max):.6f}",
+        "--driving-multiplier",
+        f"{float(job.driving_multiplier):.6f}",
+        "--cfg-scale",
+        f"{float(job.cfg_scale):.6f}",
+        "--joyvasa-inference-steps",
+        str(int(job.joyvasa_inference_steps)),
         "--render-batch-size",
         str(DEFAULT_RENDER_BATCH_SIZE),
         "--trt-engine-batch-size",
@@ -4708,6 +4735,9 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "audioEyeHardFactor": job.audio_eye_hard_factor,
         "audioEyeHardDyMin": job.audio_eye_hard_dy_min,
         "audioEyeHardDyMax": job.audio_eye_hard_dy_max,
+        "drivingMultiplier": job.driving_multiplier,
+        "cfgScale": job.cfg_scale,
+        "joyvasaInferenceSteps": job.joyvasa_inference_steps,
         "animationRegion": job.animation_region,
         "stitchingEnabled": job.stitching_enabled,
         "relativeMotionEnabled": job.relative_motion_enabled,
@@ -4797,6 +4827,9 @@ async def create_and_enqueue_audio_job(
     audio_eye_hard_factor: float,
     audio_eye_hard_dy_min: float,
     audio_eye_hard_dy_max: float,
+    driving_multiplier: float,
+    cfg_scale: float,
+    joyvasa_inference_steps: int,
     animation_region: str,
     stitching: bool,
     relative_motion: bool,
@@ -4848,6 +4881,16 @@ async def create_and_enqueue_audio_job(
         raise HTTPException(status_code=400, detail="Invalid audio_eye_hard_dy_max.")
     normalized_audio_eye_hard_dy_min = min(raw_audio_eye_hard_dy_min, raw_audio_eye_hard_dy_max)
     normalized_audio_eye_hard_dy_max = max(raw_audio_eye_hard_dy_min, raw_audio_eye_hard_dy_max)
+    normalized_driving_multiplier = float(driving_multiplier)
+    if not math.isfinite(normalized_driving_multiplier):
+        raise HTTPException(status_code=400, detail="Invalid driving_multiplier.")
+    normalized_driving_multiplier = min(2.0, max(0.0, normalized_driving_multiplier))
+    normalized_cfg_scale = float(cfg_scale)
+    if not math.isfinite(normalized_cfg_scale):
+        raise HTTPException(status_code=400, detail="Invalid cfg_scale.")
+    normalized_cfg_scale = min(10.0, max(0.0, normalized_cfg_scale))
+    normalized_joyvasa_inference_steps = int(joyvasa_inference_steps)
+    normalized_joyvasa_inference_steps = min(100, max(1, normalized_joyvasa_inference_steps))
     normalized_animation_region = str(animation_region or "").strip().lower()
     if normalized_animation_region not in ANIMATION_REGION_CHOICES:
         raise HTTPException(
@@ -4899,6 +4942,9 @@ async def create_and_enqueue_audio_job(
         audio_eye_hard_factor=normalized_audio_eye_hard_factor,
         audio_eye_hard_dy_min=normalized_audio_eye_hard_dy_min,
         audio_eye_hard_dy_max=normalized_audio_eye_hard_dy_max,
+        driving_multiplier=normalized_driving_multiplier,
+        cfg_scale=normalized_cfg_scale,
+        joyvasa_inference_steps=normalized_joyvasa_inference_steps,
         animation_region=normalized_animation_region,
         stitching_enabled=bool(stitching),
         relative_motion_enabled=bool(relative_motion),
@@ -4997,6 +5043,9 @@ def create_app() -> FastAPI:
             "defaultAudioEyeHardFactor": DEFAULT_AUDIO_EYE_HARD_FACTOR,
             "defaultAudioEyeHardDyMin": DEFAULT_AUDIO_EYE_HARD_DY_MIN,
             "defaultAudioEyeHardDyMax": DEFAULT_AUDIO_EYE_HARD_DY_MAX,
+            "defaultDrivingMultiplier": DEFAULT_DRIVING_MULTIPLIER,
+            "defaultCfgScale": DEFAULT_CFG_SCALE,
+            "defaultJoyvasaInferenceSteps": DEFAULT_JOYVASA_INFERENCE_STEPS,
             "defaultVideoEncoder": DEFAULT_VIDEO_ENCODER,
             "authEnabled": API_TOKEN_ENABLED,
             "authHeaderName": "Authorization",
@@ -5144,6 +5193,9 @@ def create_app() -> FastAPI:
         audio_eye_hard_factor: float = Form(DEFAULT_AUDIO_EYE_HARD_FACTOR),
         audio_eye_hard_dy_min: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MIN),
         audio_eye_hard_dy_max: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MAX),
+        driving_multiplier: float = Form(DEFAULT_DRIVING_MULTIPLIER),
+        cfg_scale: float = Form(DEFAULT_CFG_SCALE),
+        joyvasa_inference_steps: int = Form(DEFAULT_JOYVASA_INFERENCE_STEPS),
         animation_region: str = Form(DEFAULT_ANIMATION_REGION),
         stitching: bool = Form(DEFAULT_STITCHING_ENABLED),
         relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
@@ -5161,6 +5213,9 @@ def create_app() -> FastAPI:
             audio_eye_hard_factor=audio_eye_hard_factor,
             audio_eye_hard_dy_min=audio_eye_hard_dy_min,
             audio_eye_hard_dy_max=audio_eye_hard_dy_max,
+            driving_multiplier=driving_multiplier,
+            cfg_scale=cfg_scale,
+            joyvasa_inference_steps=joyvasa_inference_steps,
             animation_region=animation_region,
             stitching=stitching,
             relative_motion=relative_motion,
@@ -5181,6 +5236,9 @@ def create_app() -> FastAPI:
         audio_eye_hard_factor: float = Form(DEFAULT_AUDIO_EYE_HARD_FACTOR),
         audio_eye_hard_dy_min: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MIN),
         audio_eye_hard_dy_max: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MAX),
+        driving_multiplier: float = Form(DEFAULT_DRIVING_MULTIPLIER),
+        cfg_scale: float = Form(DEFAULT_CFG_SCALE),
+        joyvasa_inference_steps: int = Form(DEFAULT_JOYVASA_INFERENCE_STEPS),
         animation_region: str = Form(DEFAULT_ANIMATION_REGION),
         stitching: bool = Form(DEFAULT_STITCHING_ENABLED),
         relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
@@ -5198,6 +5256,9 @@ def create_app() -> FastAPI:
             audio_eye_hard_factor=audio_eye_hard_factor,
             audio_eye_hard_dy_min=audio_eye_hard_dy_min,
             audio_eye_hard_dy_max=audio_eye_hard_dy_max,
+            driving_multiplier=driving_multiplier,
+            cfg_scale=cfg_scale,
+            joyvasa_inference_steps=joyvasa_inference_steps,
             animation_region=animation_region,
             stitching=stitching,
             relative_motion=relative_motion,

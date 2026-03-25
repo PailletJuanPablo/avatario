@@ -62,6 +62,27 @@ def read_env_float(
     return float(parsed_value)
 
 
+def read_env_int(
+    env_key: str,
+    default_value: int,
+    minimum_value: int | None = None,
+    maximum_value: int | None = None,
+) -> int:
+    """
+    Read one integer environment override and clamp it when bounds are provided.
+    """
+    raw_value = os.getenv(env_key, str(default_value)).strip()
+    try:
+        parsed_value = int(raw_value or str(default_value))
+    except ValueError:
+        parsed_value = int(default_value)
+    if minimum_value is not None:
+        parsed_value = max(int(minimum_value), parsed_value)
+    if maximum_value is not None:
+        parsed_value = min(int(maximum_value), parsed_value)
+    return int(parsed_value)
+
+
 MODE_PREVIEW = "preview"
 MODE_FULL = "full"
 BACKEND_ONNX = "onnx"
@@ -125,6 +146,9 @@ DEFAULT_AUDIO_EYE_SOFT_FACTOR = read_env_float(DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV
 DEFAULT_AUDIO_EYE_HARD_FACTOR = read_env_float(DEFAULT_AUDIO_EYE_HARD_FACTOR_ENV_KEY, 0.18, 0.0, 1.0)
 DEFAULT_AUDIO_EYE_HARD_DY_MIN = read_env_float(DEFAULT_AUDIO_EYE_HARD_DY_MIN_ENV_KEY, -0.0045)
 DEFAULT_AUDIO_EYE_HARD_DY_MAX = read_env_float(DEFAULT_AUDIO_EYE_HARD_DY_MAX_ENV_KEY, 0.0035)
+DEFAULT_DRIVING_MULTIPLIER = read_env_float("ANIMATION_DRIVING_MULTIPLIER", 1.0, 0.0, 2.0)
+DEFAULT_CFG_SCALE = read_env_float("ANIMATION_CFG_SCALE", 1.2, 0.0, 10.0)
+DEFAULT_JOYVASA_INFERENCE_STEPS = read_env_int("ANIMATION_JOYVASA_INFERENCE_STEPS", 15, 1, 100)
 ENGINE_PRECISION_MARKER_SUFFIX = ".precision.txt"
 ENGINE_BATCH_MARKER_SUFFIX = ".batch.txt"
 TRT_INT8_CALIBRATION_BATCHES = 12
@@ -192,6 +216,9 @@ class RunnerConfig:
     audio_eye_hard_factor: float
     audio_eye_hard_dy_min: float
     audio_eye_hard_dy_max: float
+    driving_multiplier: float
+    cfg_scale: float
+    joyvasa_inference_steps: int
     render_batch_size: int
     trt_engine_batch_size: int
     stream_dir: Path
@@ -268,6 +295,24 @@ def parse_args() -> RunnerConfig:
         type=float,
         default=DEFAULT_AUDIO_EYE_HARD_DY_MAX,
         help="Maximum vertical eyelid delta allowed while building audio motion templates.",
+    )
+    parser.add_argument(
+        "--driving-multiplier",
+        type=float,
+        default=DEFAULT_DRIVING_MULTIPLIER,
+        help="Global motion amplitude multiplier applied during render [0..2].",
+    )
+    parser.add_argument(
+        "--cfg-scale",
+        type=float,
+        default=DEFAULT_CFG_SCALE,
+        help="JoyVASA classifier-free guidance scale used for audio motion generation [0..10].",
+    )
+    parser.add_argument(
+        "--joyvasa-inference-steps",
+        type=int,
+        default=DEFAULT_JOYVASA_INFERENCE_STEPS,
+        help="JoyVASA diffusion inference steps [1..100].",
     )
     parser.add_argument(
         "--render-batch-size",
@@ -375,6 +420,9 @@ def parse_args() -> RunnerConfig:
     audio_eye_hard_factor = float(np.clip(float(args.audio_eye_hard_factor), 0.0, 1.0))
     audio_eye_hard_dy_min = float(min(args.audio_eye_hard_dy_min, args.audio_eye_hard_dy_max))
     audio_eye_hard_dy_max = float(max(args.audio_eye_hard_dy_min, args.audio_eye_hard_dy_max))
+    driving_multiplier = float(np.clip(float(args.driving_multiplier), 0.0, 2.0))
+    cfg_scale = float(np.clip(float(args.cfg_scale), 0.0, 10.0))
+    joyvasa_inference_steps = int(np.clip(int(args.joyvasa_inference_steps), 1, 100))
 
     project_root = Path(__file__).resolve().parent
     driving_audio = (project_root / args.driving_audio).resolve() if args.driving_audio else None
@@ -410,6 +458,9 @@ def parse_args() -> RunnerConfig:
         audio_eye_hard_factor=audio_eye_hard_factor,
         audio_eye_hard_dy_min=audio_eye_hard_dy_min,
         audio_eye_hard_dy_max=audio_eye_hard_dy_max,
+        driving_multiplier=driving_multiplier,
+        cfg_scale=cfg_scale,
+        joyvasa_inference_steps=joyvasa_inference_steps,
         render_batch_size=render_batch_size,
         trt_engine_batch_size=trt_engine_batch_size,
         stream_dir=(project_root / args.stream_dir).resolve(),
@@ -1057,6 +1108,8 @@ def build_audio_template_generation_profile(
         "eyeHardFactor": round(float(config.audio_eye_hard_factor), 6),
         "eyeHardDyMin": round(float(config.audio_eye_hard_dy_min), 6),
         "eyeHardDyMax": round(float(config.audio_eye_hard_dy_max), 6),
+        "cfgScale": round(float(config.cfg_scale), 6),
+        "joyvasaInferenceSteps": int(config.joyvasa_inference_steps),
     }
 
 
@@ -1227,6 +1280,10 @@ def build_audio_to_pkl_extra_args(config: RunnerConfig) -> list[str]:
         f"{float(config.audio_eye_hard_dy_min):.6f}",
         "--eye-hard-dy-max",
         f"{float(config.audio_eye_hard_dy_max):.6f}",
+        "--cfg-scale",
+        f"{float(config.cfg_scale):.6f}",
+        "--inference-steps",
+        str(int(config.joyvasa_inference_steps)),
     ]
     if config.generation_frame_count is not None:
         command.extend(
@@ -1920,6 +1977,9 @@ def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
         f"--preload_source_image {shlex.quote(source_frame_workspace_path)} "
         f"--render_batch_size {int(config.render_batch_size)} "
         f"--animation_region {shlex.quote(config.animation_region)} "
+        f"--driving_multiplier {float(config.driving_multiplier):.6f} "
+        f"--cfg_scale {float(config.cfg_scale):.6f} "
+        f"--joyvasa_inference_steps {int(config.joyvasa_inference_steps)} "
     )
     if should_render_paste_back(config):
         worker_command += "--paste_back "
@@ -1977,6 +2037,12 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
         str(int(config.render_batch_size)),
         "--animation_region",
         str(config.animation_region),
+        "--driving_multiplier",
+        f"{float(config.driving_multiplier):.6f}",
+        "--cfg_scale",
+        f"{float(config.cfg_scale):.6f}",
+        "--joyvasa_inference_steps",
+        str(int(config.joyvasa_inference_steps)),
     ]
     if should_render_paste_back(config):
         worker_command.append("--paste_back")
@@ -2060,6 +2126,10 @@ def build_local_driving_args(config: RunnerConfig, driving_input: Path) -> list[
             str(driving_input),
             "--motion_stride",
             str(int(config.audio_motion_stride)),
+            "--cfg_scale",
+            f"{float(config.cfg_scale):.6f}",
+            "--joyvasa_inference_steps",
+            str(int(config.joyvasa_inference_steps)),
         ]
         if config.generation_frame_count is not None:
             command.extend(
@@ -2068,11 +2138,18 @@ def build_local_driving_args(config: RunnerConfig, driving_input: Path) -> list[
                     str(int(config.generation_frame_count)),
                 ]
             )
-        return command
-    return [
+    else:
+        command = [
         "--dri_video",
         str(driving_input),
-    ]
+        ]
+    command.extend(
+        [
+            "--driving_multiplier",
+            f"{float(config.driving_multiplier):.6f}",
+        ]
+    )
+    return command
 
 
 def build_docker_driving_args(config: RunnerConfig, driving_workspace_path: str) -> str:
@@ -2084,14 +2161,22 @@ def build_docker_driving_args(config: RunnerConfig, driving_workspace_path: str)
         command = (
             f"--driving_audio {shlex.quote(driving_workspace_path)} "
             f"--motion_stride {int(config.audio_motion_stride)} "
+            f"--cfg_scale {float(config.cfg_scale):.6f} "
+            f"--joyvasa_inference_steps {int(config.joyvasa_inference_steps)} "
         )
         if config.generation_frame_count is not None:
             command += f"--generation_frame_count {int(config.generation_frame_count)} "
-        return command
-    return f"--dri_video {shlex.quote(driving_workspace_path)} "
+    else:
+        command = f"--dri_video {shlex.quote(driving_workspace_path)} "
+    command += f"--driving_multiplier {float(config.driving_multiplier):.6f} "
+    return command
 
 
-def build_worker_driving_payload(config: RunnerConfig, driving_input: Path, containerized: bool) -> dict[str, str | int]:
+def build_worker_driving_payload(
+    config: RunnerConfig,
+    driving_input: Path,
+    containerized: bool,
+) -> dict[str, str | int | float]:
     """
     Build persistent worker driving payload fields using one single audio/video contract.
     """
@@ -2106,6 +2191,9 @@ def build_worker_driving_payload(config: RunnerConfig, driving_input: Path, cont
             "drivingAudio": "",
             "motionStride": 1,
             "generationFrameCount": 0,
+            "drivingMultiplier": float(config.driving_multiplier),
+            "cfgScale": float(config.cfg_scale),
+            "joyvasaInferenceSteps": int(config.joyvasa_inference_steps),
         }
 
     driving_value = (
@@ -2118,6 +2206,9 @@ def build_worker_driving_payload(config: RunnerConfig, driving_input: Path, cont
         "drivingAudio": driving_value,
         "motionStride": int(config.audio_motion_stride),
         "generationFrameCount": int(config.generation_frame_count or 0),
+        "drivingMultiplier": float(config.driving_multiplier),
+        "cfgScale": float(config.cfg_scale),
+        "joyvasaInferenceSteps": int(config.joyvasa_inference_steps),
     }
 
 

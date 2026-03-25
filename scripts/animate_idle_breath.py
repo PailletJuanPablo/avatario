@@ -16,27 +16,46 @@ DEFAULT_OUTPUT_VIDEO = Path("inputs/idlevid_breath.mp4")
 DEFAULT_VIDEO_CODEC = "mp4v"
 DEFAULT_BREATH_CYCLE_SEC = 4.9
 DEFAULT_BREATH_STRENGTH = 1.15
+DEFAULT_EXPRESSIVENESS = 0.42
 DEFAULT_SECONDARY_WAVE_SCALE = 0.18
 DEFAULT_SECONDARY_WAVE_PHASE_RAD = 0.58
 DEFAULT_TERTIARY_WAVE_SCALE = 0.08
 DEFAULT_TERTIARY_WAVE_PHASE_RAD = 1.11
 DEFAULT_MICRO_WAVE_SCALE = 0.035
 DEFAULT_MICRO_WAVE_PHASE_RAD = 2.14
+DEFAULT_POSTURE_CYCLE_SEC = 13.8
+DEFAULT_POSTURE_SECONDARY_WAVE_SCALE = 0.16
+DEFAULT_POSTURE_SECONDARY_WAVE_PHASE_RAD = 1.04
+DEFAULT_POSTURE_TERTIARY_WAVE_SCALE = 0.07
+DEFAULT_POSTURE_TERTIARY_WAVE_PHASE_RAD = 2.26
+DEFAULT_POSTURE_MICRO_WAVE_SCALE = 0.022
+DEFAULT_POSTURE_MICRO_WAVE_PHASE_RAD = 0.37
+DEFAULT_HEAD_CYCLE_SEC = 8.9
+DEFAULT_HEAD_SECONDARY_WAVE_SCALE = 0.20
+DEFAULT_HEAD_SECONDARY_WAVE_PHASE_RAD = 0.83
+DEFAULT_HEAD_TERTIARY_WAVE_SCALE = 0.08
+DEFAULT_HEAD_TERTIARY_WAVE_PHASE_RAD = 1.92
+DEFAULT_HEAD_MICRO_WAVE_SCALE = 0.05
+DEFAULT_HEAD_MICRO_WAVE_PHASE_RAD = 2.61
 DEFAULT_TRANSCODE_CRF = 18
 DEFAULT_TRANSCODE_PRESET = "medium"
 DEFAULT_MASK_BLUR_SIGMA = 19.0
 DEFAULT_SUBJECT_MASK_BLUR_SIGMA = 2.5
-DEFAULT_SUBJECT_MASK_ERODE_PX = 3
+DEFAULT_SUBJECT_MASK_ERODE_PX = 1
 SUBJECT_GRABCUT_ITERATIONS = 5
 PROGRESS_FRAME_INTERVAL = 60
 
 TORSO_ZONE_NAME = "torso"
+LOWER_THORAX_ZONE_NAME = "lower_thorax"
 UPPER_CHEST_ZONE_NAME = "upper_chest"
 LEFT_SHOULDER_ZONE_NAME = "left_shoulder"
 RIGHT_SHOULDER_ZONE_NAME = "right_shoulder"
 LEFT_COLLAR_ZONE_NAME = "left_collar"
 RIGHT_COLLAR_ZONE_NAME = "right_collar"
 NECK_ZONE_NAME = "neck"
+UPPER_BODY_SWAY_LAYER_NAME = "upper_body_sway"
+HIP_COUNTERBALANCE_LAYER_NAME = "hip_counterbalance"
+HEAD_LAYER_NAME = "head"
 
 TORSO_CENTER_X_RATIO = 0.50
 TORSO_CENTER_Y_RATIO = 0.80
@@ -48,16 +67,37 @@ TORSO_BOTTOM_FADE_START_RATIO = 0.91
 TORSO_BOTTOM_FADE_END_RATIO = 0.995
 TORSO_ANCHOR_X_RATIO = 0.50
 TORSO_ANCHOR_Y_RATIO = 0.74
-TORSO_SCALE_X_AMPLITUDE = 0.0036
-TORSO_SCALE_Y_AMPLITUDE = 0.0070
+TORSO_SCALE_X_AMPLITUDE = 0.0043
+TORSO_SCALE_Y_AMPLITUDE = 0.0082
 TORSO_SHIFT_X_RATIO = 0.0
-TORSO_SHIFT_Y_RATIO = -0.0015
+TORSO_SHIFT_Y_RATIO = -0.0022
 TORSO_PHASE_OFFSET_RAD = -0.08
 TORSO_INHALE_BIAS = 0.06
 TORSO_SECONDARY_WAVE_SCALE_MULTIPLIER = 0.78
 TORSO_TERTIARY_WAVE_SCALE = 0.025
 TORSO_MICRO_WAVE_SCALE = 0.01
 TORSO_WAVE_SHARPNESS = 1.02
+
+LOWER_THORAX_CENTER_X_RATIO = 0.50
+LOWER_THORAX_CENTER_Y_RATIO = 0.75
+LOWER_THORAX_RADIUS_X_RATIO = 0.17
+LOWER_THORAX_RADIUS_Y_RATIO = 0.15
+LOWER_THORAX_TOP_FADE_START_RATIO = 0.52
+LOWER_THORAX_TOP_FADE_END_RATIO = 0.58
+LOWER_THORAX_BOTTOM_FADE_START_RATIO = 0.83
+LOWER_THORAX_BOTTOM_FADE_END_RATIO = 0.90
+LOWER_THORAX_ANCHOR_X_RATIO = 0.50
+LOWER_THORAX_ANCHOR_Y_RATIO = 0.69
+LOWER_THORAX_SCALE_X_AMPLITUDE = 0.0049
+LOWER_THORAX_SCALE_Y_AMPLITUDE = 0.0062
+LOWER_THORAX_SHIFT_X_RATIO = 0.0
+LOWER_THORAX_SHIFT_Y_RATIO = -0.0024
+LOWER_THORAX_PHASE_OFFSET_RAD = 0.03
+LOWER_THORAX_INHALE_BIAS = 0.18
+LOWER_THORAX_SECONDARY_WAVE_SCALE_MULTIPLIER = 0.96
+LOWER_THORAX_TERTIARY_WAVE_SCALE = 0.05
+LOWER_THORAX_MICRO_WAVE_SCALE = 0.02
+LOWER_THORAX_WAVE_SHARPNESS = 1.14
 
 UPPER_CHEST_CENTER_X_RATIO = 0.50
 UPPER_CHEST_CENTER_Y_RATIO = 0.68
@@ -81,27 +121,27 @@ UPPER_CHEST_MICRO_WAVE_SCALE = 0.025
 UPPER_CHEST_WAVE_SHARPNESS = 1.16
 
 SHOULDER_CENTER_Y_RATIO = 0.60
-SHOULDER_RADIUS_X_RATIO = 0.115
-SHOULDER_RADIUS_Y_RATIO = 0.11
-SHOULDER_TOP_FADE_START_RATIO = 0.41
-SHOULDER_TOP_FADE_END_RATIO = 0.49
-SHOULDER_BOTTOM_FADE_START_RATIO = 0.68
-SHOULDER_BOTTOM_FADE_END_RATIO = 0.78
+SHOULDER_RADIUS_X_RATIO = 0.125
+SHOULDER_RADIUS_Y_RATIO = 0.125
+SHOULDER_TOP_FADE_START_RATIO = 0.37
+SHOULDER_TOP_FADE_END_RATIO = 0.46
+SHOULDER_BOTTOM_FADE_START_RATIO = 0.70
+SHOULDER_BOTTOM_FADE_END_RATIO = 0.80
 SHOULDER_ANCHOR_Y_RATIO = 0.58
-SHOULDER_SCALE_X_AMPLITUDE = 0.0021
-SHOULDER_SCALE_Y_AMPLITUDE = 0.0045
-SHOULDER_SHIFT_Y_RATIO = -0.0027
-SHOULDER_OUTWARD_SHIFT_RATIO = 0.00095
-LEFT_SHOULDER_CENTER_X_RATIO = 0.384
-RIGHT_SHOULDER_CENTER_X_RATIO = 0.616
-LEFT_SHOULDER_ANCHOR_X_RATIO = 0.388
-RIGHT_SHOULDER_ANCHOR_X_RATIO = 0.612
-LEFT_SHOULDER_SCALE_X_AMPLITUDE = 0.0022
-RIGHT_SHOULDER_SCALE_X_AMPLITUDE = 0.0019
-LEFT_SHOULDER_SCALE_Y_AMPLITUDE = 0.0048
-RIGHT_SHOULDER_SCALE_Y_AMPLITUDE = 0.0043
-LEFT_SHOULDER_OUTWARD_SHIFT_RATIO = 0.00105
-RIGHT_SHOULDER_OUTWARD_SHIFT_RATIO = 0.00082
+SHOULDER_SCALE_X_AMPLITUDE = 0.0029
+SHOULDER_SCALE_Y_AMPLITUDE = 0.0064
+SHOULDER_SHIFT_Y_RATIO = -0.0041
+SHOULDER_OUTWARD_SHIFT_RATIO = 0.00135
+LEFT_SHOULDER_CENTER_X_RATIO = 0.376
+RIGHT_SHOULDER_CENTER_X_RATIO = 0.624
+LEFT_SHOULDER_ANCHOR_X_RATIO = 0.380
+RIGHT_SHOULDER_ANCHOR_X_RATIO = 0.620
+LEFT_SHOULDER_SCALE_X_AMPLITUDE = 0.0032
+RIGHT_SHOULDER_SCALE_X_AMPLITUDE = 0.0029
+LEFT_SHOULDER_SCALE_Y_AMPLITUDE = 0.0073
+RIGHT_SHOULDER_SCALE_Y_AMPLITUDE = 0.0067
+LEFT_SHOULDER_OUTWARD_SHIFT_RATIO = 0.00155
+RIGHT_SHOULDER_OUTWARD_SHIFT_RATIO = 0.00128
 LEFT_SHOULDER_PHASE_OFFSET_RAD = 0.10
 RIGHT_SHOULDER_PHASE_OFFSET_RAD = 0.23
 LEFT_SHOULDER_INHALE_BIAS = 0.24
@@ -124,10 +164,10 @@ RIGHT_COLLAR_CENTER_X_RATIO = 0.568
 LEFT_COLLAR_ANCHOR_X_RATIO = 0.438
 RIGHT_COLLAR_ANCHOR_X_RATIO = 0.562
 COLLAR_ANCHOR_Y_RATIO = 0.51
-COLLAR_SCALE_X_AMPLITUDE = 0.0015
-COLLAR_SCALE_Y_AMPLITUDE = 0.0033
-COLLAR_SHIFT_Y_RATIO = -0.0012
-COLLAR_OUTWARD_SHIFT_RATIO = 0.00070
+COLLAR_SCALE_X_AMPLITUDE = 0.0019
+COLLAR_SCALE_Y_AMPLITUDE = 0.0045
+COLLAR_SHIFT_Y_RATIO = -0.0019
+COLLAR_OUTWARD_SHIFT_RATIO = 0.00105
 LEFT_COLLAR_PHASE_OFFSET_RAD = 0.28
 RIGHT_COLLAR_PHASE_OFFSET_RAD = 0.36
 COLLAR_INHALE_BIAS = 0.20
@@ -159,6 +199,63 @@ NECK_MICRO_WAVE_SCALE = 0.02
 NECK_WAVE_SHARPNESS = 1.08
 NECK_BLUR_SIGMA = 13.0
 
+UPPER_BODY_CENTER_X_RATIO = 0.50
+UPPER_BODY_CENTER_Y_RATIO = 0.58
+UPPER_BODY_RADIUS_X_RATIO = 0.19
+UPPER_BODY_RADIUS_Y_RATIO = 0.28
+UPPER_BODY_TOP_FADE_START_RATIO = 0.18
+UPPER_BODY_TOP_FADE_END_RATIO = 0.26
+UPPER_BODY_BOTTOM_FADE_START_RATIO = 0.79
+UPPER_BODY_BOTTOM_FADE_END_RATIO = 0.90
+UPPER_BODY_ANCHOR_X_RATIO = 0.50
+UPPER_BODY_ANCHOR_Y_RATIO = 0.73
+UPPER_BODY_SCALE_X_AMPLITUDE = 0.0012
+UPPER_BODY_SCALE_Y_AMPLITUDE = 0.0016
+UPPER_BODY_SHIFT_X_RATIO = 0.0011
+UPPER_BODY_SHIFT_Y_RATIO = -0.0009
+UPPER_BODY_ROTATION_DEG_AMPLITUDE = 0.17
+UPPER_BODY_PHASE_OFFSET_RAD = 0.24
+UPPER_BODY_WAVE_SHARPNESS = 1.10
+UPPER_BODY_BLUR_SIGMA = 24.0
+
+HIP_CENTER_X_RATIO = 0.50
+HIP_CENTER_Y_RATIO = 0.84
+HIP_RADIUS_X_RATIO = 0.18
+HIP_RADIUS_Y_RATIO = 0.15
+HIP_TOP_FADE_START_RATIO = 0.69
+HIP_TOP_FADE_END_RATIO = 0.76
+HIP_BOTTOM_FADE_START_RATIO = 0.94
+HIP_BOTTOM_FADE_END_RATIO = 0.995
+HIP_ANCHOR_X_RATIO = 0.50
+HIP_ANCHOR_Y_RATIO = 0.90
+HIP_SCALE_X_AMPLITUDE = 0.0007
+HIP_SCALE_Y_AMPLITUDE = 0.0010
+HIP_SHIFT_X_RATIO = -0.0012
+HIP_SHIFT_Y_RATIO = 0.0008
+HIP_ROTATION_DEG_AMPLITUDE = -0.11
+HIP_PHASE_OFFSET_RAD = 3.28
+HIP_WAVE_SHARPNESS = 1.02
+HIP_BLUR_SIGMA = 23.0
+
+HEAD_CENTER_X_RATIO = 0.50
+HEAD_CENTER_Y_RATIO = 0.30
+HEAD_RADIUS_X_RATIO = 0.12
+HEAD_RADIUS_Y_RATIO = 0.18
+HEAD_TOP_FADE_START_RATIO = 0.06
+HEAD_TOP_FADE_END_RATIO = 0.12
+HEAD_BOTTOM_FADE_START_RATIO = 0.43
+HEAD_BOTTOM_FADE_END_RATIO = 0.54
+HEAD_ANCHOR_X_RATIO = 0.50
+HEAD_ANCHOR_Y_RATIO = 0.37
+HEAD_SCALE_X_AMPLITUDE = 0.0004
+HEAD_SCALE_Y_AMPLITUDE = 0.0007
+HEAD_SHIFT_X_RATIO = 0.0007
+HEAD_SHIFT_Y_RATIO = 0.0005
+HEAD_ROTATION_DEG_AMPLITUDE = 0.16
+HEAD_PHASE_OFFSET_RAD = -0.38
+HEAD_WAVE_SHARPNESS = 1.18
+HEAD_BLUR_SIGMA = 17.0
+
 
 @dataclass(frozen=True)
 class MotionZoneConfig:
@@ -179,11 +276,44 @@ class MotionZoneConfig:
     scale_y_amplitude: float
     shift_x_ratio: float
     shift_y_ratio: float
+    rotation_deg_amplitude: float
     phase_offset_rad: float
     inhale_bias: float
     secondary_wave_scale_multiplier: float
     tertiary_wave_scale: float
     micro_wave_scale: float
+    wave_sharpness: float
+    blur_sigma: float
+
+
+@dataclass(frozen=True)
+class ExpressiveLayerConfig:
+    """One masked transform layer used for posture sway and head micro-motion."""
+
+    name: str
+    center_x_ratio: float
+    center_y_ratio: float
+    radius_x_ratio: float
+    radius_y_ratio: float
+    top_fade_start_ratio: float
+    top_fade_end_ratio: float
+    bottom_fade_start_ratio: float
+    bottom_fade_end_ratio: float
+    anchor_x_ratio: float
+    anchor_y_ratio: float
+    scale_x_amplitude: float
+    scale_y_amplitude: float
+    shift_x_ratio: float
+    shift_y_ratio: float
+    rotation_deg_amplitude: float
+    target_cycle_sec: float
+    phase_offset_rad: float
+    secondary_wave_scale: float
+    secondary_wave_phase_rad: float
+    tertiary_wave_scale: float
+    tertiary_wave_phase_rad: float
+    micro_wave_scale: float
+    micro_wave_phase_rad: float
     wave_sharpness: float
     blur_sigma: float
 
@@ -200,6 +330,8 @@ class BreathAnimationConfig:
     micro_wave_scale: float
     micro_wave_phase_rad: float
     motion_zones: tuple[MotionZoneConfig, ...]
+    pre_motion_layers: tuple[ExpressiveLayerConfig, ...]
+    post_motion_layers: tuple[ExpressiveLayerConfig, ...]
 
 
 def parse_args() -> argparse.Namespace:
@@ -237,6 +369,12 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_BREATH_STRENGTH,
         help="Global scalar for the breathing deformation strength.",
     )
+    parser.add_argument(
+        "--expressiveness",
+        type=float,
+        default=DEFAULT_EXPRESSIVENESS,
+        help="Global scalar for posture sway and head micro-motion.",
+    )
     return parser.parse_args()
 
 
@@ -256,6 +394,7 @@ def create_motion_zone(
     scale_y_amplitude: float,
     shift_x_ratio: float,
     shift_y_ratio: float,
+    rotation_deg_amplitude: float,
     phase_offset_rad: float,
     inhale_bias: float,
     secondary_wave_scale_multiplier: float,
@@ -284,6 +423,7 @@ def create_motion_zone(
         scale_y_amplitude=scale_y_amplitude * safe_strength,
         shift_x_ratio=shift_x_ratio * safe_strength,
         shift_y_ratio=shift_y_ratio * safe_strength,
+        rotation_deg_amplitude=rotation_deg_amplitude * safe_strength,
         phase_offset_rad=phase_offset_rad,
         inhale_bias=inhale_bias,
         secondary_wave_scale_multiplier=max(0.0, secondary_wave_scale_multiplier),
@@ -294,10 +434,73 @@ def create_motion_zone(
     )
 
 
+def create_expressive_layer(
+    name: str,
+    center_x_ratio: float,
+    center_y_ratio: float,
+    radius_x_ratio: float,
+    radius_y_ratio: float,
+    top_fade_start_ratio: float,
+    top_fade_end_ratio: float,
+    bottom_fade_start_ratio: float,
+    bottom_fade_end_ratio: float,
+    anchor_x_ratio: float,
+    anchor_y_ratio: float,
+    scale_x_amplitude: float,
+    scale_y_amplitude: float,
+    shift_x_ratio: float,
+    shift_y_ratio: float,
+    rotation_deg_amplitude: float,
+    target_cycle_sec: float,
+    phase_offset_rad: float,
+    secondary_wave_scale: float,
+    secondary_wave_phase_rad: float,
+    tertiary_wave_scale: float,
+    tertiary_wave_phase_rad: float,
+    micro_wave_scale: float,
+    micro_wave_phase_rad: float,
+    wave_sharpness: float,
+    blur_sigma: float,
+    expressiveness: float,
+) -> ExpressiveLayerConfig:
+    """Create one expressive motion layer with the global strength applied."""
+
+    safe_expressiveness = max(0.0, float(expressiveness))
+    return ExpressiveLayerConfig(
+        name=name,
+        center_x_ratio=center_x_ratio,
+        center_y_ratio=center_y_ratio,
+        radius_x_ratio=radius_x_ratio,
+        radius_y_ratio=radius_y_ratio,
+        top_fade_start_ratio=top_fade_start_ratio,
+        top_fade_end_ratio=top_fade_end_ratio,
+        bottom_fade_start_ratio=bottom_fade_start_ratio,
+        bottom_fade_end_ratio=bottom_fade_end_ratio,
+        anchor_x_ratio=anchor_x_ratio,
+        anchor_y_ratio=anchor_y_ratio,
+        scale_x_amplitude=scale_x_amplitude * safe_expressiveness,
+        scale_y_amplitude=scale_y_amplitude * safe_expressiveness,
+        shift_x_ratio=shift_x_ratio * safe_expressiveness,
+        shift_y_ratio=shift_y_ratio * safe_expressiveness,
+        rotation_deg_amplitude=rotation_deg_amplitude * safe_expressiveness,
+        target_cycle_sec=max(1.0, float(target_cycle_sec)),
+        phase_offset_rad=phase_offset_rad,
+        secondary_wave_scale=max(0.0, secondary_wave_scale),
+        secondary_wave_phase_rad=secondary_wave_phase_rad,
+        tertiary_wave_scale=max(0.0, tertiary_wave_scale),
+        tertiary_wave_phase_rad=tertiary_wave_phase_rad,
+        micro_wave_scale=max(0.0, micro_wave_scale),
+        micro_wave_phase_rad=micro_wave_phase_rad,
+        wave_sharpness=max(0.6, wave_sharpness),
+        blur_sigma=blur_sigma,
+    )
+
+
 def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
     """Create one normalized breathing configuration from parsed arguments."""
 
     safe_strength = max(0.0, float(args.strength or 0.0))
+    safe_expressiveness = max(0.0, float(args.expressiveness or 0.0))
     torso_zone = create_motion_zone(
         name=TORSO_ZONE_NAME,
         center_x_ratio=TORSO_CENTER_X_RATIO,
@@ -314,12 +517,39 @@ def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
         scale_y_amplitude=TORSO_SCALE_Y_AMPLITUDE,
         shift_x_ratio=TORSO_SHIFT_X_RATIO,
         shift_y_ratio=TORSO_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=0.0,
         phase_offset_rad=TORSO_PHASE_OFFSET_RAD,
         inhale_bias=TORSO_INHALE_BIAS,
         secondary_wave_scale_multiplier=TORSO_SECONDARY_WAVE_SCALE_MULTIPLIER,
         tertiary_wave_scale=TORSO_TERTIARY_WAVE_SCALE,
         micro_wave_scale=TORSO_MICRO_WAVE_SCALE,
         wave_sharpness=TORSO_WAVE_SHARPNESS,
+        blur_sigma=DEFAULT_MASK_BLUR_SIGMA,
+        strength=safe_strength,
+    )
+    lower_thorax_zone = create_motion_zone(
+        name=LOWER_THORAX_ZONE_NAME,
+        center_x_ratio=LOWER_THORAX_CENTER_X_RATIO,
+        center_y_ratio=LOWER_THORAX_CENTER_Y_RATIO,
+        radius_x_ratio=LOWER_THORAX_RADIUS_X_RATIO,
+        radius_y_ratio=LOWER_THORAX_RADIUS_Y_RATIO,
+        top_fade_start_ratio=LOWER_THORAX_TOP_FADE_START_RATIO,
+        top_fade_end_ratio=LOWER_THORAX_TOP_FADE_END_RATIO,
+        bottom_fade_start_ratio=LOWER_THORAX_BOTTOM_FADE_START_RATIO,
+        bottom_fade_end_ratio=LOWER_THORAX_BOTTOM_FADE_END_RATIO,
+        anchor_x_ratio=LOWER_THORAX_ANCHOR_X_RATIO,
+        anchor_y_ratio=LOWER_THORAX_ANCHOR_Y_RATIO,
+        scale_x_amplitude=LOWER_THORAX_SCALE_X_AMPLITUDE,
+        scale_y_amplitude=LOWER_THORAX_SCALE_Y_AMPLITUDE,
+        shift_x_ratio=LOWER_THORAX_SHIFT_X_RATIO,
+        shift_y_ratio=LOWER_THORAX_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=0.0,
+        phase_offset_rad=LOWER_THORAX_PHASE_OFFSET_RAD,
+        inhale_bias=LOWER_THORAX_INHALE_BIAS,
+        secondary_wave_scale_multiplier=LOWER_THORAX_SECONDARY_WAVE_SCALE_MULTIPLIER,
+        tertiary_wave_scale=LOWER_THORAX_TERTIARY_WAVE_SCALE,
+        micro_wave_scale=LOWER_THORAX_MICRO_WAVE_SCALE,
+        wave_sharpness=LOWER_THORAX_WAVE_SHARPNESS,
         blur_sigma=DEFAULT_MASK_BLUR_SIGMA,
         strength=safe_strength,
     )
@@ -339,6 +569,7 @@ def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
         scale_y_amplitude=UPPER_CHEST_SCALE_Y_AMPLITUDE,
         shift_x_ratio=UPPER_CHEST_SHIFT_X_RATIO,
         shift_y_ratio=UPPER_CHEST_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=0.0,
         phase_offset_rad=UPPER_CHEST_PHASE_OFFSET_RAD,
         inhale_bias=UPPER_CHEST_INHALE_BIAS,
         secondary_wave_scale_multiplier=UPPER_CHEST_SECONDARY_WAVE_SCALE_MULTIPLIER,
@@ -364,6 +595,7 @@ def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
         scale_y_amplitude=LEFT_SHOULDER_SCALE_Y_AMPLITUDE,
         shift_x_ratio=-LEFT_SHOULDER_OUTWARD_SHIFT_RATIO,
         shift_y_ratio=SHOULDER_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=-0.08,
         phase_offset_rad=LEFT_SHOULDER_PHASE_OFFSET_RAD,
         inhale_bias=LEFT_SHOULDER_INHALE_BIAS,
         secondary_wave_scale_multiplier=LEFT_SHOULDER_SECONDARY_WAVE_SCALE_MULTIPLIER,
@@ -389,6 +621,7 @@ def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
         scale_y_amplitude=RIGHT_SHOULDER_SCALE_Y_AMPLITUDE,
         shift_x_ratio=RIGHT_SHOULDER_OUTWARD_SHIFT_RATIO,
         shift_y_ratio=SHOULDER_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=0.07,
         phase_offset_rad=RIGHT_SHOULDER_PHASE_OFFSET_RAD,
         inhale_bias=RIGHT_SHOULDER_INHALE_BIAS,
         secondary_wave_scale_multiplier=RIGHT_SHOULDER_SECONDARY_WAVE_SCALE_MULTIPLIER,
@@ -414,6 +647,7 @@ def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
         scale_y_amplitude=COLLAR_SCALE_Y_AMPLITUDE,
         shift_x_ratio=-COLLAR_OUTWARD_SHIFT_RATIO,
         shift_y_ratio=COLLAR_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=-0.11,
         phase_offset_rad=LEFT_COLLAR_PHASE_OFFSET_RAD,
         inhale_bias=COLLAR_INHALE_BIAS,
         secondary_wave_scale_multiplier=COLLAR_SECONDARY_WAVE_SCALE_MULTIPLIER,
@@ -439,6 +673,7 @@ def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
         scale_y_amplitude=COLLAR_SCALE_Y_AMPLITUDE,
         shift_x_ratio=COLLAR_OUTWARD_SHIFT_RATIO,
         shift_y_ratio=COLLAR_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=0.10,
         phase_offset_rad=RIGHT_COLLAR_PHASE_OFFSET_RAD,
         inhale_bias=COLLAR_INHALE_BIAS,
         secondary_wave_scale_multiplier=COLLAR_SECONDARY_WAVE_SCALE_MULTIPLIER,
@@ -464,6 +699,7 @@ def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
         scale_y_amplitude=NECK_SCALE_Y_AMPLITUDE,
         shift_x_ratio=NECK_SHIFT_X_RATIO,
         shift_y_ratio=NECK_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=0.05,
         phase_offset_rad=NECK_PHASE_OFFSET_RAD,
         inhale_bias=NECK_INHALE_BIAS,
         secondary_wave_scale_multiplier=NECK_SECONDARY_WAVE_SCALE_MULTIPLIER,
@@ -472,6 +708,93 @@ def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
         wave_sharpness=NECK_WAVE_SHARPNESS,
         blur_sigma=NECK_BLUR_SIGMA,
         strength=safe_strength,
+    )
+    hip_counterbalance_layer = create_expressive_layer(
+        name=HIP_COUNTERBALANCE_LAYER_NAME,
+        center_x_ratio=HIP_CENTER_X_RATIO,
+        center_y_ratio=HIP_CENTER_Y_RATIO,
+        radius_x_ratio=HIP_RADIUS_X_RATIO,
+        radius_y_ratio=HIP_RADIUS_Y_RATIO,
+        top_fade_start_ratio=HIP_TOP_FADE_START_RATIO,
+        top_fade_end_ratio=HIP_TOP_FADE_END_RATIO,
+        bottom_fade_start_ratio=HIP_BOTTOM_FADE_START_RATIO,
+        bottom_fade_end_ratio=HIP_BOTTOM_FADE_END_RATIO,
+        anchor_x_ratio=HIP_ANCHOR_X_RATIO,
+        anchor_y_ratio=HIP_ANCHOR_Y_RATIO,
+        scale_x_amplitude=HIP_SCALE_X_AMPLITUDE,
+        scale_y_amplitude=HIP_SCALE_Y_AMPLITUDE,
+        shift_x_ratio=HIP_SHIFT_X_RATIO,
+        shift_y_ratio=HIP_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=HIP_ROTATION_DEG_AMPLITUDE,
+        target_cycle_sec=DEFAULT_POSTURE_CYCLE_SEC,
+        phase_offset_rad=HIP_PHASE_OFFSET_RAD,
+        secondary_wave_scale=DEFAULT_POSTURE_SECONDARY_WAVE_SCALE,
+        secondary_wave_phase_rad=DEFAULT_POSTURE_SECONDARY_WAVE_PHASE_RAD,
+        tertiary_wave_scale=DEFAULT_POSTURE_TERTIARY_WAVE_SCALE,
+        tertiary_wave_phase_rad=DEFAULT_POSTURE_TERTIARY_WAVE_PHASE_RAD,
+        micro_wave_scale=DEFAULT_POSTURE_MICRO_WAVE_SCALE,
+        micro_wave_phase_rad=DEFAULT_POSTURE_MICRO_WAVE_PHASE_RAD,
+        wave_sharpness=HIP_WAVE_SHARPNESS,
+        blur_sigma=HIP_BLUR_SIGMA,
+        expressiveness=safe_expressiveness,
+    )
+    upper_body_sway_layer = create_expressive_layer(
+        name=UPPER_BODY_SWAY_LAYER_NAME,
+        center_x_ratio=UPPER_BODY_CENTER_X_RATIO,
+        center_y_ratio=UPPER_BODY_CENTER_Y_RATIO,
+        radius_x_ratio=UPPER_BODY_RADIUS_X_RATIO,
+        radius_y_ratio=UPPER_BODY_RADIUS_Y_RATIO,
+        top_fade_start_ratio=UPPER_BODY_TOP_FADE_START_RATIO,
+        top_fade_end_ratio=UPPER_BODY_TOP_FADE_END_RATIO,
+        bottom_fade_start_ratio=UPPER_BODY_BOTTOM_FADE_START_RATIO,
+        bottom_fade_end_ratio=UPPER_BODY_BOTTOM_FADE_END_RATIO,
+        anchor_x_ratio=UPPER_BODY_ANCHOR_X_RATIO,
+        anchor_y_ratio=UPPER_BODY_ANCHOR_Y_RATIO,
+        scale_x_amplitude=UPPER_BODY_SCALE_X_AMPLITUDE,
+        scale_y_amplitude=UPPER_BODY_SCALE_Y_AMPLITUDE,
+        shift_x_ratio=UPPER_BODY_SHIFT_X_RATIO,
+        shift_y_ratio=UPPER_BODY_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=UPPER_BODY_ROTATION_DEG_AMPLITUDE,
+        target_cycle_sec=DEFAULT_POSTURE_CYCLE_SEC,
+        phase_offset_rad=UPPER_BODY_PHASE_OFFSET_RAD,
+        secondary_wave_scale=DEFAULT_POSTURE_SECONDARY_WAVE_SCALE,
+        secondary_wave_phase_rad=DEFAULT_POSTURE_SECONDARY_WAVE_PHASE_RAD,
+        tertiary_wave_scale=DEFAULT_POSTURE_TERTIARY_WAVE_SCALE,
+        tertiary_wave_phase_rad=DEFAULT_POSTURE_TERTIARY_WAVE_PHASE_RAD,
+        micro_wave_scale=DEFAULT_POSTURE_MICRO_WAVE_SCALE,
+        micro_wave_phase_rad=DEFAULT_POSTURE_MICRO_WAVE_PHASE_RAD,
+        wave_sharpness=UPPER_BODY_WAVE_SHARPNESS,
+        blur_sigma=UPPER_BODY_BLUR_SIGMA,
+        expressiveness=safe_expressiveness,
+    )
+    head_layer = create_expressive_layer(
+        name=HEAD_LAYER_NAME,
+        center_x_ratio=HEAD_CENTER_X_RATIO,
+        center_y_ratio=HEAD_CENTER_Y_RATIO,
+        radius_x_ratio=HEAD_RADIUS_X_RATIO,
+        radius_y_ratio=HEAD_RADIUS_Y_RATIO,
+        top_fade_start_ratio=HEAD_TOP_FADE_START_RATIO,
+        top_fade_end_ratio=HEAD_TOP_FADE_END_RATIO,
+        bottom_fade_start_ratio=HEAD_BOTTOM_FADE_START_RATIO,
+        bottom_fade_end_ratio=HEAD_BOTTOM_FADE_END_RATIO,
+        anchor_x_ratio=HEAD_ANCHOR_X_RATIO,
+        anchor_y_ratio=HEAD_ANCHOR_Y_RATIO,
+        scale_x_amplitude=HEAD_SCALE_X_AMPLITUDE,
+        scale_y_amplitude=HEAD_SCALE_Y_AMPLITUDE,
+        shift_x_ratio=HEAD_SHIFT_X_RATIO,
+        shift_y_ratio=HEAD_SHIFT_Y_RATIO,
+        rotation_deg_amplitude=HEAD_ROTATION_DEG_AMPLITUDE,
+        target_cycle_sec=DEFAULT_HEAD_CYCLE_SEC,
+        phase_offset_rad=HEAD_PHASE_OFFSET_RAD,
+        secondary_wave_scale=DEFAULT_HEAD_SECONDARY_WAVE_SCALE,
+        secondary_wave_phase_rad=DEFAULT_HEAD_SECONDARY_WAVE_PHASE_RAD,
+        tertiary_wave_scale=DEFAULT_HEAD_TERTIARY_WAVE_SCALE,
+        tertiary_wave_phase_rad=DEFAULT_HEAD_TERTIARY_WAVE_PHASE_RAD,
+        micro_wave_scale=DEFAULT_HEAD_MICRO_WAVE_SCALE,
+        micro_wave_phase_rad=DEFAULT_HEAD_MICRO_WAVE_PHASE_RAD,
+        wave_sharpness=HEAD_WAVE_SHARPNESS,
+        blur_sigma=HEAD_BLUR_SIGMA,
+        expressiveness=safe_expressiveness,
     )
     return BreathAnimationConfig(
         breath_cycle_sec=max(1.0, float(args.breath_cycle_sec or DEFAULT_BREATH_CYCLE_SEC)),
@@ -483,6 +806,7 @@ def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
         micro_wave_phase_rad=DEFAULT_MICRO_WAVE_PHASE_RAD,
         motion_zones=(
             torso_zone,
+            lower_thorax_zone,
             upper_chest_zone,
             left_shoulder_zone,
             right_shoulder_zone,
@@ -490,6 +814,11 @@ def build_breath_config(args: argparse.Namespace) -> BreathAnimationConfig:
             right_collar_zone,
             neck_zone,
         ),
+        pre_motion_layers=(
+            hip_counterbalance_layer,
+            upper_body_sway_layer,
+        ),
+        post_motion_layers=(head_layer,),
     )
 
 
@@ -596,7 +925,11 @@ def build_subject_mask(reference_frame: np.ndarray) -> np.ndarray:
     return np.repeat(normalized_mask[:, :, None], 3, axis=2)
 
 
-def build_motion_zone_mask(frame_width: int, frame_height: int, zone: MotionZoneConfig) -> np.ndarray:
+def build_motion_zone_mask(
+    frame_width: int,
+    frame_height: int,
+    zone: MotionZoneConfig | ExpressiveLayerConfig,
+) -> np.ndarray:
     """Build one soft alpha mask for a specific motion zone."""
 
     safe_width = max(1, int(frame_width))
@@ -629,43 +962,113 @@ def build_motion_zone_mask(frame_width: int, frame_height: int, zone: MotionZone
     return np.repeat(normalized_mask[:, :, None], 3, axis=2)
 
 
+def resolve_cycles_per_loop(
+    frame_total: int,
+    frames_per_second: float,
+    target_cycle_sec: float,
+) -> int:
+    """Quantize cycles to the loop duration so the first and last frames stay continuous."""
+
+    safe_fps = max(1.0, float(frames_per_second or 0.0))
+    safe_frame_total = max(1, int(frame_total or 0))
+    safe_target_cycle_sec = max(1.0, float(target_cycle_sec or 0.0))
+    loop_duration_sec = float(safe_frame_total) / safe_fps
+    return max(1, int(round(loop_duration_sec / safe_target_cycle_sec)))
+
+
+def build_weighted_loop_wave(
+    frame_index: int,
+    frame_total: int,
+    cycles_per_loop: int,
+    phase_offset_rad: float,
+    secondary_wave_scale: float,
+    secondary_wave_phase_rad: float,
+    tertiary_wave_scale: float,
+    tertiary_wave_phase_rad: float,
+    micro_wave_scale: float,
+    micro_wave_phase_rad: float,
+    wave_sharpness: float,
+) -> float:
+    """Create one seamless loop waveform with a few harmonics for organic motion."""
+
+    safe_frame_total = max(1, int(frame_total or 0))
+    normalized_loop_progress = (int(frame_index) % safe_frame_total) / float(safe_frame_total)
+    phase = (2.0 * math.pi * float(cycles_per_loop) * normalized_loop_progress) + phase_offset_rad
+    primary_wave = math.sin(phase)
+    secondary_wave = math.sin((phase * 2.0) + secondary_wave_phase_rad)
+    tertiary_wave = math.sin((phase * 3.0) + tertiary_wave_phase_rad)
+    micro_wave = math.sin((phase * 5.0) + micro_wave_phase_rad)
+    total_weight = 1.0 + secondary_wave_scale + tertiary_wave_scale + micro_wave_scale
+    weighted_wave = (
+        primary_wave
+        + (secondary_wave_scale * secondary_wave)
+        + (tertiary_wave_scale * tertiary_wave)
+        + (micro_wave_scale * micro_wave)
+    ) / max(1.0, total_weight)
+    safe_wave_sharpness = max(0.6, float(wave_sharpness))
+    return math.tanh(weighted_wave * safe_wave_sharpness) / math.tanh(safe_wave_sharpness)
+
+
 def build_zone_wave(
     frame_index: int,
+    frame_total: int,
     frames_per_second: float,
     animation_config: BreathAnimationConfig,
     zone: MotionZoneConfig,
 ) -> float:
     """Compute one smooth breathing waveform for a specific motion zone."""
 
-    safe_fps = max(1.0, float(frames_per_second or 0.0))
-    elapsed_sec = float(frame_index) / safe_fps
-    phase = ((2.0 * math.pi * elapsed_sec) / animation_config.breath_cycle_sec) + zone.phase_offset_rad
-    primary_wave = math.sin(phase)
-    secondary_wave = math.sin((phase * 2.0) + animation_config.secondary_wave_phase_rad)
-    tertiary_wave = math.sin((phase * 3.0) + animation_config.tertiary_wave_phase_rad)
-    micro_wave = math.sin((phase * 4.0) + animation_config.micro_wave_phase_rad)
+    cycles_per_loop = resolve_cycles_per_loop(frame_total, frames_per_second, animation_config.breath_cycle_sec)
     secondary_weight = animation_config.secondary_wave_scale * zone.secondary_wave_scale_multiplier
     tertiary_weight = animation_config.tertiary_wave_scale * zone.tertiary_wave_scale
     micro_weight = animation_config.micro_wave_scale * zone.micro_wave_scale
-    total_weight = 1.0 + secondary_weight + tertiary_weight + micro_weight
-    weighted_wave = (
-        primary_wave
-        + (secondary_weight * secondary_wave)
-        + (tertiary_weight * tertiary_wave)
-        + (micro_weight * micro_wave)
-    ) / max(1.0, total_weight)
-    wave_sharpness = max(0.6, zone.wave_sharpness)
-    weighted_wave = math.tanh(weighted_wave * wave_sharpness) / math.tanh(wave_sharpness)
+    weighted_wave = build_weighted_loop_wave(
+        frame_index=frame_index,
+        frame_total=frame_total,
+        cycles_per_loop=cycles_per_loop,
+        phase_offset_rad=zone.phase_offset_rad,
+        secondary_wave_scale=secondary_weight,
+        secondary_wave_phase_rad=animation_config.secondary_wave_phase_rad,
+        tertiary_wave_scale=tertiary_weight,
+        tertiary_wave_phase_rad=animation_config.tertiary_wave_phase_rad,
+        micro_wave_scale=micro_weight,
+        micro_wave_phase_rad=animation_config.micro_wave_phase_rad,
+        wave_sharpness=zone.wave_sharpness,
+    )
     inhale_component = max(0.0, weighted_wave)
     biased_wave = weighted_wave + (zone.inhale_bias * inhale_component)
     return max(-1.0, min(1.0, biased_wave))
+
+
+def build_expressive_layer_wave(
+    frame_index: int,
+    frame_total: int,
+    frames_per_second: float,
+    layer: ExpressiveLayerConfig,
+) -> float:
+    """Compute one seamless posture or head micro-motion waveform."""
+
+    cycles_per_loop = resolve_cycles_per_loop(frame_total, frames_per_second, layer.target_cycle_sec)
+    return build_weighted_loop_wave(
+        frame_index=frame_index,
+        frame_total=frame_total,
+        cycles_per_loop=cycles_per_loop,
+        phase_offset_rad=layer.phase_offset_rad,
+        secondary_wave_scale=layer.secondary_wave_scale,
+        secondary_wave_phase_rad=layer.secondary_wave_phase_rad,
+        tertiary_wave_scale=layer.tertiary_wave_scale,
+        tertiary_wave_phase_rad=layer.tertiary_wave_phase_rad,
+        micro_wave_scale=layer.micro_wave_scale,
+        micro_wave_phase_rad=layer.micro_wave_phase_rad,
+        wave_sharpness=layer.wave_sharpness,
+    )
 
 
 def build_affine_matrix(
     frame_width: int,
     frame_height: int,
     zone_wave: float,
-    zone: MotionZoneConfig,
+    zone: MotionZoneConfig | ExpressiveLayerConfig,
 ) -> np.ndarray:
     """Create one subtle affine transform for a motion zone."""
 
@@ -675,10 +1078,25 @@ def build_affine_matrix(
     scale_y = 1.0 + (zone.scale_y_amplitude * zone_wave)
     shift_x = float(frame_width) * zone.shift_x_ratio * zone_wave
     shift_y = float(frame_height) * zone.shift_y_ratio * zone_wave
+    rotation_rad = math.radians(zone.rotation_deg_amplitude * zone_wave)
+    cosine_value = math.cos(rotation_rad)
+    sine_value = math.sin(rotation_rad)
+    transform_a00 = cosine_value * scale_x
+    transform_a01 = -sine_value * scale_y
+    transform_a10 = sine_value * scale_x
+    transform_a11 = cosine_value * scale_y
     return np.asarray(
         [
-            [scale_x, 0.0, anchor_x - (scale_x * anchor_x) + shift_x],
-            [0.0, scale_y, anchor_y - (scale_y * anchor_y) + shift_y],
+            [
+                transform_a00,
+                transform_a01,
+                anchor_x - (transform_a00 * anchor_x) - (transform_a01 * anchor_y) + shift_x,
+            ],
+            [
+                transform_a10,
+                transform_a11,
+                anchor_y - (transform_a10 * anchor_x) - (transform_a11 * anchor_y) + shift_y,
+            ],
         ],
         dtype=np.float32,
     )
@@ -688,7 +1106,7 @@ def apply_motion_zone(
     frame_image: np.ndarray,
     zone_mask: np.ndarray,
     zone_wave: float,
-    zone: MotionZoneConfig,
+    zone: MotionZoneConfig | ExpressiveLayerConfig,
 ) -> np.ndarray:
     """Blend one masked affine motion zone into the current frame."""
 
@@ -770,6 +1188,14 @@ def render_idle_breath_video(
         zone.name: np.clip(build_motion_zone_mask(frame_width, frame_height, zone) * subject_mask, 0.0, 1.0)
         for zone in animation_config.motion_zones
     }
+    pre_motion_layer_masks = {
+        layer.name: np.clip(build_motion_zone_mask(frame_width, frame_height, layer) * subject_mask, 0.0, 1.0)
+        for layer in animation_config.pre_motion_layers
+    }
+    post_motion_layer_masks = {
+        layer.name: np.clip(build_motion_zone_mask(frame_width, frame_height, layer) * subject_mask, 0.0, 1.0)
+        for layer in animation_config.post_motion_layers
+    }
     writer = resolve_video_writer(temporary_output, safe_fps, (frame_width, frame_height))
 
     frame_index = 0
@@ -779,9 +1205,25 @@ def render_idle_breath_video(
             if not ok or frame_image is None:
                 break
             animated_frame = frame_image
+            for layer in animation_config.pre_motion_layers:
+                layer_wave = build_expressive_layer_wave(frame_index, frame_total, safe_fps, layer)
+                animated_frame = apply_motion_zone(
+                    animated_frame,
+                    pre_motion_layer_masks[layer.name],
+                    layer_wave,
+                    layer,
+                )
             for zone in animation_config.motion_zones:
-                zone_wave = build_zone_wave(frame_index, safe_fps, animation_config, zone)
+                zone_wave = build_zone_wave(frame_index, frame_total, safe_fps, animation_config, zone)
                 animated_frame = apply_motion_zone(animated_frame, zone_masks[zone.name], zone_wave, zone)
+            for layer in animation_config.post_motion_layers:
+                layer_wave = build_expressive_layer_wave(frame_index, frame_total, safe_fps, layer)
+                animated_frame = apply_motion_zone(
+                    animated_frame,
+                    post_motion_layer_masks[layer.name],
+                    layer_wave,
+                    layer,
+                )
             writer.write(animated_frame)
             frame_index += 1
             if frame_index % PROGRESS_FRAME_INTERVAL == 0:

@@ -724,7 +724,7 @@
       <div class="tuning-head">
         <div class="tuning-copy">
           <h2 class="panel-title">Advanced Tuning</h2>
-          <p class="tuning-hint">These controls are applied to the next audio-driven generation request. The eye-taming controls affect the JoyVASA motion template before render, so they are useful to inspect how upper-face motion changes.</p>
+          <p class="tuning-hint">These controls are applied to the next audio-driven generation request. `driving multiplier` changes render amplitude, while `cfg scale` and `JoyVASA steps` change the audio-to-motion generation itself before render.</p>
         </div>
         <button id="btnResetTuning" type="button">Reset Tuning</button>
       </div>
@@ -743,6 +743,18 @@
         <label class="tuning-field">
           <span class="compact-label">Frame Override</span>
           <input id="generationFrameCountInput" type="number" min="1" max="1200" step="1" inputmode="numeric" placeholder="Auto" disabled title="Available after backend reload">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Driving Multiplier</span>
+          <input id="drivingMultiplierInput" type="number" min="0" max="2" step="0.01" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">CFG Scale</span>
+          <input id="cfgScaleInput" type="number" min="0" max="10" step="0.1" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">JoyVASA Steps</span>
+          <input id="joyvasaInferenceStepsInput" type="number" min="1" max="100" step="1" inputmode="numeric">
         </label>
         <label class="tuning-field">
           <span class="compact-label">Animation Region</span>
@@ -956,9 +968,24 @@
     const DEFAULT_AUDIO_EYE_HARD_FACTOR = 0.18;
     const DEFAULT_AUDIO_EYE_HARD_DY_MIN = -0.0045;
     const DEFAULT_AUDIO_EYE_HARD_DY_MAX = 0.0035;
+    const DEFAULT_DRIVING_MULTIPLIER = 1;
+    const DEFAULT_CFG_SCALE = 1.2;
+    const DEFAULT_JOYVASA_INFERENCE_STEPS = 15;
     const MOTION_STRIDE_LIMITS = Object.freeze({
       MIN: 1,
       MAX: 6
+    });
+    const DRIVING_MULTIPLIER_LIMITS = Object.freeze({
+      MIN: 0,
+      MAX: 2
+    });
+    const CFG_SCALE_LIMITS = Object.freeze({
+      MIN: 0,
+      MAX: 10
+    });
+    const JOYVASA_INFERENCE_STEPS_LIMITS = Object.freeze({
+      MIN: 1,
+      MAX: 100
     });
     const VALID_MODE_VALUES = Object.freeze(["preview", "full"]);
     const VALID_ANIMATION_REGION_VALUES = Object.freeze(["all", "exp", "pose", "lip", "eyes"]);
@@ -1083,6 +1110,9 @@
       sourceFrameInput: document.getElementById("sourceFrameInput"),
       modeSelect: document.getElementById("modeSelect"),
       motionStrideInput: document.getElementById("motionStrideInput"),
+      drivingMultiplierInput: document.getElementById("drivingMultiplierInput"),
+      cfgScaleInput: document.getElementById("cfgScaleInput"),
+      joyvasaInferenceStepsInput: document.getElementById("joyvasaInferenceStepsInput"),
       animationRegionSelect: document.getElementById("animationRegionSelect"),
       stitchingCheck: document.getElementById("stitchingCheck"),
       relativeMotionCheck: document.getElementById("relativeMotionCheck"),
@@ -1146,6 +1176,9 @@
         stitching: true,
         relativeMotion: true,
         pasteBack: true,
+        drivingMultiplier: DEFAULT_DRIVING_MULTIPLIER,
+        cfgScale: DEFAULT_CFG_SCALE,
+        joyvasaInferenceSteps: DEFAULT_JOYVASA_INFERENCE_STEPS,
         audioEyeTamedPreset: DEFAULT_AUDIO_EYE_TAMED_PRESET,
         audioEyeSoftFactor: DEFAULT_AUDIO_EYE_SOFT_FACTOR,
         audioEyeHardFactor: DEFAULT_AUDIO_EYE_HARD_FACTOR,
@@ -1819,6 +1852,26 @@
         stitching: Boolean(healthPayload.defaultStitchingEnabled),
         relativeMotion: Boolean(healthPayload.defaultRelativeMotionEnabled),
         pasteBack: Boolean(healthPayload.defaultPasteBackEnabled),
+        drivingMultiplier: normalizeNumberInputValue(
+          healthPayload.defaultDrivingMultiplier,
+          DEFAULT_DRIVING_MULTIPLIER,
+          DRIVING_MULTIPLIER_LIMITS.MIN,
+          DRIVING_MULTIPLIER_LIMITS.MAX
+        ),
+        cfgScale: normalizeNumberInputValue(
+          healthPayload.defaultCfgScale,
+          DEFAULT_CFG_SCALE,
+          CFG_SCALE_LIMITS.MIN,
+          CFG_SCALE_LIMITS.MAX
+        ),
+        joyvasaInferenceSteps: Math.round(
+          normalizeNumberInputValue(
+            healthPayload.defaultJoyvasaInferenceSteps,
+            DEFAULT_JOYVASA_INFERENCE_STEPS,
+            JOYVASA_INFERENCE_STEPS_LIMITS.MIN,
+            JOYVASA_INFERENCE_STEPS_LIMITS.MAX
+          )
+        ),
         audioEyeTamedPreset: Boolean(healthPayload.defaultAudioEyeTamedPreset),
         audioEyeSoftFactor: normalizeNumberInputValue(
           healthPayload.defaultAudioEyeSoftFactor,
@@ -1868,6 +1921,32 @@
       elements.stitchingCheck.checked = Boolean(safeConfig.stitching);
       elements.relativeMotionCheck.checked = Boolean(safeConfig.relativeMotion);
       elements.pasteBackCheck.checked = Boolean(safeConfig.pasteBack);
+      elements.drivingMultiplierInput.value = String(
+        normalizeNumberInputValue(
+          safeConfig.drivingMultiplier,
+          DEFAULT_DRIVING_MULTIPLIER,
+          DRIVING_MULTIPLIER_LIMITS.MIN,
+          DRIVING_MULTIPLIER_LIMITS.MAX
+        )
+      );
+      elements.cfgScaleInput.value = String(
+        normalizeNumberInputValue(
+          safeConfig.cfgScale,
+          DEFAULT_CFG_SCALE,
+          CFG_SCALE_LIMITS.MIN,
+          CFG_SCALE_LIMITS.MAX
+        )
+      );
+      elements.joyvasaInferenceStepsInput.value = String(
+        Math.round(
+          normalizeNumberInputValue(
+            safeConfig.joyvasaInferenceSteps,
+            DEFAULT_JOYVASA_INFERENCE_STEPS,
+            JOYVASA_INFERENCE_STEPS_LIMITS.MIN,
+            JOYVASA_INFERENCE_STEPS_LIMITS.MAX
+          )
+        )
+      );
       elements.audioEyeTamedPresetCheck.checked = Boolean(safeConfig.audioEyeTamedPreset);
       elements.audioEyeSoftFactorInput.value = String(
         normalizeNumberInputValue(safeConfig.audioEyeSoftFactor, DEFAULT_AUDIO_EYE_SOFT_FACTOR, 0, 1)
@@ -1933,6 +2012,26 @@
         stitching: Boolean(elements.stitchingCheck.checked),
         relativeMotion: Boolean(elements.relativeMotionCheck.checked),
         pasteBack: Boolean(elements.pasteBackCheck.checked),
+        drivingMultiplier: normalizeNumberInputValue(
+          elements.drivingMultiplierInput.value,
+          tuningDefaults.drivingMultiplier,
+          DRIVING_MULTIPLIER_LIMITS.MIN,
+          DRIVING_MULTIPLIER_LIMITS.MAX
+        ),
+        cfgScale: normalizeNumberInputValue(
+          elements.cfgScaleInput.value,
+          tuningDefaults.cfgScale,
+          CFG_SCALE_LIMITS.MIN,
+          CFG_SCALE_LIMITS.MAX
+        ),
+        joyvasaInferenceSteps: Math.round(
+          normalizeNumberInputValue(
+            elements.joyvasaInferenceStepsInput.value,
+            tuningDefaults.joyvasaInferenceSteps,
+            JOYVASA_INFERENCE_STEPS_LIMITS.MIN,
+            JOYVASA_INFERENCE_STEPS_LIMITS.MAX
+          )
+        ),
         audioEyeTamedPreset: Boolean(elements.audioEyeTamedPresetCheck.checked),
         audioEyeSoftFactor: normalizeNumberInputValue(
           elements.audioEyeSoftFactorInput.value,
@@ -1959,6 +2058,9 @@
         String(tuningConfig.mode || DEFAULT_MODE),
         `stride ${Number(tuningConfig.motionStride || DEFAULT_MOTION_STRIDE)}`,
         String(tuningConfig.animationRegion || "all"),
+        `drive ${Number(tuningConfig.drivingMultiplier ?? DEFAULT_DRIVING_MULTIPLIER).toFixed(2)}`,
+        `cfg ${Number(tuningConfig.cfgScale ?? DEFAULT_CFG_SCALE).toFixed(2)}`,
+        `steps ${Number(tuningConfig.joyvasaInferenceSteps ?? DEFAULT_JOYVASA_INFERENCE_STEPS)}`,
         tuningConfig.stitching ? "stitch" : "no-stitch",
         tuningConfig.relativeMotion ? "relative" : "absolute",
         tuningConfig.pasteBack ? "paste" : "crop"
@@ -2424,6 +2526,9 @@
         sourceFrame: payload.sourceFrame || "",
         audioMotionStride: payload.audioMotionStride || 0,
         generationFrameCount: payload.generationFrameCount ?? null,
+        drivingMultiplier: payload.drivingMultiplier ?? null,
+        cfgScale: payload.cfgScale ?? null,
+        joyvasaInferenceSteps: payload.joyvasaInferenceSteps ?? null,
         animationRegion: payload.animationRegion || "",
         stitchingEnabled: Boolean(payload.stitchingEnabled),
         relativeMotionEnabled: Boolean(payload.relativeMotionEnabled),
@@ -3423,6 +3528,9 @@
       formData.append("stitching", tuningConfig.stitching ? "true" : "false");
       formData.append("relative_motion", tuningConfig.relativeMotion ? "true" : "false");
       formData.append("paste_back", tuningConfig.pasteBack ? "true" : "false");
+      formData.append("driving_multiplier", String(tuningConfig.drivingMultiplier));
+      formData.append("cfg_scale", String(tuningConfig.cfgScale));
+      formData.append("joyvasa_inference_steps", String(tuningConfig.joyvasaInferenceSteps));
       formData.append("audio_eye_tamed_preset", tuningConfig.audioEyeTamedPreset ? "true" : "false");
       formData.append("audio_eye_soft_factor", String(tuningConfig.audioEyeSoftFactor));
       formData.append("audio_eye_hard_factor", String(tuningConfig.audioEyeHardFactor));
@@ -3799,6 +3907,12 @@
     elements.sourceFrameInput.value = DEFAULT_SOURCE_FRAME;
     elements.motionStrideInput.min = String(MOTION_STRIDE_LIMITS.MIN);
     elements.motionStrideInput.max = String(MOTION_STRIDE_LIMITS.MAX);
+    elements.drivingMultiplierInput.min = String(DRIVING_MULTIPLIER_LIMITS.MIN);
+    elements.drivingMultiplierInput.max = String(DRIVING_MULTIPLIER_LIMITS.MAX);
+    elements.cfgScaleInput.min = String(CFG_SCALE_LIMITS.MIN);
+    elements.cfgScaleInput.max = String(CFG_SCALE_LIMITS.MAX);
+    elements.joyvasaInferenceStepsInput.min = String(JOYVASA_INFERENCE_STEPS_LIMITS.MIN);
+    elements.joyvasaInferenceStepsInput.max = String(JOYVASA_INFERENCE_STEPS_LIMITS.MAX);
     elements.generationFrameCountInput.min = String(GENERATION_FRAME_COUNT_LIMITS.MIN);
     elements.generationFrameCountInput.max = String(GENERATION_FRAME_COUNT_LIMITS.MAX);
     applyTuningConfigToControls(tuningDefaults, true);

@@ -84,6 +84,18 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_EYE_HARD_DY_MAX,
         help="Maximum vertical eyelid delta allowed relative to frame zero.",
     )
+    parser.add_argument(
+        "--cfg-scale",
+        type=float,
+        default=1.2,
+        help="JoyVASA classifier-free guidance scale override [0..10].",
+    )
+    parser.add_argument(
+        "--inference-steps",
+        type=int,
+        default=15,
+        help="JoyVASA diffusion inference step override [1..100].",
+    )
     parser.set_defaults(enable_eye_tamed_preset=DEFAULT_ENABLE_EYE_TAMED_PRESET)
     return parser.parse_args()
 
@@ -227,7 +239,8 @@ def main() -> None:
         audio_model_path=str(joyvasa_audio_model_path),
         motion_template_path=str(joyvasa_template_path),
         cfg_mode=str(cfg.infer_params.cfg_mode),
-        cfg_scale=float(cfg.infer_params.cfg_scale),
+        cfg_scale=float(np.clip(float(args.cfg_scale), 0.0, 10.0)),
+        inference_steps=int(np.clip(int(args.inference_steps), 1, 100)),
     )
     generation_frame_count = max(0, int(args.generation_frame_count or 0))
     motion_data = build_motion_sequence(
