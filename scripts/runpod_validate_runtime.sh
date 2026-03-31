@@ -11,6 +11,7 @@ TOKEN_FILE_PATH="${PROJECT_ROOT}/.runpod/api_token"
 LOG_FILE_PATH="${PROJECT_ROOT}/output_fasterliveportrait/runpod_api.log"
 DEFAULT_WARMUP_MAX_ATTEMPTS="${RUNPOD_VALIDATE_WARMUP_MAX_ATTEMPTS:-360}"
 DEFAULT_WARMUP_SLEEP_SECONDS="${RUNPOD_VALIDATE_WARMUP_SLEEP_SECONDS:-5}"
+DEFAULT_TRT_BUILDER_TIMEOUT_SECONDS="${RUNPOD_VALIDATE_TRT_BUILDER_TIMEOUT_SEC:-45}"
 
 print_info() {
   printf '[info] %s\n' "$1"
@@ -113,11 +114,11 @@ main() {
   api_token="$(resolve_api_token)"
 
   print_info "Validating CUDA, TensorRT builder, and TRT plugin"
-  "${python_bin}" - <<PY
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${DEFAULT_TRT_BUILDER_TIMEOUT_SECONDS}s" "${python_bin}" - <<PY
 import ctypes
 import os
 
-import pycuda.autoinit  # noqa: F401
 import tensorrt as trt
 import torch
 
@@ -133,6 +134,27 @@ print("trt_builder_ready =", builder is not None)
 ctypes.CDLL(plugin_path, mode=ctypes.RTLD_GLOBAL)
 print("trt_plugin_ready = True")
 PY
+  else
+    "${python_bin}" - <<PY
+import ctypes
+import os
+
+import tensorrt as trt
+import torch
+
+plugin_path = os.path.abspath(${DEFAULT_PLUGIN_PATH@Q})
+
+print("torch_cuda_available =", torch.cuda.is_available())
+print("torch_device_count =", torch.cuda.device_count())
+if torch.cuda.is_available():
+    print("torch_device_0 =", torch.cuda.get_device_name(0))
+
+builder = trt.Builder(trt.Logger(trt.Logger.ERROR))
+print("trt_builder_ready =", builder is not None)
+ctypes.CDLL(plugin_path, mode=ctypes.RTLD_GLOBAL)
+print("trt_plugin_ready = True")
+PY
+  fi
 
   print_info "Checking API health on port ${api_port}"
   read_health_payload "${api_port}" "${api_token}"

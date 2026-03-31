@@ -42,6 +42,10 @@ import uvicorn
 import cv2
 import numpy as np
 
+from job_stream_shared_memory import (
+    JobStreamSharedMemoryReader,
+    build_job_stream_shm_prefix,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 apply_runtime_library_environment(PROJECT_ROOT)
@@ -467,17 +471,18 @@ AVATAR_STREAM_MAX_WIDTH_ENV_KEY = "ANIMATION_AVATAR_STREAM_MAX_WIDTH"
 AVATAR_STREAM_MAX_HEIGHT_ENV_KEY = "ANIMATION_AVATAR_STREAM_MAX_HEIGHT"
 AVATAR_STREAM_OUTPUT_MAX_WIDTH = read_env_int(
     AVATAR_STREAM_MAX_WIDTH_ENV_KEY,
-    768,
+    576,
     256,
 )
 AVATAR_STREAM_OUTPUT_MAX_HEIGHT = read_env_int(
     AVATAR_STREAM_MAX_HEIGHT_ENV_KEY,
-    432,
+    324,
     256,
 )
 AVATAR_VIDEO_FALLBACK_WIDTH = AVATAR_STREAM_OUTPUT_MAX_WIDTH
 AVATAR_VIDEO_FALLBACK_HEIGHT = AVATAR_STREAM_OUTPUT_MAX_HEIGHT
 AVATAR_FALLBACK_BOUNCE_WINDOW_FRAMES = 3
+JOB_STREAM_CACHE_RETENTION_MS = 3 * 60 * 1000
 VIDEO_STREAM_START_MODE_QUERY_KEY = "startMode"
 VIDEO_STREAM_START_MODE_BUFFERED = "buffered"
 VIDEO_STREAM_START_MODE_LIVE = "live"
@@ -489,9 +494,6 @@ VIDEO_STREAM_START_MODE_CHOICES = {
 }
 VIDEO_STREAM_PLAYBACK_FPS_STATUS_KEY = "fps"
 STREAM_BOUNDARY = "frame"
-STREAM_STATUS_FILE_NAME = "status.json"
-STREAM_IMAGE_FILE_NAME = "latest.jpg"
-STREAM_FRAME_NAME_PATTERN = "frame_{:06d}.jpg"
 PREVIEW_COMPOSITION_STATUS_KEY = "previewComposition"
 PREVIEW_COMPOSITION_MASK_NAME = "preview_composition_mask.png"
 RUN_LOG_FILE_NAME = "run.log"
@@ -517,6 +519,7 @@ WARMUP_INPUTS_SUBDIR_NAME = "inputs"
 WARMUP_AUDIO_FILE_NAME = "warmup.wav"
 WARMUP_AUDIO_DURATION_SEC = 0.8
 WARMUP_START_DELAY_SEC = 0.75
+WARMUP_STREAM_SHM_PREFIX = build_job_stream_shm_prefix("__warmup__")
 WARMUP_ENABLED = os.getenv("ANIMATION_WARMUP_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
 AVATAR_MODE_IDLE = "idle"
 AVATAR_MODE_TALKING = "talking"
@@ -825,6 +828,116 @@ def read_json(path: Path) -> dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
     return data
+
+
+def parse_stream_cache_counter(value: Any) -> int:
+    """
+    Parse non-negative integer counters used by stream status payloads.
+    """
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        return max(0, int(value))
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.isdigit():
+            return int(stripped)
+    return 0
+
+
+def close_job_stream_cache(cache: JobStreamMemoryCache) -> None:
+    """
+    Close one attached shared-memory reader and release its transport handle.
+    """
+    with cache.lock:
+        reader = cache.reader
+        cache.reader = None
+    if reader is not None:
+        with contextlib.suppress(Exception):
+            reader.close()
+
+
+def prune_expired_job_stream_caches() -> None:
+    """
+    Drop stale shared-memory reader handles after a short retention window.
+    """
+    current_time_ms = now_ms()
+    stale_entries: list[JobStreamMemoryCache] = []
+    with JOB_STREAM_CACHE_LOCK:
+        stale_job_ids = [
+            job_id
+            for job_id, cache in JOB_STREAM_CACHES.items()
+            if current_time_ms - int(cache.last_accessed_at_ms) > JOB_STREAM_CACHE_RETENTION_MS
+        ]
+        for stale_job_id in stale_job_ids:
+            stale_cache = JOB_STREAM_CACHES.pop(stale_job_id, None)
+            if stale_cache is not None:
+                stale_entries.append(stale_cache)
+    for stale_cache in stale_entries:
+        close_job_stream_cache(stale_cache)
+
+
+def get_or_create_job_stream_cache(job: JobRecord) -> JobStreamMemoryCache:
+    """
+    Resolve one per-job shared-memory reader handle.
+    """
+    prune_expired_job_stream_caches()
+    with JOB_STREAM_CACHE_LOCK:
+        cache = JOB_STREAM_CACHES.get(job.job_id)
+        if cache is None:
+            cache = JobStreamMemoryCache(
+                job_id=job.job_id,
+                stream_shm_prefix=job.stream_shm_prefix,
+            )
+            JOB_STREAM_CACHES[job.job_id] = cache
+        cache.last_accessed_at_ms = now_ms()
+        return cache
+
+
+def ensure_job_stream_reader(job: JobRecord) -> JobStreamSharedMemoryReader | None:
+    """
+    Attach to the producer shared-memory transport when it becomes available.
+    """
+    cache = get_or_create_job_stream_cache(job)
+    with cache.lock:
+        cache.last_accessed_at_ms = now_ms()
+        if cache.reader is not None:
+            return cache.reader
+        try:
+            cache.reader = JobStreamSharedMemoryReader(cache.stream_shm_prefix)
+        except (FileNotFoundError, OSError, RuntimeError):
+            cache.reader = None
+        return cache.reader
+
+
+def read_job_stream_status(job: JobRecord) -> dict[str, Any] | None:
+    """
+    Read one job stream status from shared memory.
+    """
+    reader = ensure_job_stream_reader(job)
+    if reader is None:
+        return None
+    try:
+        return reader.read_status_payload()
+    except Exception:
+        close_job_stream_cache(get_or_create_job_stream_cache(job))
+        return None
+
+
+def read_job_stream_frame_by_index(job: JobRecord, frame_index: int) -> bytes | None:
+    """
+    Read one encoded stream frame from shared memory.
+    """
+    reader = ensure_job_stream_reader(job)
+    if reader is None:
+        return None
+    try:
+        return reader.read_frame(frame_index)
+    except Exception:
+        close_job_stream_cache(get_or_create_job_stream_cache(job))
+        return None
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -1575,6 +1688,7 @@ class JobRecord:
     output_abs: Path
     stream_rel: Path
     stream_abs: Path
+    stream_shm_prefix: str
     audio_input_rel: Path
     audio_input_abs: Path
     stream_audio_input_abs: Path
@@ -1607,17 +1721,6 @@ class JobRecord:
     avatar_play_finished_at_ms: int | None = None
 
     @property
-    def status_abs(self) -> Path:
-        return self.stream_abs / STREAM_STATUS_FILE_NAME
-
-    @property
-    def latest_frame_abs(self) -> Path:
-        return self.stream_abs / STREAM_IMAGE_FILE_NAME
-
-    def stream_frame_abs(self, frame_index: int) -> Path:
-        return self.stream_abs / STREAM_FRAME_NAME_PATTERN.format(int(frame_index))
-
-    @property
     def report_abs(self) -> Path:
         return self.output_abs / RUN_REPORT_FILE_NAME
 
@@ -1628,6 +1731,15 @@ class JobRecord:
     @property
     def result_concat_abs(self) -> Path:
         return self.output_abs / "result_concat.mp4"
+
+
+@dataclass
+class JobStreamMemoryCache:
+    job_id: str
+    stream_shm_prefix: str
+    reader: JobStreamSharedMemoryReader | None = None
+    last_accessed_at_ms: int = field(default_factory=now_ms)
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
 @dataclass
@@ -1881,7 +1993,7 @@ class AvatarVideoStreamTrack(MediaStreamTrack):
         """
         previous_mode = self.mode
         previous_frame_image = self.last_frame_image.copy()
-        stream_status = read_json(job.status_abs)
+        stream_status = read_job_stream_status(job)
         playback_fps = resolve_stream_playback_fps(stream_status)
         next_frame_index = resolve_avatar_playback_start_frame_index(snapshot, stream_status)
         self.mode = AVATAR_MODE_TALKING
@@ -1935,6 +2047,7 @@ class AvatarVideoStreamTrack(MediaStreamTrack):
         if frame_image is not None:
             self.last_frame_image = frame_image
         if is_finished:
+            mark_avatar_job_finished(self.current_job)
             return self.last_frame_image
         return self.last_frame_image
 
@@ -2106,7 +2219,7 @@ class AvatarWebRtcSession:
             job = JOBS.get(current_job_id)
         if job is None:
             return None
-        stream_status = read_json(job.status_abs)
+        stream_status = read_job_stream_status(job)
         if not is_job_ready_for_avatar(job, stream_status):
             return None
         start_frame_index = resolve_avatar_playback_start_frame_index(snapshot, stream_status)
@@ -2356,7 +2469,7 @@ async def pump_continuous_avatar_audio(
                         current_job = JOBS.get(current_job_id)
                     if current_job is not None:
                         started_at_ms = int(snapshot.get("currentJobStartedAtMs") or 0)
-                        current_status = read_json(current_job.status_abs)
+                        current_status = read_job_stream_status(current_job)
                         playback_fps = resolve_stream_playback_fps(current_status)
                         start_frame_index = resolve_avatar_playback_start_frame_index(snapshot, current_status)
                         if playback_fps > 0 and start_frame_index > 0:
@@ -2564,7 +2677,7 @@ async def stream_continuous_avatar_video(
                 with JOBS_LOCK:
                     candidate_job = JOBS.get(desired_job_id)
                 if candidate_job is not None:
-                    candidate_status = read_json(candidate_job.status_abs)
+                    candidate_status = read_job_stream_status(candidate_job)
                     start_frame_index = resolve_avatar_playback_start_frame_index(snapshot, candidate_status)
                     talking_job = candidate_job
                     pending_idle_return_frames.clear()
@@ -2662,6 +2775,8 @@ async def capture_continuous_avatar_video(output_path: Path, duration_sec: float
 
 JOBS_LOCK = threading.Lock()
 JOBS: dict[str, JobRecord] = {}
+JOB_STREAM_CACHE_LOCK = threading.Lock()
+JOB_STREAM_CACHES: dict[str, JobStreamMemoryCache] = {}
 JOB_QUEUE_CONDITION = threading.Condition()
 JOB_QUEUE: deque[str] = deque()
 JOB_WORKER_LOCK = threading.Lock()
@@ -2702,6 +2817,16 @@ def register_job(job: JobRecord) -> None:
     """
     with JOBS_LOCK:
         JOBS[job.job_id] = job
+    with JOB_STREAM_CACHE_LOCK:
+        existing_cache = JOB_STREAM_CACHES.get(job.job_id)
+        if existing_cache is None:
+            JOB_STREAM_CACHES[job.job_id] = JobStreamMemoryCache(
+                job_id=job.job_id,
+                stream_shm_prefix=job.stream_shm_prefix,
+            )
+        else:
+            existing_cache.last_accessed_at_ms = now_ms()
+    prune_expired_job_stream_caches()
 
 
 def enqueue_job(job_id: str) -> None:
@@ -2772,6 +2897,7 @@ def finish_job(job: JobRecord, exit_code: int) -> None:
             except OSError:
                 pass
             job.log_handle = None
+    prune_expired_job_stream_caches()
 
 
 def run_job(job: JobRecord) -> None:
@@ -2892,7 +3018,7 @@ def get_avatar_state_snapshot() -> dict[str, Any]:
         with JOBS_LOCK:
             current_job = JOBS.get(current_job_id)
         if current_job is not None:
-            current_job_stream_status = read_json(current_job.status_abs)
+            current_job_stream_status = read_job_stream_status(current_job)
     buffered_start_progress = (
         resolve_avatar_minimum_ready_progress(current_job.audio_duration_sec)
         if current_job is not None
@@ -2931,7 +3057,7 @@ def count_pending_avatar_jobs(current_job_id: str) -> int:
             continue
         if job.avatar_play_finished_at_ms is not None:
             continue
-        stream_status = read_json(job.status_abs)
+        stream_status = read_job_stream_status(job)
         state = determine_job_state(job, stream_status)
         if state in {"error", "canceled"}:
             continue
@@ -3134,7 +3260,7 @@ def select_next_avatar_job() -> JobRecord | None:
     for job in job_records:
         if job.avatar_play_finished_at_ms is not None or job.avatar_play_started_at_ms is not None:
             continue
-        stream_status = read_json(job.status_abs)
+        stream_status = read_job_stream_status(job)
         state = determine_job_state(job, stream_status)
         if state in {"error", "canceled"}:
             with JOBS_LOCK:
@@ -3190,13 +3316,17 @@ def activate_avatar_job(job: JobRecord) -> None:
 
 def resolve_avatar_job_expected_end_at_ms(
     started_at_ms: int,
+    job: JobRecord,
     stream_status: dict[str, Any] | None,
 ) -> int:
     """
-    Resolve one deterministic end timestamp from rendered frame count and playback FPS.
+    Resolve one deterministic avatar cutoff timestamp, preferring audio duration over frame totals.
     """
     if started_at_ms <= 0:
         return 0
+    audio_duration_sec = max(0.0, float(job.audio_duration_sec or 0.0))
+    if audio_duration_sec > 0:
+        return started_at_ms + int(round(audio_duration_sec * 1000.0))
     playback_fps = resolve_stream_playback_fps(stream_status)
     frame_total = parse_status_int(stream_status, "frameTotal")
     if playback_fps <= 0 or frame_total <= 0:
@@ -3227,19 +3357,23 @@ def advance_avatar_state_machine() -> None:
         if current_job.avatar_play_finished_at_ms is not None:
             activate_avatar_idle_mode()
             return
-        current_status = read_json(current_job.status_abs)
+        current_status = read_job_stream_status(current_job)
         current_state = determine_job_state(current_job, current_status)
         if current_state in {"error", "canceled"}:
             with JOBS_LOCK:
                 current_job.avatar_play_finished_at_ms = now_timestamp_ms
             activate_avatar_idle_mode()
             return
-        expected_end_at_ms = resolve_avatar_job_expected_end_at_ms(current_job_started_at_ms, current_status)
+        expected_end_at_ms = resolve_avatar_job_expected_end_at_ms(
+            current_job_started_at_ms,
+            current_job,
+            current_status,
+        )
         if expected_end_at_ms > 0:
             with AVATAR_STATE_LOCK:
                 if AVATAR_CURRENT_JOB_ID == current_job.job_id:
                     AVATAR_CURRENT_JOB_ENDS_AT_MS = expected_end_at_ms
-        if current_state == "done" and expected_end_at_ms > 0 and now_timestamp_ms >= expected_end_at_ms:
+        if expected_end_at_ms > 0 and now_timestamp_ms >= expected_end_at_ms:
             with JOBS_LOCK:
                 current_job.avatar_play_finished_at_ms = now_timestamp_ms
             activate_avatar_idle_mode()
@@ -3335,6 +3469,8 @@ def build_runner_command(job: JobRecord) -> list[str]:
         normalize_rel_path(str(job.output_rel)),
         "--stream-dir",
         normalize_rel_path(str(job.stream_rel)),
+        "--stream-shm-prefix",
+        job.stream_shm_prefix,
         "--animation-region",
         job.animation_region,
     ]
@@ -3388,26 +3524,24 @@ def determine_job_state(job: JobRecord, stream_status: dict[str, Any] | None) ->
     return "running"
 
 
-def read_updated_latest_frame(job: JobRecord, last_mtime_ns: int) -> tuple[bytes | None, int, bool]:
+def read_updated_latest_frame(job: JobRecord, last_seen_frame_index: int) -> tuple[bytes | None, int, bool]:
     """
-    Read latest JPEG frame only when file mtime changes.
+    Read latest JPEG frame only when the producer publishes a newer frame index.
     """
-    frame_path = job.latest_frame_abs
-    if not frame_path.exists():
-        return None, last_mtime_ns, False
+    reader = ensure_job_stream_reader(job)
+    if reader is None:
+        return None, last_seen_frame_index, False
     try:
-        mtime_ns = frame_path.stat().st_mtime_ns
-    except OSError:
-        return None, last_mtime_ns, False
-    if mtime_ns == last_mtime_ns:
-        return None, last_mtime_ns, False
-    try:
-        frame_bytes = frame_path.read_bytes()
-    except OSError:
-        return None, last_mtime_ns, False
-    if not frame_bytes:
-        return None, last_mtime_ns, False
-    return frame_bytes, mtime_ns, True
+        latest_frame = reader.read_latest_frame()
+    except Exception:
+        close_job_stream_cache(get_or_create_job_stream_cache(job))
+        return None, last_seen_frame_index, False
+    if latest_frame is None:
+        return None, last_seen_frame_index, False
+    latest_frame_index, frame_bytes = latest_frame
+    if latest_frame_index == last_seen_frame_index or not frame_bytes:
+        return None, last_seen_frame_index, False
+    return frame_bytes, latest_frame_index, True
 
 
 def parse_status_int(stream_status: dict[str, Any] | None, key: str) -> int:
@@ -3817,7 +3951,7 @@ def refresh_avatar_source_frame_images(
     """
     Load the source frame images needed for one time-aligned avatar talking frame.
     """
-    stream_status = read_json(job.status_abs)
+    stream_status = read_job_stream_status(job)
     state.estimated_generation_fps = estimate_generation_fps(stream_status, state.estimated_generation_fps)
     playback_fps = resolve_stream_playback_fps(stream_status)
     if playback_fps > 0:
@@ -3944,7 +4078,7 @@ def update_avatar_talking_frame_state(job: JobRecord, state: AvatarTalkingFrameS
     """
     Refresh one talking job frame buffer so the continuous avatar stream can emit frames sequentially.
     """
-    stream_status = read_json(job.status_abs)
+    stream_status = read_job_stream_status(job)
     state.estimated_generation_fps = estimate_generation_fps(stream_status, state.estimated_generation_fps)
     status_frame_index = parse_status_int(stream_status, "frameIndex")
     status_frame_total = parse_status_int(stream_status, "frameTotal")
@@ -3990,6 +4124,8 @@ def resolve_avatar_talking_frame(
     """
     stream_status = refresh_avatar_source_frame_images(job, state, canvas_size, state.start_frame_index + 1)
     elapsed_talking_sec = max(0.0, time.perf_counter() - float(state.playback_started_at_perf))
+    if float(job.audio_duration_sec or 0.0) > 0.0 and elapsed_talking_sec >= float(job.audio_duration_sec):
+        return None, True
     desired_source_position_zero_based = float(state.start_frame_index - 1) + (
         elapsed_talking_sec * float(state.playback_fps)
     )
@@ -4060,7 +4196,7 @@ def update_webrtc_avatar_talking_frame_state(
     """
     Refresh the progressive talking frame buffer used by the continuous WebRTC avatar track.
     """
-    stream_status = read_json(job.status_abs)
+    stream_status = read_job_stream_status(job)
     state.estimated_generation_fps = estimate_generation_fps(stream_status, state.estimated_generation_fps)
     playback_fps = resolve_stream_playback_fps(stream_status)
     if playback_fps > 0:
@@ -4102,6 +4238,9 @@ def resolve_webrtc_avatar_talking_frame_image(
     Resolve the next progressive talking frame for the persistent WebRTC avatar video track.
     """
     stream_status = update_webrtc_avatar_talking_frame_state(job, state, canvas_size)
+    elapsed_talking_sec = max(0.0, time.perf_counter() - float(state.playback_started_at_perf))
+    if float(job.audio_duration_sec or 0.0) > 0.0 and elapsed_talking_sec >= float(job.audio_duration_sec):
+        return state.last_frame_image, True
     if state.pending_frame_images:
         frame_image = state.pending_frame_images.popleft()
         state.last_frame_image = frame_image
@@ -4490,16 +4629,7 @@ def read_stream_frame_by_index(job: JobRecord, frame_index: int) -> bytes | None
     """
     Read sequential stream frame by index.
     """
-    frame_path = job.stream_frame_abs(frame_index)
-    if not frame_path.exists():
-        return None
-    try:
-        frame_bytes = frame_path.read_bytes()
-    except OSError:
-        return None
-    if not frame_bytes:
-        return None
-    return frame_bytes
+    return read_job_stream_frame_by_index(job, frame_index)
 
 
 def resolve_driving_media_url(job: JobRecord) -> str:
@@ -4568,6 +4698,8 @@ def build_warmup_command(audio_rel_path: Path) -> list[str]:
         normalize_rel_path(str(output_root_rel)),
         "--stream-dir",
         normalize_rel_path(str(stream_rel)),
+        "--stream-shm-prefix",
+        WARMUP_STREAM_SHM_PREFIX,
         "--animation-region",
         DEFAULT_ANIMATION_REGION,
     ]
@@ -4603,8 +4735,17 @@ def read_warmup_stream_status() -> dict[str, Any] | None:
     """
     Read the live warmup stream status when the warmup runner has started emitting frames.
     """
-    status_path = PROJECT_ROOT / WARMUP_OUTPUT_ROOT_REL / WARMUP_STREAM_SUBDIR_NAME / STREAM_STATUS_FILE_NAME
-    return read_json(status_path)
+    try:
+        reader = JobStreamSharedMemoryReader(WARMUP_STREAM_SHM_PREFIX)
+    except (FileNotFoundError, OSError, RuntimeError):
+        return None
+    try:
+        return reader.read_status_payload()
+    except Exception:
+        return None
+    finally:
+        with contextlib.suppress(Exception):
+            reader.close()
 
 
 def ensure_warmup_audio_file(audio_abs_path: Path) -> None:
@@ -4651,10 +4792,7 @@ def run_startup_warmup_once() -> None:
         warmup_audio_abs = input_dir_abs / WARMUP_AUDIO_FILE_NAME
         warmup_audio_rel = warmup_audio_abs.relative_to(PROJECT_ROOT)
         stream_dir_abs = output_root_abs / WARMUP_STREAM_SUBDIR_NAME
-        stream_status_abs = stream_dir_abs / STREAM_STATUS_FILE_NAME
         stream_dir_abs.mkdir(parents=True, exist_ok=True)
-        if stream_status_abs.exists():
-            stream_status_abs.unlink()
         set_warmup_state("prepare-audio", 0.05, "preparing warmup audio")
         ensure_warmup_audio_file(warmup_audio_abs)
         command = build_warmup_command(warmup_audio_rel)
@@ -4706,7 +4844,7 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
     """
     Build API response payload for job.
     """
-    stream_status = read_json(job.status_abs)
+    stream_status = read_job_stream_status(job)
     report = read_json(job.report_abs)
     process = job.process
     running = bool(job.exit_code is None and process is not None and process.poll() is None)
@@ -4903,6 +5041,7 @@ async def create_and_enqueue_audio_job(
     output_abs = PROJECT_ROOT / output_rel
     stream_rel = output_rel / "stream"
     stream_abs = PROJECT_ROOT / stream_rel
+    stream_shm_prefix = build_job_stream_shm_prefix(job_id)
     log_rel = output_rel / RUN_LOG_FILE_NAME
     log_abs = PROJECT_ROOT / log_rel
     input_rel = output_rel / "inputs" / f"driving{extension}"
@@ -4930,6 +5069,7 @@ async def create_and_enqueue_audio_job(
         output_abs=output_abs,
         stream_rel=stream_rel,
         stream_abs=stream_abs,
+        stream_shm_prefix=stream_shm_prefix,
         audio_input_rel=input_rel,
         audio_input_abs=input_abs,
         stream_audio_input_abs=stream_audio_input_abs,
@@ -5068,7 +5208,7 @@ def create_app() -> FastAPI:
             "runtimeRestartRequestedAtMs": RUNTIME_RESTART_REQUESTED_AT_MS,
             "processStartedAtMs": PROCESS_STARTED_AT_MS,
             "runningJobId": running_job.job_id if running_job is not None else "",
-            "runningJobState": determine_job_state(running_job, read_json(running_job.status_abs)) if running_job is not None else "",
+            "runningJobState": determine_job_state(running_job, read_job_stream_status(running_job)) if running_job is not None else "",
             "headQueuedJobId": head_queued_job_id,
             "jobWorkerAlive": worker_alive,
             "jobQueueDepth": queue_depth,
@@ -5296,37 +5436,25 @@ def create_app() -> FastAPI:
         job = get_job(job_id)
 
         async def stream_generator() -> Any:
-            last_mtime_ns = -1
+            last_seen_frame_index = -1
             stable_loops = 0
             while True:
                 if await request.is_disconnected():
                     break
-                frame_path = job.latest_frame_abs
-                if frame_path.exists():
-                    try:
-                        mtime_ns = frame_path.stat().st_mtime_ns
-                    except OSError:
-                        mtime_ns = -1
-                    if mtime_ns != last_mtime_ns:
-                        last_mtime_ns = mtime_ns
-                        stable_loops = 0
-                        try:
-                            frame_bytes = frame_path.read_bytes()
-                        except OSError:
-                            frame_bytes = b""
-                        if frame_bytes:
-                            header = (
-                                f"--{STREAM_BOUNDARY}\r\n"
-                                "Content-Type: image/jpeg\r\n"
-                                f"Content-Length: {len(frame_bytes)}\r\n\r\n"
-                            ).encode("utf-8")
-                            yield header + frame_bytes + b"\r\n"
-                    else:
-                        stable_loops += 1
+                frame_bytes, updated_signature, has_new_frame = read_updated_latest_frame(job, last_seen_frame_index)
+                if has_new_frame and frame_bytes:
+                    last_seen_frame_index = updated_signature
+                    stable_loops = 0
+                    header = (
+                        f"--{STREAM_BOUNDARY}\r\n"
+                        "Content-Type: image/jpeg\r\n"
+                        f"Content-Length: {len(frame_bytes)}\r\n\r\n"
+                    ).encode("utf-8")
+                    yield header + frame_bytes + b"\r\n"
                 else:
                     stable_loops += 1
 
-                stream_status = read_json(job.status_abs)
+                stream_status = read_job_stream_status(job)
                 state = determine_job_state(job, stream_status)
                 if state in {"done", "error"} and stable_loops >= 25:
                     break
@@ -5355,7 +5483,7 @@ def create_app() -> FastAPI:
 
         try:
             while True:
-                stream_status = read_json(job.status_abs)
+                stream_status = read_job_stream_status(job)
                 payload = build_job_payload(job)
                 signature_source = {
                     "state": payload.get("state"),
@@ -5587,7 +5715,7 @@ def create_app() -> FastAPI:
 
         try:
             while True:
-                stream_status = read_json(job.status_abs)
+                stream_status = read_job_stream_status(job)
                 status_frame_index = parse_status_int(stream_status, "frameIndex")
                 status_frame_total = parse_status_int(stream_status, "frameTotal")
                 playback_fps = resolve_stream_playback_fps(stream_status)

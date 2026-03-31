@@ -100,6 +100,8 @@ DEFAULT_TRT_DOCKER_GPU_DEVICE = "auto"
 DEFAULT_TRT_DOCKER_CONTAINER_NAME = "animation_faster_liveportrait_runtime"
 DEFAULT_TRT_DOCKER_REUSE_CONTAINER = True
 DEFAULT_TRT_PRECISION = TRT_PRECISION_FP16
+DOCKER_IPC_MODE_ENV_KEY = "ANIMATION_DOCKER_IPC_MODE"
+DOCKER_PARENT_CONTAINER_ENV_KEY = "ANIMATION_DOCKER_PARENT_CONTAINER"
 
 FRAME_PATTERN = "frame_%05d.png"
 DEFAULT_FPS = 30.0
@@ -108,8 +110,6 @@ RUN_REPORT_NAME = "run_report.json"
 DRIVING_PUBLIC_NAME = "driving.mp4"
 RESULT_PUBLIC_NAME = "result.mp4"
 RESULT_CONCAT_PUBLIC_NAME = "result_concat.mp4"
-STREAM_IMAGE_NAME = "latest.jpg"
-STREAM_STATUS_NAME = "status.json"
 PREVIEW_COMPOSITION_META_NAME = "preview_composition.json"
 PREVIEW_COMPOSITION_MASK_NAME = "preview_composition_mask.png"
 AUDIO_TO_PKL_SCRIPT_NAME = "faster_liveportrait_audio_to_pkl.py"
@@ -222,6 +222,7 @@ class RunnerConfig:
     render_batch_size: int
     trt_engine_batch_size: int
     stream_dir: Path
+    stream_shm_prefix: str
     stream_enabled: bool
     frame_step: int
     skip_driving_video_build: bool
@@ -327,6 +328,7 @@ def parse_args() -> RunnerConfig:
         help="Maximum dynamic batch size for TensorRT engines used by batched render paths.",
     )
     parser.add_argument("--stream-dir", default="output_fasterliveportrait/stream")
+    parser.add_argument("--stream-shm-prefix", default="")
     parser.add_argument("--disable-stream", action="store_true")
     parser.add_argument("--mode", choices=[MODE_PREVIEW, MODE_FULL], default=MODE_PREVIEW)
     parser.add_argument("--backend", choices=[BACKEND_ONNX, BACKEND_TRT], default=BACKEND_ONNX)
@@ -464,6 +466,7 @@ def parse_args() -> RunnerConfig:
         render_batch_size=render_batch_size,
         trt_engine_batch_size=trt_engine_batch_size,
         stream_dir=(project_root / args.stream_dir).resolve(),
+        stream_shm_prefix=str(args.stream_shm_prefix or "").strip(),
         stream_enabled=not args.disable_stream,
         frame_step=frame_step,
         skip_driving_video_build=args.skip_driving_video_build,
@@ -662,19 +665,11 @@ def resolve_driving_public_name(driving_media: Path) -> str:
 
 def prepare_stream_dir(config: RunnerConfig) -> None:
     """
-    Ensure stream directory exists and remove stale stream files.
+    Ensure stream artifact directory exists for auxiliary preview assets.
     """
     if not config.stream_enabled:
         return
     config.stream_dir.mkdir(parents=True, exist_ok=True)
-    for stream_name in (STREAM_IMAGE_NAME, STREAM_STATUS_NAME):
-        stream_path = config.stream_dir / stream_name
-        if stream_path.exists():
-            stream_path.unlink()
-    for stale_path in config.stream_dir.glob("frame_*.jpg"):
-        stale_path.unlink()
-    for stale_path in config.stream_dir.glob("frame_*.tmp.jpg"):
-        stale_path.unlink()
 
 
 def build_runtime_env() -> dict[str, str]:
@@ -810,6 +805,70 @@ def inspect_container_running(container_name: str) -> bool | None:
     return state_text == "true"
 
 
+def inspect_container_ipc_mode(container_name: str) -> str | None:
+    """
+    Inspect container IPC mode when the container exists.
+    """
+    command = ["docker", "inspect", "-f", "{{.HostConfig.IpcMode}}", container_name]
+    completed = subprocess.run(command, capture_output=True, text=True)
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
+def running_inside_container() -> bool:
+    """
+    Detect whether the current API process itself runs inside a container.
+    """
+    if Path("/.dockerenv").exists():
+        return True
+    for cgroup_path in (Path("/proc/self/cgroup"), Path("/proc/1/cgroup")):
+        try:
+            cgroup_text = cgroup_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        lowered = cgroup_text.lower()
+        if "docker" in lowered or "containerd" in lowered or "kubepods" in lowered:
+            return True
+    return False
+
+
+def resolve_current_container_reference() -> str:
+    """
+    Resolve the current outer container identifier for docker IPC sharing.
+    """
+    explicit_reference = str(os.getenv(DOCKER_PARENT_CONTAINER_ENV_KEY, "")).strip()
+    if explicit_reference:
+        return explicit_reference
+    hostname_reference = str(os.getenv("HOSTNAME", "")).strip()
+    if hostname_reference and inspect_container_running(hostname_reference) is not None:
+        return hostname_reference
+    for cgroup_path in (Path("/proc/self/cgroup"), Path("/proc/1/cgroup")):
+        try:
+            cgroup_text = cgroup_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for candidate in re.findall(r"[0-9a-f]{12,64}", cgroup_text.lower()):
+            if inspect_container_running(candidate) is not None:
+                return candidate
+    raise RuntimeError(
+        "Unable to resolve current container reference for docker IPC sharing. "
+        f"Set {DOCKER_PARENT_CONTAINER_ENV_KEY} explicitly."
+    )
+
+
+def resolve_docker_ipc_mode() -> str:
+    """
+    Resolve the IPC mode required so the docker runtime can share stream memory with the API process.
+    """
+    explicit_mode = str(os.getenv(DOCKER_IPC_MODE_ENV_KEY, "")).strip()
+    if explicit_mode:
+        return explicit_mode
+    if running_inside_container():
+        return f"container:{resolve_current_container_reference()}"
+    return "host"
+
+
 def ensure_runtime_container(config: RunnerConfig) -> None:
     """
     Ensure persistent runtime container exists and is running.
@@ -817,7 +876,16 @@ def ensure_runtime_container(config: RunnerConfig) -> None:
     if not config.docker_reuse_container:
         return
 
+    desired_ipc_mode = resolve_docker_ipc_mode()
     running_state = inspect_container_running(config.docker_container_name)
+    existing_ipc_mode = inspect_container_ipc_mode(config.docker_container_name)
+    if running_state is not None and existing_ipc_mode != desired_ipc_mode:
+        remove_command = ["docker", "rm"]
+        if running_state:
+            remove_command.append("-f")
+        remove_command.append(config.docker_container_name)
+        run_command(remove_command)
+        running_state = None
     if running_state is True:
         return
     if running_state is False:
@@ -832,6 +900,8 @@ def ensure_runtime_container(config: RunnerConfig) -> None:
         resolve_docker_gpus_argument(config),
         "--name",
         config.docker_container_name,
+        "--ipc",
+        desired_ipc_mode,
         "-v",
         f"{to_docker_host_path(config.project_root)}:/workspace",
         "-w",
@@ -878,6 +948,8 @@ def run_docker_shell(config: RunnerConfig, workdir: str, script: str) -> None:
         "--rm",
         "--gpus",
         resolve_docker_gpus_argument(config),
+        "--ipc",
+        resolve_docker_ipc_mode(),
         "-v",
         f"{to_docker_host_path(config.project_root)}:/workspace",
         "-w",
@@ -2243,6 +2315,8 @@ def run_faster_pipeline_local(
     command.extend(build_local_driving_args(config, driving_input))
     if config.stream_enabled:
         command.extend(["--stream_dir", str(config.stream_dir)])
+        if config.stream_shm_prefix:
+            command.extend(["--stream_shm_prefix", str(config.stream_shm_prefix)])
     if should_render_paste_back(config):
         command.append("--paste_back")
     if should_export_preview_composition(config):
@@ -2281,6 +2355,7 @@ def run_faster_pipeline_local_trt_persistent_worker(
         "requestId": request_id,
         "srcImage": str(config.source_frame),
         "streamDir": str(config.stream_dir) if config.stream_enabled else "",
+        "streamShmPrefix": str(config.stream_shm_prefix) if config.stream_enabled else "",
         "saveDir": str(run_output_dir),
         "animal": False,
         "renderBatchSize": int(config.render_batch_size),
@@ -2344,6 +2419,8 @@ def run_faster_pipeline_docker_trt(
     script += " " + build_docker_driving_args(config, f"/workspace/{driving_rel}").strip()
     if config.stream_enabled:
         script += f" --stream_dir {shlex.quote(f'/workspace/{stream_rel}')}"
+        if config.stream_shm_prefix:
+            script += f" --stream_shm_prefix {shlex.quote(str(config.stream_shm_prefix))}"
     if should_render_paste_back(config):
         script += " --paste_back"
     if should_export_preview_composition(config):
@@ -2387,6 +2464,7 @@ def run_faster_pipeline_docker_trt_persistent_worker(
             if config.stream_enabled
             else ""
         ),
+        "streamShmPrefix": str(config.stream_shm_prefix) if config.stream_enabled else "",
         "saveDir": to_container_workspace_path(run_output_dir, config.project_root, "Worker run output directory"),
         "animal": False,
         "renderBatchSize": int(config.render_batch_size),

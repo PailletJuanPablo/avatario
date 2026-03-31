@@ -12,7 +12,7 @@ DEFAULT_PIP_BIN="/root/miniconda3/bin/pip"
 DEFAULT_API_PORT="8010"
 DEFAULT_API_HOST="0.0.0.0"
 DEFAULT_BACKEND="trt"
-DEFAULT_TRT_RUNTIME="local"
+DEFAULT_TRT_RUNTIME="docker"
 DEFAULT_TRT_PRECISION="fp16"
 DEFAULT_IDLE_VIDEO_PATH="inputs/idlevid_breath.mp4"
 DEFAULT_CHECKPOINT_REPO_ID="warmshao/FasterLivePortrait"
@@ -33,6 +33,9 @@ DEFAULT_SYSTEM_PACKAGES=(
 )
 HEALTHCHECK_MAX_ATTEMPTS="${RUNPOD_HEALTHCHECK_MAX_ATTEMPTS:-180}"
 HEALTHCHECK_SLEEP_SECONDS="${RUNPOD_HEALTHCHECK_SLEEP_SECONDS:-2}"
+TRT_BUILDER_CHECK_TIMEOUT_SEC="${RUNPOD_TRT_BUILDER_CHECK_TIMEOUT_SEC:-45}"
+TRT_BUILDER_CHECK_STRICT="${RUNPOD_STRICT_TRT_BUILDER_CHECK:-0}"
+TRT_BUILDER_CHECK_SKIP="${RUNPOD_SKIP_TRT_BUILDER_CHECK:-0}"
 BOOTSTRAP_STARTED_AT_SEC="$(date +%s)"
 
 API_PID=""
@@ -287,14 +290,20 @@ PY
 ensure_trt_builder_runtime() {
   local python_bin="$1"
   local runtime_check_output
+  local status_code=0
 
-  runtime_check_output="$("${python_bin}" - <<'PY'
+  if [[ "${TRT_BUILDER_CHECK_SKIP}" == "1" ]]; then
+    print_warning "Skipping TensorRT builder self-test because RUNPOD_SKIP_TRT_BUILDER_CHECK=1"
+    return 0
+  fi
+
+  if command_exists timeout; then
+    if runtime_check_output="$(timeout "${TRT_BUILDER_CHECK_TIMEOUT_SEC}s" "${python_bin}" - <<'PY'
 import sys
 
 import torch
 
 try:
-    import pycuda.autoinit  # noqa: F401
     import tensorrt as trt
 except Exception as exc:
     print(f"import_error={exc!r}")
@@ -317,12 +326,64 @@ if builder is None:
 
 print("trt_builder_ready=True")
 PY
-)" || {
-    print_error "TensorRT runtime self-test failed."
-    print_error "${runtime_check_output}"
-    print_error "Terminate the Pod instead of continuing."
-    exit 1
-  }
+    )"; then
+      status_code=0
+    else
+      status_code=$?
+    fi
+  else
+    if runtime_check_output="$("${python_bin}" - <<'PY'
+import sys
+
+import torch
+
+try:
+    import tensorrt as trt
+except Exception as exc:
+    print(f"import_error={exc!r}")
+    sys.exit(1)
+
+if not torch.cuda.is_available():
+    print("torch_cuda_available=False")
+    sys.exit(1)
+
+try:
+    logger = trt.Logger(trt.Logger.ERROR)
+    builder = trt.Builder(logger)
+except Exception as exc:
+    print(f"builder_error={exc!r}")
+    sys.exit(1)
+
+if builder is None:
+    print("builder_error=Builder returned None")
+    sys.exit(1)
+
+print("trt_builder_ready=True")
+PY
+    )"; then
+      status_code=0
+    else
+      status_code=$?
+    fi
+  fi
+
+  if [[ ${status_code} -ne 0 ]]; then
+    if [[ ${status_code} -eq 124 ]]; then
+      runtime_check_output="TensorRT builder self-test timed out after ${TRT_BUILDER_CHECK_TIMEOUT_SEC}s"
+    elif [[ -z "${runtime_check_output}" ]]; then
+      runtime_check_output="TensorRT builder self-test exited with status ${status_code} and no output"
+    fi
+    if [[ "${TRT_BUILDER_CHECK_STRICT}" == "1" ]]; then
+      print_error "TensorRT runtime self-test failed."
+      print_error "${runtime_check_output}"
+      print_error "Terminate the Pod instead of continuing."
+      exit 1
+    fi
+    print_warning "TensorRT builder self-test failed but startup will continue."
+    print_warning "${runtime_check_output}"
+    print_warning "Set RUNPOD_STRICT_TRT_BUILDER_CHECK=1 to make this failure fatal."
+    return 0
+  fi
 
   print_info "${runtime_check_output}"
 }

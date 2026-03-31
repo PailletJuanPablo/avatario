@@ -115,6 +115,9 @@ apply_image_bundle_overrides() {
     "scripts/runpod_bootstrap.sh"
     "scripts/runpod_validate_runtime.sh"
     "faster_liveportrait_runner.py"
+    "faster_liveportrait_audio_to_pkl.py"
+    "index.html"
+    "job_stream_shared_memory.py"
     "realtime_stream_api.py"
     "runtime_env.py"
   )
