@@ -91,11 +91,15 @@ POST /api/avatar/enqueue
 It accepts the same multipart contract as the legacy `POST /api/generate` endpoint and immediately
 adds the audio to the sequential avatar queue.
 
+Every client interaction must send one stable avatar session id through the
+`X-Avatar-Session-Id` header. Jobs, avatar status, and avatar streams are isolated by that session.
+
 Minimal example:
 
 ```powershell
 curl -X POST "http://127.0.0.1:8010/api/avatar/enqueue" `
   -H "Authorization: Bearer change-me" `
+  -H "X-Avatar-Session-Id: avatar_demo_session" `
   -F "audio=@voice.mp3" `
   -F "mode=preview" `
   -F "motion_stride=2"
@@ -109,30 +113,32 @@ The response returns:
 - `videoWsUrl`
 - `statusUrl`
 
+Detailed runtime behavior for session isolation is documented in [docs/AVATAR_SESSION_ARCHITECTURE.md](docs/AVATAR_SESSION_ARCHITECTURE.md).
+
 ## WebSocket contract
 
 Queue-aware avatar status stream:
 
 ```text
-ws://127.0.0.1:8010/ws/avatar?token=change-me
+ws://127.0.0.1:8010/ws/avatar?token=change-me&sessionId=avatar_demo_session
 ```
 
 Continuous avatar video stream:
 
 ```text
-ws://127.0.0.1:8010/ws/avatar/video?token=change-me
+ws://127.0.0.1:8010/ws/avatar/video?token=change-me&sessionId=avatar_demo_session
 ```
 
 Per-job status stream:
 
 ```text
-ws://127.0.0.1:8010/ws/jobs/<jobId>?token=change-me
+ws://127.0.0.1:8010/ws/jobs/<jobId>?token=change-me&sessionId=avatar_demo_session
 ```
 
 Per-job video stream:
 
 ```text
-ws://127.0.0.1:8010/ws/jobs/<jobId>/video?token=change-me
+ws://127.0.0.1:8010/ws/jobs/<jobId>/video?token=change-me&sessionId=avatar_demo_session
 ```
 
 `/ws/avatar` exposes queue depth and the currently playing job. `/ws/avatar/video` plays the unified

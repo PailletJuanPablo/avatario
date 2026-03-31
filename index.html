@@ -935,8 +935,11 @@
     const API_RUNTIME_RESTART_PATH = "/api/runtime/restart";
     const API_WARMUP_PATH = "/api/warmup";
     const API_TOKEN_QUERY_KEY = "token";
+    const AVATAR_SESSION_ID_QUERY_KEY = "sessionId";
     const AUTHORIZATION_HEADER_NAME = "Authorization";
     const AUTHORIZATION_BEARER_PREFIX = "Bearer ";
+    const AVATAR_SESSION_ID_HEADER_NAME = "X-Avatar-Session-Id";
+    const AVATAR_SESSION_ID_STORAGE_KEY = "avatarSessionId";
     const DEFAULT_API_BASE_URL = (() => {
       if ((window.location.protocol === "http:" || window.location.protocol === "https:") && window.location.host) {
         return `${window.location.protocol}//${window.location.host}`;
@@ -948,6 +951,25 @@
         return String(new URL(window.location.href).searchParams.get(API_TOKEN_QUERY_KEY) || "").trim();
       } catch (_error) {
         return "";
+      }
+    })();
+    const DEFAULT_AVATAR_SESSION_ID = (() => {
+      const buildSessionId = () => {
+        if (window.crypto && typeof window.crypto.randomUUID === "function") {
+          return `avatar_${window.crypto.randomUUID().replace(/-/g, "")}`;
+        }
+        return `avatar_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+      };
+      try {
+        const existingValue = String(window.sessionStorage.getItem(AVATAR_SESSION_ID_STORAGE_KEY) || "").trim();
+        if (existingValue) {
+          return existingValue;
+        }
+        const nextValue = buildSessionId();
+        window.sessionStorage.setItem(AVATAR_SESSION_ID_STORAGE_KEY, nextValue);
+        return nextValue;
+      } catch (_error) {
+        return buildSessionId();
       }
     })();
     const DEFAULT_SOURCE_FRAME = "output/frames/frame_00061.png";
@@ -1239,6 +1261,7 @@
 
     function createEmptyAvatarState() {
       return {
+        sessionId: DEFAULT_AVATAR_SESSION_ID,
         mode: AVATAR_MODE.IDLE,
         sequence: 0,
         currentJobId: "",
@@ -1623,6 +1646,10 @@
       return String((elements.apiTokenInput && elements.apiTokenInput.value) || "").trim();
     }
 
+    function getAvatarSessionId() {
+      return DEFAULT_AVATAR_SESSION_ID;
+    }
+
     function buildAbsoluteUrl(pathOrUrl) {
       if (!pathOrUrl) {
         return "";
@@ -1651,6 +1678,23 @@
       return absoluteUrl.toString();
     }
 
+    function appendAvatarSessionQueryParameter(pathOrUrl) {
+      if (!pathOrUrl) {
+        return "";
+      }
+      const avatarSessionId = getAvatarSessionId();
+      if (!avatarSessionId) {
+        return pathOrUrl;
+      }
+      const absoluteUrl = new URL(pathOrUrl, window.location.href);
+      const apiOrigin = new URL(`${normalizeApiBase()}/`).origin;
+      if (absoluteUrl.origin !== apiOrigin) {
+        return absoluteUrl.toString();
+      }
+      absoluteUrl.searchParams.set(AVATAR_SESSION_ID_QUERY_KEY, avatarSessionId);
+      return absoluteUrl.toString();
+    }
+
     function buildApiUrl(pathOrUrl) {
       if (!pathOrUrl) {
         return "";
@@ -1663,6 +1707,10 @@
       const token = getApiToken();
       if (token) {
         headers.set(AUTHORIZATION_HEADER_NAME, `${AUTHORIZATION_BEARER_PREFIX}${token}`);
+      }
+      const avatarSessionId = getAvatarSessionId();
+      if (avatarSessionId) {
+        headers.set(AVATAR_SESSION_ID_HEADER_NAME, avatarSessionId);
       }
       return {
         ...requestOptions,
@@ -1682,12 +1730,12 @@
         return pathOrUrl;
       }
       if (/^https?:\/\//i.test(pathOrUrl)) {
-        return appendApiTokenQueryParameter(pathOrUrl);
+        return appendAvatarSessionQueryParameter(appendApiTokenQueryParameter(pathOrUrl));
       }
       if (pathOrUrl.startsWith("/")) {
-        return appendApiTokenQueryParameter(buildApiUrl(pathOrUrl));
+        return appendAvatarSessionQueryParameter(appendApiTokenQueryParameter(buildApiUrl(pathOrUrl)));
       }
-      return appendApiTokenQueryParameter(buildApiUrl(pathOrUrl));
+      return appendAvatarSessionQueryParameter(appendApiTokenQueryParameter(buildApiUrl(pathOrUrl)));
     }
 
     /**
@@ -2619,6 +2667,10 @@
       if (token && absoluteUrl.host === apiHost) {
         absoluteUrl.searchParams.set(API_TOKEN_QUERY_KEY, token);
       }
+      const avatarSessionId = getAvatarSessionId();
+      if (avatarSessionId && absoluteUrl.host === apiHost) {
+        absoluteUrl.searchParams.set(AVATAR_SESSION_ID_QUERY_KEY, avatarSessionId);
+      }
       if (absoluteUrl.protocol === "https:") {
         absoluteUrl.protocol = WS_PROTOCOL_HTTPS;
       } else if (absoluteUrl.protocol === "http:") {
@@ -3297,6 +3349,7 @@
         return;
       }
       avatarState = {
+        sessionId: String(payload.avatarSessionId || avatarState.sessionId || DEFAULT_AVATAR_SESSION_ID),
         mode: String(payload.mode || AVATAR_MODE.IDLE),
         sequence: Number(payload.sequence || 0),
         currentJobId: String(payload.currentJobId || ""),
@@ -3770,6 +3823,7 @@
           jobWorkerAlive: Boolean(data.jobWorkerAlive)
         };
         avatarState.mode = String(data.avatarMode || avatarState.mode || AVATAR_MODE.IDLE);
+        avatarState.sessionId = String(data.avatarSessionId || avatarState.sessionId || DEFAULT_AVATAR_SESSION_ID);
         avatarState.sequence = Number(data.avatarSequence || avatarState.sequence || 0);
         avatarState.currentJobId = String(data.avatarCurrentJobId || avatarState.currentJobId || "");
         avatarState.currentJobStartedAtMs = Number(data.avatarCurrentJobStartedAtMs || avatarState.currentJobStartedAtMs || 0);
@@ -3784,7 +3838,7 @@
         avatarState.idleVideoUrl = String(data.avatarIdleVideoUrl || avatarState.idleVideoUrl || "");
         avatarState.bufferedStartProgress = Number(data.avatarBufferedStartProgress || avatarState.bufferedStartProgress || BUFFERED_STREAM_START_PROGRESS_RATIO);
         updatePreviewStartBadge(avatarState.bufferedStartProgress);
-        avatarState.queueDepth = Number(data.jobQueueDepth || avatarState.queueDepth || 0);
+        avatarState.queueDepth = Number(data.avatarQueueDepth ?? avatarState.queueDepth ?? 0);
         if (showStatusBadge) {
           setStatusBadge(`api ${data.status}`, data.status === "ok");
         }

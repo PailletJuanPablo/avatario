@@ -40,6 +40,7 @@ API_JOB_STATUS_PATH_TEMPLATE = "/api/jobs/{job_id}/status"
 API_JOB_REPORT_PATH_TEMPLATE = "/api/jobs/{job_id}/report"
 AUTHORIZATION_HEADER_NAME = "Authorization"
 AUTHORIZATION_SCHEME = "Bearer"
+AVATAR_SESSION_ID_HEADER_NAME = "X-Avatar-Session-Id"
 ENV_FILE_NAME = ".env"
 ENV_API_PORT_KEY = "ANIMATION_API_PORT"
 ENV_API_TOKEN_KEY = "ANIMATION_API_TOKEN"
@@ -165,23 +166,28 @@ def build_api_base_url(host: str, port: int) -> str:
     return f"http://{host}:{port}"
 
 
-def build_auth_headers(token: str) -> dict[str, str]:
-    """Build optional Authorization header payload."""
+def build_auth_headers(token: str, avatar_session_id: str) -> dict[str, str]:
+    """Build request headers for one benchmark avatar session."""
+    headers = {
+        AVATAR_SESSION_ID_HEADER_NAME: str(avatar_session_id),
+    }
     normalized_token = str(token or "").strip()
     if not normalized_token:
-        return {}
-    return {AUTHORIZATION_HEADER_NAME: f"{AUTHORIZATION_SCHEME} {normalized_token}"}
+        return headers
+    headers[AUTHORIZATION_HEADER_NAME] = f"{AUTHORIZATION_SCHEME} {normalized_token}"
+    return headers
 
 
 def api_request(
     method: str,
     url: str,
     token: str,
+    avatar_session_id: str,
     body: bytes | None = None,
     headers: dict[str, str] | None = None,
 ) -> Any:
     """Send one JSON API request and decode the response."""
-    request_headers = build_auth_headers(token)
+    request_headers = build_auth_headers(token, avatar_session_id)
     if headers:
         request_headers.update(headers)
     request = urllib.request.Request(url=url, method=method.upper(), data=body, headers=request_headers)
@@ -252,6 +258,7 @@ def run_compose(project_root: Path, env: dict[str, str], *parts: str) -> None:
 def wait_for_backend_ready(
     base_url: str,
     token: str,
+    avatar_session_id: str,
     timeout_sec: float,
     poll_interval_sec: float,
 ) -> tuple[dict[str, Any], float, float]:
@@ -267,7 +274,7 @@ def wait_for_backend_ready(
 
     while time.perf_counter() < deadline:
         try:
-            payload = api_request("GET", f"{base_url}{API_HEALTH_PATH}", token)
+            payload = api_request("GET", f"{base_url}{API_HEALTH_PATH}", token, avatar_session_id)
         except BenchmarkError as exc:
             last_error = str(exc)
             time.sleep(poll_interval_sec)
@@ -298,6 +305,7 @@ def wait_for_backend_ready(
 def enqueue_job(
     base_url: str,
     token: str,
+    avatar_session_id: str,
     audio_path: Path,
     source_image_path: Path | None,
     source_frame: str,
@@ -324,6 +332,7 @@ def enqueue_job(
         "POST",
         f"{base_url}{API_ENQUEUE_PATH}",
         token,
+        avatar_session_id,
         body=request_body,
         headers={"Content-Type": content_type},
     )
@@ -333,6 +342,7 @@ def enqueue_job(
 def wait_for_job_completion(
     base_url: str,
     token: str,
+    avatar_session_id: str,
     job_id: str,
     timeout_sec: float,
     poll_interval_sec: float,
@@ -343,7 +353,7 @@ def wait_for_job_completion(
     last_payload: dict[str, Any] | None = None
 
     while time.perf_counter() < deadline:
-        payload = api_request("GET", status_url, token)
+        payload = api_request("GET", status_url, token, avatar_session_id)
         last_payload = payload
         state = str(payload.get("state", "")).strip().lower()
         if state in TERMINAL_JOB_STATES:
@@ -353,10 +363,10 @@ def wait_for_job_completion(
     raise BenchmarkError(f"Job {job_id} did not finish within {timeout_sec:.1f}s. Last payload: {last_payload}")
 
 
-def fetch_job_report(base_url: str, token: str, job_id: str) -> dict[str, Any]:
+def fetch_job_report(base_url: str, token: str, avatar_session_id: str, job_id: str) -> dict[str, Any]:
     """Fetch one completed job report."""
     report_url = f"{base_url}{API_JOB_REPORT_PATH_TEMPLATE.format(job_id=urllib.parse.quote(job_id))}"
-    return api_request("GET", report_url, token)
+    return api_request("GET", report_url, token, avatar_session_id)
 
 
 def safe_seconds_from_ms(end_ms: Any, start_ms: Any) -> float | None:
@@ -522,6 +532,7 @@ def benchmark_backend(
 ) -> dict[str, Any]:
     """Benchmark one backend by starting Docker, running one job, and collecting metrics."""
     compose_env = build_compose_environment(base_env, backend, args, token, api_port)
+    avatar_session_id = f"benchmark_{backend}_{uuid.uuid4().hex}"
     print()
     print(f"[benchmark] starting backend={backend}")
     run_compose(project_root, compose_env, "-f", str(compose_file), "down", "--remove-orphans")
@@ -532,12 +543,14 @@ def benchmark_backend(
         health_payload, health_ready_seconds, warmup_wait_seconds = wait_for_backend_ready(
             base_url=base_url,
             token=token,
+            avatar_session_id=avatar_session_id,
             timeout_sec=float(args.startup_timeout),
             poll_interval_sec=DEFAULT_HEALTH_POLL_INTERVAL_SEC,
         )
         enqueue_payload, api_ack_seconds = enqueue_job(
             base_url=base_url,
             token=token,
+            avatar_session_id=avatar_session_id,
             audio_path=audio_path,
             source_image_path=source_image_path,
             source_frame=str(args.source_frame),
@@ -550,6 +563,7 @@ def benchmark_backend(
         final_status_payload = wait_for_job_completion(
             base_url=base_url,
             token=token,
+            avatar_session_id=avatar_session_id,
             job_id=job_id,
             timeout_sec=float(args.job_timeout),
             poll_interval_sec=DEFAULT_JOB_POLL_INTERVAL_SEC,
@@ -557,7 +571,12 @@ def benchmark_backend(
         final_state = str(final_status_payload.get("state", "")).strip().lower()
         if final_state != JOB_STATE_DONE:
             raise BenchmarkError(f"Backend {backend} finished with state '{final_state}': {final_status_payload}")
-        report_payload = fetch_job_report(base_url=base_url, token=token, job_id=job_id)
+        report_payload = fetch_job_report(
+            base_url=base_url,
+            token=token,
+            avatar_session_id=avatar_session_id,
+            job_id=job_id,
+        )
         return summarise_backend_run(
             backend=backend,
             health_payload=health_payload,

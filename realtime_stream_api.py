@@ -14,6 +14,7 @@ import hmac
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -526,6 +527,10 @@ AVATAR_MODE_TALKING = "talking"
 AVATAR_MODE_CHOICES = {AVATAR_MODE_IDLE, AVATAR_MODE_TALKING}
 AVATAR_TRANSPORT_WEBSOCKET = "websocket"
 AVATAR_TRANSPORT_WEBRTC = "webrtc"
+AVATAR_SESSION_ID_HEADER_NAME = "X-Avatar-Session-Id"
+AVATAR_SESSION_ID_QUERY_KEY = "sessionId"
+AVATAR_SESSION_ID_MAX_LENGTH = 128
+AVATAR_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 AVATAR_STREAM_SEGMENT_IDLE_KEY = "__idle__"
 DEFAULT_IDLE_VIDEO_PATH = "inputs/idlevid_breath.mp4"
 AVATAR_IDLE_VIDEO_REL = Path(
@@ -1680,6 +1685,7 @@ def fps_values_match(left_fps: float, right_fps: float, tolerance: float = 0.01)
 @dataclass
 class JobRecord:
     job_id: str
+    avatar_session_id: str
     created_at_ms: int
     mode: str
     source_frame_arg: str
@@ -1731,6 +1737,17 @@ class JobRecord:
     @property
     def result_concat_abs(self) -> Path:
         return self.output_abs / "result_concat.mp4"
+
+
+@dataclass
+class AvatarSessionState:
+    avatar_session_id: str
+    sequence: int = 0
+    mode: str = AVATAR_MODE_IDLE
+    current_job_id: str = ""
+    current_job_started_at_ms: int = 0
+    current_job_ends_at_ms: int = 0
+    idle_started_at_ms: int = field(default_factory=now_ms)
 
 
 @dataclass
@@ -2185,10 +2202,11 @@ class AvatarWebRtcSession:
     One peer connection that keeps a single continuous avatar stream alive for one browser client.
     """
 
-    def __init__(self, session_id: str, rtc_configuration: RTCConfiguration) -> None:
+    def __init__(self, session_id: str, avatar_session_id: str, rtc_configuration: RTCConfiguration) -> None:
         self.session_id = session_id
+        self.avatar_session_id = avatar_session_id
         self.peer_connection = RTCPeerConnection(configuration=rtc_configuration)
-        idle_started_at_ms = int(get_avatar_state_snapshot().get("idleStartedAtMs") or 0)
+        idle_started_at_ms = int(get_avatar_state_snapshot(self.avatar_session_id).get("idleStartedAtMs") or 0)
         idle_offset_sec = max(0.0, (now_ms() - idle_started_at_ms) / 1000.0) if idle_started_at_ms > 0 else 0.0
         self.avatar_video_track = AvatarVideoStreamTrack(resolve_idle_video_abs(), start_offset_sec=idle_offset_sec)
         self.idle_audio_track = SilenceAudioStreamTrack()
@@ -2254,7 +2272,7 @@ class AvatarWebRtcSession:
         """
         Route the peer back to the persistent idle tracks.
         """
-        snapshot = get_avatar_state_snapshot()
+        snapshot = get_avatar_state_snapshot(self.avatar_session_id)
         self.stop_current_audio_player()
         self.avatar_video_track.switch_to_idle(int(snapshot.get("idleStartedAtMs") or 0))
         self.audio_sender.replaceTrack(self.idle_audio_track)
@@ -2277,7 +2295,7 @@ class AvatarWebRtcSession:
         """
         try:
             while not self.closed:
-                snapshot = get_avatar_state_snapshot()
+                snapshot = get_avatar_state_snapshot(self.avatar_session_id)
                 current_job = self.resolve_job_from_snapshot(snapshot)
                 if current_job is None:
                     if self.current_job_id:
@@ -2413,10 +2431,11 @@ def mark_avatar_job_finished(job: JobRecord) -> None:
     """
     with JOBS_LOCK:
         job.avatar_play_finished_at_ms = now_ms()
-    with AVATAR_STATE_LOCK:
-        is_current_job = AVATAR_CURRENT_JOB_ID == job.job_id
+    with AVATAR_SESSION_STATES_LOCK:
+        session_state = AVATAR_SESSION_STATES.get(job.avatar_session_id)
+        is_current_job = session_state is not None and session_state.current_job_id == job.job_id
     if is_current_job:
-        activate_avatar_idle_mode()
+        activate_avatar_idle_mode(job.avatar_session_id)
 
 
 def open_avatar_audio_wave_reader(audio_path: Path, seek_offset_sec: float) -> wave.Wave_read | None:
@@ -2445,6 +2464,7 @@ def open_avatar_audio_wave_reader(audio_path: Path, seek_offset_sec: float) -> w
 
 
 async def pump_continuous_avatar_audio(
+    avatar_session_id: str,
     audio_write_fd: int,
     stop_event: asyncio.Event,
 ) -> None:
@@ -2457,7 +2477,7 @@ async def pump_continuous_avatar_audio(
     silence_chunk = bytes(VIDEO_STREAM_AUDIO_CHUNK_BYTES)
     try:
         while not stop_event.is_set():
-            snapshot = get_avatar_state_snapshot()
+            snapshot = get_avatar_state_snapshot(avatar_session_id)
             desired_job_id = str(snapshot.get("currentJobId") or "") if snapshot.get("mode") == AVATAR_MODE_TALKING else ""
             if desired_job_id != current_job_id:
                 if current_wave_reader is not None:
@@ -2526,12 +2546,14 @@ async def stop_continuous_avatar_audio(
 
 
 async def stream_continuous_avatar_video(
+    avatar_session_id: str,
     chunk_sender: Callable[[bytes], Awaitable[None]],
     should_stop: Callable[[], Awaitable[bool]] | None = None,
 ) -> None:
     """
     Emit one continuous avatar MP4 stream through an abstract byte sink.
     """
+    ensure_avatar_session_state(avatar_session_id)
     ensure_avatar_worker_started()
     idle_looper = IdleVideoLooper(resolve_idle_video_abs())
     canvas_size = resolve_avatar_stream_canvas_size(idle_looper.canvas_size)
@@ -2585,7 +2607,9 @@ async def stream_continuous_avatar_video(
         next_emit_at = time.perf_counter()
         if audio_write_fd is not None:
             audio_stop_event = asyncio.Event()
-            audio_task = asyncio.create_task(pump_continuous_avatar_audio(audio_write_fd, audio_stop_event))
+            audio_task = asyncio.create_task(
+                pump_continuous_avatar_audio(avatar_session_id, audio_write_fd, audio_stop_event)
+            )
         else:
             audio_stop_event = None
             audio_task = None
@@ -2667,7 +2691,7 @@ async def stream_continuous_avatar_video(
                 await asyncio.sleep(min(VIDEO_STREAM_POLL_SLEEP_SEC, next_emit_at - now_perf))
                 continue
 
-            snapshot = get_avatar_state_snapshot()
+            snapshot = get_avatar_state_snapshot(avatar_session_id)
             desired_job_id = str(snapshot["currentJobId"] or "") if snapshot["mode"] == AVATAR_MODE_TALKING else ""
             if talking_state is not None and desired_job_id != talking_state.job_id:
                 arm_idle_return_transition(talking_state.last_frame_image)
@@ -2748,7 +2772,11 @@ async def stream_continuous_avatar_video(
         await stop_avatar_stream_encoder(encoder)
 
 
-async def capture_continuous_avatar_video(output_path: Path, duration_sec: float) -> Path:
+async def capture_continuous_avatar_video(
+    output_path: Path,
+    duration_sec: float,
+    avatar_session_id: str,
+) -> Path:
     """
     Capture a finite slice of the continuous avatar stream into one playable MP4 file.
     """
@@ -2766,7 +2794,11 @@ async def capture_continuous_avatar_video(output_path: Path, duration_sec: float
         return time.perf_counter() >= deadline
 
     try:
-        await stream_continuous_avatar_video(chunk_sender=send_chunk, should_stop=should_stop)
+        await stream_continuous_avatar_video(
+            avatar_session_id=avatar_session_id,
+            chunk_sender=send_chunk,
+            should_stop=should_stop,
+        )
     finally:
         output_handle.flush()
         output_handle.close()
@@ -2793,15 +2825,10 @@ WARMUP_ERROR = ""
 RUNTIME_RESTART_LOCK = threading.Lock()
 RUNTIME_RESTARTING = False
 RUNTIME_RESTART_REQUESTED_AT_MS = 0
-AVATAR_STATE_LOCK = threading.Lock()
+AVATAR_SESSION_STATES_LOCK = threading.Lock()
 AVATAR_WORKER_LOCK = threading.Lock()
 AVATAR_WORKER_THREAD: threading.Thread | None = None
-AVATAR_STATE_SEQUENCE = 0
-AVATAR_MODE = AVATAR_MODE_IDLE
-AVATAR_CURRENT_JOB_ID = ""
-AVATAR_CURRENT_JOB_STARTED_AT_MS = 0
-AVATAR_CURRENT_JOB_ENDS_AT_MS = 0
-AVATAR_LAST_IDLE_STARTED_AT_MS = PROCESS_STARTED_AT_MS
+AVATAR_SESSION_STATES: dict[str, AvatarSessionState] = {}
 
 
 def make_job_id() -> str:
@@ -2872,13 +2899,13 @@ def get_head_queued_job_id() -> str:
         return str(JOB_QUEUE[0])
 
 
-def get_job(job_id: str) -> JobRecord:
+def get_job(job_id: str, avatar_session_id: str | None = None) -> JobRecord:
     """
     Fetch job record or raise HTTP 404.
     """
     with JOBS_LOCK:
         job = JOBS.get(job_id)
-    if job is None:
+    if job is None or (avatar_session_id is not None and job.avatar_session_id != avatar_session_id):
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
     return job
 
@@ -2992,6 +3019,71 @@ async def close_all_webrtc_sessions() -> None:
             await session.close()
 
 
+def normalize_avatar_session_id(raw_value: Any) -> str:
+    """
+    Normalize one public avatar session identifier.
+    """
+    normalized_value = str(raw_value or "").strip()
+    if not normalized_value:
+        raise ValueError("Missing avatar session id.")
+    if len(normalized_value) > AVATAR_SESSION_ID_MAX_LENGTH:
+        raise ValueError("Avatar session id is too long.")
+    if AVATAR_SESSION_ID_PATTERN.fullmatch(normalized_value) is None:
+        raise ValueError("Avatar session id contains unsupported characters.")
+    return normalized_value
+
+
+def ensure_avatar_session_state(avatar_session_id: str) -> AvatarSessionState:
+    """
+    Create or fetch one avatar scheduler state bucket.
+    """
+    normalized_avatar_session_id = normalize_avatar_session_id(avatar_session_id)
+    with AVATAR_SESSION_STATES_LOCK:
+        session_state = AVATAR_SESSION_STATES.get(normalized_avatar_session_id)
+        if session_state is None:
+            session_state = AvatarSessionState(avatar_session_id=normalized_avatar_session_id)
+            AVATAR_SESSION_STATES[normalized_avatar_session_id] = session_state
+        return session_state
+
+
+def get_avatar_session_id_from_request(request: Request) -> str:
+    """
+    Resolve the avatar interaction session id from one HTTP request.
+    """
+    raw_session_id = request.headers.get(AVATAR_SESSION_ID_HEADER_NAME) or request.query_params.get(
+        AVATAR_SESSION_ID_QUERY_KEY
+    )
+    try:
+        return ensure_avatar_session_state(str(raw_session_id or "")).avatar_session_id
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def get_optional_avatar_session_id_from_request(request: Request) -> str | None:
+    """
+    Resolve the optional avatar interaction session id from one HTTP request.
+    """
+    raw_session_id = request.headers.get(AVATAR_SESSION_ID_HEADER_NAME) or request.query_params.get(
+        AVATAR_SESSION_ID_QUERY_KEY
+    )
+    if raw_session_id is None or not str(raw_session_id).strip():
+        return None
+    try:
+        return ensure_avatar_session_state(str(raw_session_id or "")).avatar_session_id
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def get_avatar_session_id_from_websocket(websocket: WebSocket) -> str:
+    """
+    Resolve the avatar interaction session id from one websocket handshake.
+    """
+    raw_session_id = websocket.headers.get(AVATAR_SESSION_ID_HEADER_NAME) or websocket.query_params.get(
+        AVATAR_SESSION_ID_QUERY_KEY
+    )
+    return ensure_avatar_session_state(str(raw_session_id or "")).avatar_session_id
+
+
 async def wait_for_ice_gathering_complete(peer_connection: RTCPeerConnection) -> None:
     """
     Wait until aiortc finishes gathering local ICE candidates for the SDP answer.
@@ -3001,22 +3093,25 @@ async def wait_for_ice_gathering_complete(peer_connection: RTCPeerConnection) ->
         await asyncio.sleep(0.05)
 
 
-def get_avatar_state_snapshot() -> dict[str, Any]:
+def get_avatar_state_snapshot(avatar_session_id: str) -> dict[str, Any]:
     """
-    Read current avatar scheduler state atomically.
+    Read current avatar scheduler state atomically for one interaction session.
     """
-    with AVATAR_STATE_LOCK:
-        current_job_id = AVATAR_CURRENT_JOB_ID
-        current_mode = AVATAR_MODE
-        current_started_at_ms = AVATAR_CURRENT_JOB_STARTED_AT_MS
-        current_ends_at_ms = AVATAR_CURRENT_JOB_ENDS_AT_MS
-        sequence = AVATAR_STATE_SEQUENCE
-        idle_started_at_ms = AVATAR_LAST_IDLE_STARTED_AT_MS
+    session_state = ensure_avatar_session_state(avatar_session_id)
+    with AVATAR_SESSION_STATES_LOCK:
+        current_job_id = session_state.current_job_id
+        current_mode = session_state.mode
+        current_started_at_ms = session_state.current_job_started_at_ms
+        current_ends_at_ms = session_state.current_job_ends_at_ms
+        sequence = session_state.sequence
+        idle_started_at_ms = session_state.idle_started_at_ms
     current_job = None
     current_job_stream_status = None
     if current_job_id:
         with JOBS_LOCK:
             current_job = JOBS.get(current_job_id)
+        if current_job is not None and current_job.avatar_session_id != avatar_session_id:
+            current_job = None
         if current_job is not None:
             current_job_stream_status = read_job_stream_status(current_job)
     buffered_start_progress = (
@@ -3033,6 +3128,7 @@ def get_avatar_state_snapshot() -> dict[str, Any]:
         "idleStartedAtMs": idle_started_at_ms,
         "idleVideoUrl": resolve_idle_video_url(),
         "bufferedStartProgress": buffered_start_progress,
+        "avatarSessionId": avatar_session_id,
         "currentJobVideoWsUrl": f"/ws/jobs/{current_job_id}/video" if current_job_id else "",
         "currentJobStatusWsUrl": f"/ws/jobs/{current_job_id}" if current_job_id else "",
         "currentJobAudioDurationSec": current_job.audio_duration_sec if current_job is not None else 0.0,
@@ -3045,14 +3141,16 @@ def get_avatar_state_snapshot() -> dict[str, Any]:
     }
 
 
-def count_pending_avatar_jobs(current_job_id: str) -> int:
+def count_pending_avatar_jobs(avatar_session_id: str, current_job_id: str) -> int:
     """
-    Count queued or ready avatar jobs that still have not been played.
+    Count queued or ready avatar jobs still pending for one interaction session.
     """
     with JOBS_LOCK:
         job_records = list(JOBS.values())
     pending_count = 0
     for job in job_records:
+        if job.avatar_session_id != avatar_session_id:
+            continue
         if job.job_id == current_job_id:
             continue
         if job.avatar_play_finished_at_ms is not None:
@@ -3065,20 +3163,24 @@ def count_pending_avatar_jobs(current_job_id: str) -> int:
     return pending_count
 
 
-def build_avatar_payload() -> dict[str, Any]:
+def build_avatar_payload(avatar_session_id: str) -> dict[str, Any]:
     """
-    Build one public avatar state payload for the UI.
+    Build one public avatar state payload for the requested interaction session.
     """
-    snapshot = get_avatar_state_snapshot()
-    queue_depth = count_pending_avatar_jobs(str(snapshot["currentJobId"] or ""))
+    snapshot = get_avatar_state_snapshot(avatar_session_id)
+    queue_depth = count_pending_avatar_jobs(avatar_session_id, str(snapshot["currentJobId"] or ""))
     running_job = get_running_job_record()
     current_job: JobRecord | None = None
     current_job_id = str(snapshot["currentJobId"] or "")
     if current_job_id:
         with JOBS_LOCK:
             current_job = JOBS.get(current_job_id)
+        if current_job is not None and current_job.avatar_session_id != avatar_session_id:
+            current_job = None
     with WEBRTC_SESSIONS_LOCK:
-        active_webrtc_sessions = len(WEBRTC_SESSIONS)
+        active_webrtc_sessions = sum(
+            1 for session in WEBRTC_SESSIONS.values() if session.avatar_session_id == avatar_session_id
+        )
     return {
         **snapshot,
         "queueDepth": queue_depth,
@@ -3093,6 +3195,44 @@ def build_avatar_payload() -> dict[str, Any]:
         "webrtcIceTransportPolicy": DEFAULT_WEBRTC_ICE_TRANSPORT_POLICY,
         "activeWebrtcSessions": active_webrtc_sessions,
         "currentJobDrivingMediaUrl": build_public_file_url(current_job.audio_input_abs) if current_job is not None else "",
+        "status": "ok",
+    }
+
+
+def build_public_avatar_health_payload() -> dict[str, Any]:
+    """
+    Build one session-neutral avatar payload for infrastructure health checks.
+    """
+    with WEBRTC_SESSIONS_LOCK:
+        active_webrtc_sessions = len(WEBRTC_SESSIONS)
+    idle_video_url = resolve_idle_video_url()
+    return {
+        "avatarSessionId": "",
+        "mode": AVATAR_MODE_IDLE,
+        "sequence": 0,
+        "currentJobId": "",
+        "currentJobStartedAtMs": 0,
+        "currentJobEndsAtMs": 0,
+        "idleStartedAtMs": PROCESS_STARTED_AT_MS,
+        "idleVideoUrl": idle_video_url,
+        "bufferedStartProgress": 0.0,
+        "currentJobVideoWsUrl": "",
+        "currentJobStatusWsUrl": "",
+        "currentJobAudioDurationSec": 0.0,
+        "currentJobSourceFrameUrl": "",
+        "currentJobPreviewComposition": None,
+        "queueDepth": 0,
+        "runningJobId": "",
+        "idleVideoAvailable": bool(idle_video_url),
+        "avatarVideoWsUrl": "/ws/avatar/video",
+        "avatarVideoHttpUrl": "/api/avatar/video.mp4",
+        "avatarWebrtcOfferUrl": WEBRTC_OFFER_API_PATH,
+        "avatarTransport": AVATAR_TRANSPORT_WEBSOCKET,
+        "webrtcEnabled": False,
+        "webrtcIceServers": WEBRTC_ICE_SERVER_PAYLOADS,
+        "webrtcIceTransportPolicy": DEFAULT_WEBRTC_ICE_TRANSPORT_POLICY,
+        "activeWebrtcSessions": active_webrtc_sessions,
+        "currentJobDrivingMediaUrl": "",
         "status": "ok",
     }
 
@@ -3176,7 +3316,10 @@ def resolve_avatar_required_ready_frame_count(
     return required_frame_count
 
 
-def resolve_avatar_idle_anchor_source_frame(audio_duration_sec: float) -> tuple[Path, str] | None:
+def resolve_avatar_idle_anchor_source_frame(
+    audio_duration_sec: float,
+    avatar_session_id: str,
+) -> tuple[Path, str] | None:
     """
     Select the idle anchor whose loop position is nearest to the predicted talking handoff moment.
     """
@@ -3189,7 +3332,7 @@ def resolve_avatar_idle_anchor_source_frame(audio_duration_sec: float) -> tuple[
         first_anchor_path = Path(str(anchors[0].get("path") or "")).resolve()
         return first_anchor_path, to_runner_source_arg(first_anchor_path)
 
-    snapshot = get_avatar_state_snapshot()
+    snapshot = get_avatar_state_snapshot(avatar_session_id)
     if str(snapshot.get("mode") or "") != AVATAR_MODE_IDLE:
         first_anchor_path = Path(str(anchors[0].get("path") or "")).resolve()
         return first_anchor_path, to_runner_source_arg(first_anchor_path)
@@ -3251,13 +3394,15 @@ def is_job_ready_for_avatar(job: JobRecord, stream_status: dict[str, Any] | None
     return frame_index >= required_frame_count
 
 
-def select_next_avatar_job() -> JobRecord | None:
+def select_next_avatar_job(avatar_session_id: str) -> JobRecord | None:
     """
-    Select the oldest ready job that has not been played yet.
+    Select the oldest ready job that has not been played yet for one interaction session.
     """
     with JOBS_LOCK:
         job_records = sorted(JOBS.values(), key=lambda item: item.created_at_ms)
     for job in job_records:
+        if job.avatar_session_id != avatar_session_id:
+            continue
         if job.avatar_play_finished_at_ms is not None or job.avatar_play_started_at_ms is not None:
             continue
         stream_status = read_job_stream_status(job)
@@ -3275,43 +3420,34 @@ def select_next_avatar_job() -> JobRecord | None:
     return None
 
 
-def activate_avatar_idle_mode() -> None:
+def activate_avatar_idle_mode(avatar_session_id: str) -> None:
     """
-    Switch avatar state to idle and advance the transition sequence.
+    Switch one interaction session back to idle and advance its transition sequence.
     """
-    global AVATAR_MODE
-    global AVATAR_CURRENT_JOB_ID
-    global AVATAR_CURRENT_JOB_STARTED_AT_MS
-    global AVATAR_CURRENT_JOB_ENDS_AT_MS
-    global AVATAR_LAST_IDLE_STARTED_AT_MS
-    global AVATAR_STATE_SEQUENCE
-    with AVATAR_STATE_LOCK:
-        AVATAR_MODE = AVATAR_MODE_IDLE
-        AVATAR_CURRENT_JOB_ID = ""
-        AVATAR_CURRENT_JOB_STARTED_AT_MS = 0
-        AVATAR_CURRENT_JOB_ENDS_AT_MS = 0
-        AVATAR_LAST_IDLE_STARTED_AT_MS = now_ms()
-        AVATAR_STATE_SEQUENCE += 1
+    session_state = ensure_avatar_session_state(avatar_session_id)
+    with AVATAR_SESSION_STATES_LOCK:
+        session_state.mode = AVATAR_MODE_IDLE
+        session_state.current_job_id = ""
+        session_state.current_job_started_at_ms = 0
+        session_state.current_job_ends_at_ms = 0
+        session_state.idle_started_at_ms = now_ms()
+        session_state.sequence += 1
 
 
-def activate_avatar_job(job: JobRecord) -> None:
+def activate_avatar_job(avatar_session_id: str, job: JobRecord) -> None:
     """
-    Switch avatar state to one talking job and record playback timestamps.
+    Switch one interaction session to a talking job and record playback timestamps.
     """
-    global AVATAR_MODE
-    global AVATAR_CURRENT_JOB_ID
-    global AVATAR_CURRENT_JOB_STARTED_AT_MS
-    global AVATAR_CURRENT_JOB_ENDS_AT_MS
-    global AVATAR_STATE_SEQUENCE
     started_at_ms = now_ms()
     with JOBS_LOCK:
         job.avatar_play_started_at_ms = started_at_ms
-    with AVATAR_STATE_LOCK:
-        AVATAR_MODE = AVATAR_MODE_TALKING
-        AVATAR_CURRENT_JOB_ID = job.job_id
-        AVATAR_CURRENT_JOB_STARTED_AT_MS = started_at_ms
-        AVATAR_CURRENT_JOB_ENDS_AT_MS = 0
-        AVATAR_STATE_SEQUENCE += 1
+    session_state = ensure_avatar_session_state(avatar_session_id)
+    with AVATAR_SESSION_STATES_LOCK:
+        session_state.mode = AVATAR_MODE_TALKING
+        session_state.current_job_id = job.job_id
+        session_state.current_job_started_at_ms = started_at_ms
+        session_state.current_job_ends_at_ms = 0
+        session_state.sequence += 1
 
 
 def resolve_avatar_job_expected_end_at_ms(
@@ -3337,32 +3473,33 @@ def resolve_avatar_job_expected_end_at_ms(
     return started_at_ms + clip_duration_ms
 
 
-def advance_avatar_state_machine() -> None:
+def advance_avatar_state_machine(avatar_session_id: str) -> None:
     """
-    Advance avatar scheduler state between idle and talking modes.
+    Advance the avatar scheduler state for one interaction session.
     """
-    with AVATAR_STATE_LOCK:
-        current_mode = AVATAR_MODE
-        current_job_id = AVATAR_CURRENT_JOB_ID
-        current_job_started_at_ms = AVATAR_CURRENT_JOB_STARTED_AT_MS
-        idle_started_at_ms = AVATAR_LAST_IDLE_STARTED_AT_MS
+    session_state = ensure_avatar_session_state(avatar_session_id)
+    with AVATAR_SESSION_STATES_LOCK:
+        current_mode = session_state.mode
+        current_job_id = session_state.current_job_id
+        current_job_started_at_ms = session_state.current_job_started_at_ms
+        idle_started_at_ms = session_state.idle_started_at_ms
 
     now_timestamp_ms = now_ms()
     if current_mode == AVATAR_MODE_TALKING and current_job_id:
         with JOBS_LOCK:
             current_job = JOBS.get(current_job_id)
-        if current_job is None:
-            activate_avatar_idle_mode()
+        if current_job is None or current_job.avatar_session_id != avatar_session_id:
+            activate_avatar_idle_mode(avatar_session_id)
             return
         if current_job.avatar_play_finished_at_ms is not None:
-            activate_avatar_idle_mode()
+            activate_avatar_idle_mode(avatar_session_id)
             return
         current_status = read_job_stream_status(current_job)
         current_state = determine_job_state(current_job, current_status)
         if current_state in {"error", "canceled"}:
             with JOBS_LOCK:
                 current_job.avatar_play_finished_at_ms = now_timestamp_ms
-            activate_avatar_idle_mode()
+            activate_avatar_idle_mode(avatar_session_id)
             return
         expected_end_at_ms = resolve_avatar_job_expected_end_at_ms(
             current_job_started_at_ms,
@@ -3370,36 +3507,38 @@ def advance_avatar_state_machine() -> None:
             current_status,
         )
         if expected_end_at_ms > 0:
-            with AVATAR_STATE_LOCK:
-                if AVATAR_CURRENT_JOB_ID == current_job.job_id:
-                    AVATAR_CURRENT_JOB_ENDS_AT_MS = expected_end_at_ms
+            with AVATAR_SESSION_STATES_LOCK:
+                if session_state.current_job_id == current_job.job_id:
+                    session_state.current_job_ends_at_ms = expected_end_at_ms
         if expected_end_at_ms > 0 and now_timestamp_ms >= expected_end_at_ms:
             with JOBS_LOCK:
                 current_job.avatar_play_finished_at_ms = now_timestamp_ms
-            activate_avatar_idle_mode()
+            activate_avatar_idle_mode(avatar_session_id)
             return
         return
 
     if current_mode != AVATAR_MODE_IDLE:
-        activate_avatar_idle_mode()
+        activate_avatar_idle_mode(avatar_session_id)
         return
     if now_timestamp_ms - idle_started_at_ms < int(AVATAR_IDLE_MIN_HOLD_SEC * 1000.0):
         return
 
-    next_job = select_next_avatar_job()
+    next_job = select_next_avatar_job(avatar_session_id)
     if next_job is None:
         return
-    activate_avatar_job(next_job)
+    activate_avatar_job(avatar_session_id, next_job)
 
 
 def avatar_worker_loop() -> None:
     """
-    Persistent scheduler that alternates the avatar between idle and talking jobs.
+    Persistent scheduler that advances every active avatar interaction session.
     """
-    activate_avatar_idle_mode()
     while True:
         try:
-            advance_avatar_state_machine()
+            with AVATAR_SESSION_STATES_LOCK:
+                avatar_session_ids = list(AVATAR_SESSION_STATES.keys())
+            for avatar_session_id in avatar_session_ids:
+                advance_avatar_state_machine(avatar_session_id)
         except Exception as exc:
             print(f"[avatar] scheduler error: {exc}")
         time.sleep(AVATAR_STATE_POLL_SLEEP_SEC)
@@ -4857,6 +4996,7 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         public_stream_status[PREVIEW_COMPOSITION_STATUS_KEY] = public_preview_composition
     payload: dict[str, Any] = {
         "jobId": job.job_id,
+        "avatarSessionId": job.avatar_session_id,
         "state": state,
         "running": running,
         "exitCode": exit_code,
@@ -4922,6 +5062,7 @@ async def resolve_requested_source_frame(
     output_abs: Path,
     output_rel: Path,
     audio_duration_sec: float,
+    avatar_session_id: str,
 ) -> tuple[Path, str]:
     """
     Resolve source frame from optional uploaded image or local path input.
@@ -4935,7 +5076,7 @@ async def resolve_requested_source_frame(
     normalized_source_frame = str(source_frame or "").strip() or DEFAULT_SOURCE_FRAME
     if source_image is None or not source_image.filename:
         if normalized_source_frame == DEFAULT_SOURCE_FRAME:
-            idle_anchor_source = resolve_avatar_idle_anchor_source_frame(audio_duration_sec)
+            idle_anchor_source = resolve_avatar_idle_anchor_source_frame(audio_duration_sec, avatar_session_id)
             if idle_anchor_source is not None:
                 return idle_anchor_source
         return resolve_source_frame_candidate(normalized_source_frame)
@@ -4954,6 +5095,7 @@ async def resolve_requested_source_frame(
 
 
 async def create_and_enqueue_audio_job(
+    avatar_session_id: str,
     audio: UploadFile,
     source_image: UploadFile | None,
     source_frame: str,
@@ -4976,6 +5118,7 @@ async def create_and_enqueue_audio_job(
     """
     Validate one audio generation request, register the job, and enqueue it for playback/rendering.
     """
+    ensure_avatar_session_state(avatar_session_id)
     ensure_runtime_accepting_requests()
     ensure_job_worker_started()
     ensure_avatar_worker_started()
@@ -5057,10 +5200,12 @@ async def create_and_enqueue_audio_job(
         output_abs=output_abs,
         output_rel=output_rel,
         audio_duration_sec=audio_duration_sec,
+        avatar_session_id=avatar_session_id,
     )
 
     job = JobRecord(
         job_id=job_id,
+        avatar_session_id=avatar_session_id,
         created_at_ms=now_ms(),
         mode=mode,
         source_frame_arg=source_frame_arg,
@@ -5139,7 +5284,8 @@ def create_app() -> FastAPI:
         await close_all_webrtc_sessions()
 
     @app.get("/api/health")
-    async def health() -> dict[str, Any]:
+    async def health(request: Request) -> dict[str, Any]:
+        avatar_session_id = get_optional_avatar_session_id_from_request(request)
         with JOB_QUEUE_CONDITION:
             queue_depth = len(JOB_QUEUE)
         worker_alive = bool(JOB_WORKER_THREAD is not None and JOB_WORKER_THREAD.is_alive())
@@ -5155,7 +5301,11 @@ def create_app() -> FastAPI:
             warmup_source_frame_arg = resolve_warmup_source_frame_arg() or ""
         except RuntimeError as exc:
             fixed_source_error = str(exc)
-        avatar_payload = build_avatar_payload()
+        avatar_payload = (
+            build_avatar_payload(avatar_session_id)
+            if avatar_session_id is not None
+            else build_public_avatar_health_payload()
+        )
         with WARMUP_LOCK:
             warmup_phase = WARMUP_PHASE
             warmup_progress = WARMUP_PROGRESS
@@ -5212,6 +5362,7 @@ def create_app() -> FastAPI:
             "headQueuedJobId": head_queued_job_id,
             "jobWorkerAlive": worker_alive,
             "jobQueueDepth": queue_depth,
+            "avatarSessionId": avatar_session_id or "",
             "avatarMode": avatar_payload["mode"],
             "avatarSequence": avatar_payload["sequence"],
             "avatarCurrentJobId": avatar_payload["currentJobId"],
@@ -5223,6 +5374,7 @@ def create_app() -> FastAPI:
             "avatarVideoHttpUrl": avatar_payload["avatarVideoHttpUrl"],
             "avatarTransport": avatar_payload["avatarTransport"],
             "avatarWebrtcOfferUrl": avatar_payload["avatarWebrtcOfferUrl"],
+            "avatarQueueDepth": avatar_payload["queueDepth"],
             "webrtcEnabled": avatar_payload["webrtcEnabled"],
             "webrtcIceServers": avatar_payload["webrtcIceServers"],
             "webrtcIceTransportPolicy": avatar_payload["webrtcIceTransportPolicy"],
@@ -5232,16 +5384,18 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/api/avatar/status")
-    async def avatar_status() -> JSONResponse:
+    async def avatar_status(request: Request) -> JSONResponse:
         ensure_avatar_worker_started()
-        return JSONResponse(build_avatar_payload())
+        avatar_session_id = get_avatar_session_id_from_request(request)
+        return JSONResponse(build_avatar_payload(avatar_session_id))
 
     @app.post(WEBRTC_OFFER_API_PATH)
-    async def webrtc_offer(offer: WebRtcOfferRequest) -> JSONResponse:
+    async def webrtc_offer(request: Request, offer: WebRtcOfferRequest) -> JSONResponse:
         ensure_avatar_worker_started()
         if str(offer.type or "").strip().lower() != "offer":
             raise HTTPException(status_code=400, detail="WebRTC request type must be 'offer'.")
-        session = AvatarWebRtcSession(str(uuid.uuid4()), build_webrtc_rtc_configuration())
+        avatar_session_id = get_avatar_session_id_from_request(request)
+        session = AvatarWebRtcSession(str(uuid.uuid4()), avatar_session_id, build_webrtc_rtc_configuration())
         register_webrtc_session(session)
         try:
             await session.peer_connection.setRemoteDescription(
@@ -5322,6 +5476,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/generate")
     async def generate(
+        request: Request,
         audio: UploadFile = File(...),
         source_image: UploadFile | None = File(None),
         source_frame: str = Form(DEFAULT_SOURCE_FRAME),
@@ -5341,7 +5496,9 @@ def create_app() -> FastAPI:
         relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
         paste_back: bool = Form(DEFAULT_PASTE_BACK_ENABLED),
     ) -> JSONResponse:
+        avatar_session_id = get_avatar_session_id_from_request(request)
         payload = await create_and_enqueue_audio_job(
+            avatar_session_id=avatar_session_id,
             audio=audio,
             source_image=source_image,
             source_frame=source_frame,
@@ -5365,6 +5522,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/avatar/enqueue")
     async def enqueue_avatar_audio(
+        request: Request,
         audio: UploadFile = File(...),
         source_image: UploadFile | None = File(None),
         source_frame: str = Form(DEFAULT_SOURCE_FRAME),
@@ -5384,7 +5542,9 @@ def create_app() -> FastAPI:
         relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
         paste_back: bool = Form(DEFAULT_PASTE_BACK_ENABLED),
     ) -> JSONResponse:
+        avatar_session_id = get_avatar_session_id_from_request(request)
         payload = await create_and_enqueue_audio_job(
+            avatar_session_id=avatar_session_id,
             audio=audio,
             source_image=source_image,
             source_frame=source_frame,
@@ -5407,21 +5567,24 @@ def create_app() -> FastAPI:
         return JSONResponse(payload)
 
     @app.get("/api/jobs/{job_id}/status")
-    async def job_status(job_id: str) -> JSONResponse:
-        job = get_job(job_id)
+    async def job_status(job_id: str, request: Request) -> JSONResponse:
+        avatar_session_id = get_avatar_session_id_from_request(request)
+        job = get_job(job_id, avatar_session_id)
         return JSONResponse(build_job_payload(job))
 
     @app.get("/api/jobs/{job_id}/report")
-    async def job_report(job_id: str) -> JSONResponse:
-        job = get_job(job_id)
+    async def job_report(job_id: str, request: Request) -> JSONResponse:
+        avatar_session_id = get_avatar_session_id_from_request(request)
+        job = get_job(job_id, avatar_session_id)
         report = read_json(job.report_abs)
         if report is None:
             raise HTTPException(status_code=404, detail="run_report.json not available yet")
         return JSONResponse(report)
 
     @app.get("/api/jobs/{job_id}/log")
-    async def job_log(job_id: str, lines: int = 200) -> JSONResponse:
-        job = get_job(job_id)
+    async def job_log(job_id: str, request: Request, lines: int = 200) -> JSONResponse:
+        avatar_session_id = get_avatar_session_id_from_request(request)
+        job = get_job(job_id, avatar_session_id)
         safe_lines = min(MAX_LOG_LINES, max(10, int(lines)))
         return JSONResponse(
             {
@@ -5433,7 +5596,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/jobs/{job_id}/stream.mjpg")
     async def job_stream(job_id: str, request: Request) -> StreamingResponse:
-        job = get_job(job_id)
+        avatar_session_id = get_avatar_session_id_from_request(request)
+        job = get_job(job_id, avatar_session_id)
 
         async def stream_generator() -> Any:
             last_seen_frame_index = -1
@@ -5472,9 +5636,14 @@ def create_app() -> FastAPI:
         if not is_websocket_request_authorized(websocket):
             await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
             return
+        try:
+            avatar_session_id = get_avatar_session_id_from_websocket(websocket)
+        except ValueError as exc:
+            await websocket.close(code=4400, reason=str(exc))
+            return
         with JOBS_LOCK:
             job = JOBS.get(job_id)
-        if job is None:
+        if job is None or job.avatar_session_id != avatar_session_id:
             await websocket.close(code=4404)
             return
 
@@ -5523,6 +5692,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/avatar/video.mp4")
     async def avatar_video_http(request: Request) -> StreamingResponse:
+        avatar_session_id = get_avatar_session_id_from_request(request)
         ensure_avatar_worker_started()
         chunk_queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=AVATAR_STREAM_HTTP_QUEUE_MAX_CHUNKS)
 
@@ -5534,7 +5704,11 @@ def create_app() -> FastAPI:
 
         async def producer() -> None:
             try:
-                await stream_continuous_avatar_video(chunk_sender=send_chunk, should_stop=should_stop)
+                await stream_continuous_avatar_video(
+                    avatar_session_id=avatar_session_id,
+                    chunk_sender=send_chunk,
+                    should_stop=should_stop,
+                )
             finally:
                 with contextlib.suppress(Exception):
                     chunk_queue.put_nowait(None)
@@ -5564,7 +5738,8 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/avatar/capture.mp4")
-    async def avatar_video_capture(seconds: float = AVATAR_CAPTURE_DEFAULT_DURATION_SEC) -> FileResponse:
+    async def avatar_video_capture(request: Request, seconds: float = AVATAR_CAPTURE_DEFAULT_DURATION_SEC) -> FileResponse:
+        avatar_session_id = get_avatar_session_id_from_request(request)
         ensure_avatar_worker_started()
         capture_duration_sec = clamp_float(
             float(seconds),
@@ -5572,7 +5747,7 @@ def create_app() -> FastAPI:
             AVATAR_CAPTURE_MAX_DURATION_SEC,
         )
         capture_path = AVATAR_CAPTURE_ROOT / f"avatar_capture_{uuid.uuid4().hex}.mp4"
-        await capture_continuous_avatar_video(capture_path, capture_duration_sec)
+        await capture_continuous_avatar_video(capture_path, capture_duration_sec, avatar_session_id)
         return FileResponse(
             str(capture_path),
             media_type="video/mp4",
@@ -5587,13 +5762,18 @@ def create_app() -> FastAPI:
         if not is_websocket_request_authorized(websocket):
             await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
             return
+        try:
+            avatar_session_id = get_avatar_session_id_from_websocket(websocket)
+        except ValueError as exc:
+            await websocket.close(code=4400, reason=str(exc))
+            return
         await websocket.accept()
 
         async def send_chunk(chunk: bytes) -> None:
             await websocket.send_bytes(chunk)
 
         try:
-            await stream_continuous_avatar_video(chunk_sender=send_chunk)
+            await stream_continuous_avatar_video(avatar_session_id=avatar_session_id, chunk_sender=send_chunk)
         except WebSocketDisconnect:
             pass
         finally:
@@ -5607,12 +5787,17 @@ def create_app() -> FastAPI:
         if not is_websocket_request_authorized(websocket):
             await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
             return
+        try:
+            avatar_session_id = get_avatar_session_id_from_websocket(websocket)
+        except ValueError as exc:
+            await websocket.close(code=4400, reason=str(exc))
+            return
         ensure_avatar_worker_started()
         await websocket.accept()
         last_signature = ""
         try:
             while True:
-                payload = build_avatar_payload()
+                payload = build_avatar_payload(avatar_session_id)
                 signature = json.dumps(payload, sort_keys=True)
                 if signature != last_signature:
                     await websocket.send_json({"type": "status", "payload": payload})
@@ -5636,9 +5821,14 @@ def create_app() -> FastAPI:
         if not is_websocket_request_authorized(websocket):
             await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
             return
+        try:
+            avatar_session_id = get_avatar_session_id_from_websocket(websocket)
+        except ValueError as exc:
+            await websocket.close(code=4400, reason=str(exc))
+            return
         with JOBS_LOCK:
             job = JOBS.get(job_id)
-        if job is None:
+        if job is None or job.avatar_session_id != avatar_session_id:
             await websocket.close(code=4404)
             return
 
