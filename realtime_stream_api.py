@@ -296,6 +296,20 @@ DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY = "ANIMATION_AUDIO_EYE_SOFT_FACTOR"
 DEFAULT_AUDIO_EYE_HARD_FACTOR_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_FACTOR"
 DEFAULT_AUDIO_EYE_HARD_DY_MIN_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_DY_MIN"
 DEFAULT_AUDIO_EYE_HARD_DY_MAX_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_DY_MAX"
+DEFAULT_AUDIO_MOTION_TUNING_ENABLED_ENV_KEY = "ANIMATION_AUDIO_MOTION_TUNING_ENABLED"
+DEFAULT_AUDIO_REANCHOR_FIRST_N_ENV_KEY = "ANIMATION_AUDIO_REANCHOR_FIRST_N"
+DEFAULT_AUDIO_MOUTH_OPEN_FACTOR_ENV_KEY = "ANIMATION_AUDIO_MOUTH_OPEN_FACTOR"
+DEFAULT_AUDIO_POSE_SMOOTH_WINDOW_ENV_KEY = "ANIMATION_AUDIO_POSE_SMOOTH_WINDOW"
+DEFAULT_AUDIO_EXP_SMOOTH_WINDOW_ENV_KEY = "ANIMATION_AUDIO_EXP_SMOOTH_WINDOW"
+DEFAULT_AUDIO_POSE_JUMP_THRESHOLD_ENV_KEY = "ANIMATION_AUDIO_POSE_JUMP_THRESHOLD"
+DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD_ENV_KEY = "ANIMATION_AUDIO_TRANSLATION_JUMP_THRESHOLD"
+DEFAULT_AUDIO_LIP_SYNC_ASSIST_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_ASSIST"
+DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_MIN_RATIO"
+DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_MAX_RATIO"
+DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_SMOOTH_WINDOW"
+DEFAULT_AUDIO_LIP_SYNC_STRENGTH_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_STRENGTH"
+DEFAULT_AUDIO_LIP_SYNC_POWER_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_POWER"
+DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_OFFSET_MS"
 DEFAULT_AUDIO_EYE_TAMED_PRESET = (
     os.getenv(DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY, "1").strip().lower() not in {"0", "false", "no"}
 )
@@ -323,6 +337,39 @@ DEFAULT_AUDIO_EYE_HARD_DY_MAX = read_env_float(
     -1.0,
     1.0,
 )
+DEFAULT_AUDIO_MOTION_TUNING_ENABLED = (
+    os.getenv(DEFAULT_AUDIO_MOTION_TUNING_ENABLED_ENV_KEY, "1").strip().lower() not in {"0", "false", "no"}
+)
+DEFAULT_AUDIO_REANCHOR_FIRST_N = read_env_int(DEFAULT_AUDIO_REANCHOR_FIRST_N_ENV_KEY, 5, 1, 15)
+DEFAULT_AUDIO_MOUTH_OPEN_FACTOR = read_env_float(
+    DEFAULT_AUDIO_MOUTH_OPEN_FACTOR_ENV_KEY,
+    1.18,
+    0.0,
+    3.0,
+)
+DEFAULT_AUDIO_POSE_SMOOTH_WINDOW = read_env_int(DEFAULT_AUDIO_POSE_SMOOTH_WINDOW_ENV_KEY, 5, 0, 21)
+DEFAULT_AUDIO_EXP_SMOOTH_WINDOW = read_env_int(DEFAULT_AUDIO_EXP_SMOOTH_WINDOW_ENV_KEY, 3, 0, 21)
+DEFAULT_AUDIO_POSE_JUMP_THRESHOLD = read_env_float(
+    DEFAULT_AUDIO_POSE_JUMP_THRESHOLD_ENV_KEY,
+    8.0,
+    0.0,
+    60.0,
+)
+DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD = read_env_float(
+    DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD_ENV_KEY,
+    0.03,
+    0.0,
+    1.0,
+)
+DEFAULT_AUDIO_LIP_SYNC_ASSIST = (
+    os.getenv(DEFAULT_AUDIO_LIP_SYNC_ASSIST_ENV_KEY, "0").strip().lower() in {"1", "true", "yes", "on"}
+)
+DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO = read_env_float(DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO_ENV_KEY, 0.03, 0.0, 1.0)
+DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO = read_env_float(DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO_ENV_KEY, 0.32, 0.0, 1.0)
+DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW = read_env_int(DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW_ENV_KEY, 5, 0, 21)
+DEFAULT_AUDIO_LIP_SYNC_STRENGTH = read_env_float(DEFAULT_AUDIO_LIP_SYNC_STRENGTH_ENV_KEY, 1.15, 0.0, 4.0)
+DEFAULT_AUDIO_LIP_SYNC_POWER = read_env_float(DEFAULT_AUDIO_LIP_SYNC_POWER_ENV_KEY, 0.85, 0.001, 4.0)
+DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS = read_env_int(DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS_ENV_KEY, 0, -1000, 1000)
 DEFAULT_DRIVING_MULTIPLIER = read_env_float(
     "ANIMATION_DRIVING_MULTIPLIER",
     1.0,
@@ -348,6 +395,14 @@ if DEFAULT_AUDIO_EYE_HARD_DY_MIN > DEFAULT_AUDIO_EYE_HARD_DY_MAX:
     ) = (
         DEFAULT_AUDIO_EYE_HARD_DY_MAX,
         DEFAULT_AUDIO_EYE_HARD_DY_MIN,
+    )
+if DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO > DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO:
+    (
+        DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO,
+        DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO,
+    ) = (
+        DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO,
+        DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO,
     )
 GENERATION_FRAME_COUNT_MIN = 1
 GENERATION_FRAME_COUNT_MAX = 1200
@@ -514,6 +569,7 @@ RUNTIME_RESTART_DELAY_SEC = 1.0
 PROCESS_STARTED_AT_MS = int(time.time() * 1000)
 ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg"}
 ALLOWED_SOURCE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+ALLOWED_SOURCE_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".m4v", ".wmv"}
 WARMUP_OUTPUT_ROOT_REL = Path("output_fasterliveportrait/warmup")
 WARMUP_STREAM_SUBDIR_NAME = "stream"
 WARMUP_INPUTS_SUBDIR_NAME = "inputs"
@@ -703,6 +759,15 @@ def normalize_rel_path(value: str) -> str:
     Normalize local path string to POSIX style for runner args.
     """
     return value.replace("\\", "/")
+
+
+def is_source_video_path(path_value: Path | str | None) -> bool:
+    """
+    Determine whether a source path points to a video file supported by the source pipeline.
+    """
+    if path_value is None:
+        return False
+    return Path(str(path_value)).suffix.lower() in ALLOWED_SOURCE_VIDEO_EXTENSIONS
 
 
 def resolve_source_frame_candidate(source_frame: str) -> tuple[Path, str]:
@@ -1707,6 +1772,20 @@ class JobRecord:
     audio_eye_hard_factor: float
     audio_eye_hard_dy_min: float
     audio_eye_hard_dy_max: float
+    audio_motion_tuning_enabled: bool
+    audio_reanchor_first_n: int
+    audio_mouth_open_factor: float
+    audio_pose_smooth_window: int
+    audio_exp_smooth_window: int
+    audio_pose_jump_threshold: float
+    audio_translation_jump_threshold: float
+    audio_lip_sync_assist: bool
+    audio_lip_sync_min_ratio: float
+    audio_lip_sync_max_ratio: float
+    audio_lip_sync_smooth_window: int
+    audio_lip_sync_strength: float
+    audio_lip_sync_power: float
+    audio_lip_sync_offset_ms: int
     driving_multiplier: float
     cfg_scale: float
     joyvasa_inference_steps: int
@@ -3140,6 +3219,9 @@ def get_avatar_state_snapshot(avatar_session_id: str) -> dict[str, Any]:
         "currentJobStatusWsUrl": f"/ws/jobs/{current_job_id}" if current_job_id else "",
         "currentJobAudioDurationSec": current_job.audio_duration_sec if current_job is not None else 0.0,
         "currentJobSourceFrameUrl": build_public_file_url(current_job.source_frame_abs) if current_job is not None else "",
+        "currentJobSourceMediaType": (
+            "video" if current_job is not None and is_source_video_path(current_job.source_frame_abs) else "image"
+        ),
         "currentJobPreviewComposition": (
             build_public_preview_composition_payload(current_job, current_job_stream_status)
             if current_job is not None
@@ -3563,10 +3645,17 @@ def ensure_avatar_worker_started() -> None:
         AVATAR_WORKER_THREAD.start()
 
 
-def should_defer_preview_paste_back(mode: str, paste_back_enabled: bool, stitching_enabled: bool) -> bool:
+def should_defer_preview_paste_back(
+    mode: str,
+    paste_back_enabled: bool,
+    stitching_enabled: bool,
+    source_media_path: Path | str | None = None,
+) -> bool:
     """
     Defer paste-back only for preview jobs that still require stitched full-frame output.
     """
+    if is_source_video_path(source_media_path):
+        return False
     return bool(str(mode or "").strip().lower() == "preview" and paste_back_enabled and stitching_enabled)
 
 
@@ -3599,6 +3688,30 @@ def build_runner_command(job: JobRecord) -> list[str]:
         f"{float(job.audio_eye_hard_dy_min):.6f}",
         "--audio-eye-hard-dy-max",
         f"{float(job.audio_eye_hard_dy_max):.6f}",
+        "--audio-reanchor-first-n",
+        str(int(job.audio_reanchor_first_n)),
+        "--audio-mouth-open-factor",
+        f"{float(job.audio_mouth_open_factor):.6f}",
+        "--audio-pose-smooth-window",
+        str(int(job.audio_pose_smooth_window)),
+        "--audio-exp-smooth-window",
+        str(int(job.audio_exp_smooth_window)),
+        "--audio-pose-jump-threshold",
+        f"{float(job.audio_pose_jump_threshold):.6f}",
+        "--audio-translation-jump-threshold",
+        f"{float(job.audio_translation_jump_threshold):.6f}",
+        "--audio-lip-sync-min-ratio",
+        f"{float(job.audio_lip_sync_min_ratio):.6f}",
+        "--audio-lip-sync-max-ratio",
+        f"{float(job.audio_lip_sync_max_ratio):.6f}",
+        "--audio-lip-sync-smooth-window",
+        str(int(job.audio_lip_sync_smooth_window)),
+        "--audio-lip-sync-strength",
+        f"{float(job.audio_lip_sync_strength):.6f}",
+        "--audio-lip-sync-power",
+        f"{float(job.audio_lip_sync_power):.6f}",
+        "--audio-lip-sync-offset-ms",
+        str(int(job.audio_lip_sync_offset_ms)),
         "--driving-multiplier",
         f"{float(job.driving_multiplier):.6f}",
         "--cfg-scale",
@@ -3635,6 +3748,8 @@ def build_runner_command(job: JobRecord) -> list[str]:
             ]
         )
     command.append("--audio-eye-tamed-preset" if job.audio_eye_tamed_preset else "--no-audio-eye-tamed-preset")
+    command.append("--audio-motion-tuning-enabled" if job.audio_motion_tuning_enabled else "--no-audio-motion-tuning")
+    command.append("--audio-lip-sync-assist" if job.audio_lip_sync_assist else "--no-audio-lip-sync-assist")
     if job.defer_paste_back_enabled:
         command.append("--defer-paste-back")
     elif not job.paste_back_enabled:
@@ -4849,7 +4964,12 @@ def build_warmup_command(audio_rel_path: Path) -> list[str]:
         "--animation-region",
         DEFAULT_ANIMATION_REGION,
     ]
-    if should_defer_preview_paste_back("preview", DEFAULT_PASTE_BACK_ENABLED, DEFAULT_STITCHING_ENABLED):
+    if should_defer_preview_paste_back(
+        "preview",
+        DEFAULT_PASTE_BACK_ENABLED,
+        DEFAULT_STITCHING_ENABLED,
+        source_frame_arg,
+    ):
         command.append("--defer-paste-back")
     elif not DEFAULT_PASTE_BACK_ENABLED:
         command.append("--no-paste-back")
@@ -5020,6 +5140,20 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "audioEyeHardFactor": job.audio_eye_hard_factor,
         "audioEyeHardDyMin": job.audio_eye_hard_dy_min,
         "audioEyeHardDyMax": job.audio_eye_hard_dy_max,
+        "audioMotionTuningEnabled": job.audio_motion_tuning_enabled,
+        "audioReanchorFirstN": job.audio_reanchor_first_n,
+        "audioMouthOpenFactor": job.audio_mouth_open_factor,
+        "audioPoseSmoothWindow": job.audio_pose_smooth_window,
+        "audioExpSmoothWindow": job.audio_exp_smooth_window,
+        "audioPoseJumpThreshold": job.audio_pose_jump_threshold,
+        "audioTranslationJumpThreshold": job.audio_translation_jump_threshold,
+        "audioLipSyncAssist": job.audio_lip_sync_assist,
+        "audioLipSyncMinRatio": job.audio_lip_sync_min_ratio,
+        "audioLipSyncMaxRatio": job.audio_lip_sync_max_ratio,
+        "audioLipSyncSmoothWindow": job.audio_lip_sync_smooth_window,
+        "audioLipSyncStrength": job.audio_lip_sync_strength,
+        "audioLipSyncPower": job.audio_lip_sync_power,
+        "audioLipSyncOffsetMs": job.audio_lip_sync_offset_ms,
         "drivingMultiplier": job.driving_multiplier,
         "cfgScale": job.cfg_scale,
         "joyvasaInferenceSteps": job.joyvasa_inference_steps,
@@ -5030,6 +5164,7 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "deferPasteBackEnabled": job.defer_paste_back_enabled,
         "sourceFrame": job.source_frame_arg,
         "sourceFrameUrl": build_public_file_url(job.source_frame_abs),
+        "sourceMediaType": "video" if is_source_video_path(job.source_frame_abs) else "image",
         "status": public_stream_status,
         "previewComposition": public_preview_composition,
         "streamUrl": f"/api/jobs/{job.job_id}/stream.mjpg",
@@ -5066,6 +5201,7 @@ async def save_upload_file(upload: UploadFile, target_path: Path) -> None:
 async def resolve_requested_source_frame(
     source_frame: str,
     source_image: UploadFile | None,
+    source_video: UploadFile | None,
     output_abs: Path,
     output_rel: Path,
     audio_duration_sec: float,
@@ -5080,15 +5216,35 @@ async def resolve_requested_source_frame(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     if fixed_source is not None:
         return fixed_source
+    has_source_image_upload = bool(source_image is not None and source_image.filename)
+    has_source_video_upload = bool(source_video is not None and source_video.filename)
+    if has_source_image_upload and has_source_video_upload:
+        raise HTTPException(status_code=400, detail="Provide either source_image or source_video, not both.")
     normalized_source_frame = str(source_frame or "").strip() or DEFAULT_SOURCE_FRAME
-    if source_image is None or not source_image.filename:
+    if not has_source_image_upload and not has_source_video_upload:
         if normalized_source_frame == DEFAULT_SOURCE_FRAME:
             idle_anchor_source = resolve_avatar_idle_anchor_source_frame(audio_duration_sec, avatar_session_id)
             if idle_anchor_source is not None:
                 return idle_anchor_source
         return resolve_source_frame_candidate(normalized_source_frame)
 
-    extension = Path(source_image.filename).suffix.lower()
+    if has_source_video_upload:
+        extension = Path(str(source_video.filename)).suffix.lower()
+        if extension not in ALLOWED_SOURCE_VIDEO_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Unsupported source video extension '{extension}'. "
+                    f"Allowed: {sorted(ALLOWED_SOURCE_VIDEO_EXTENSIONS)}"
+                ),
+            )
+        source_video_rel = output_rel / "inputs" / f"source{extension}"
+        source_video_abs = (PROJECT_ROOT / source_video_rel).resolve()
+        output_abs.mkdir(parents=True, exist_ok=True)
+        await save_upload_file(source_video, source_video_abs)
+        return source_video_abs, normalize_rel_path(str(source_video_rel))
+
+    extension = Path(str(source_image.filename)).suffix.lower()
     if extension not in ALLOWED_SOURCE_IMAGE_EXTENSIONS:
         raise HTTPException(
             status_code=400,
@@ -5105,6 +5261,7 @@ async def create_and_enqueue_audio_job(
     avatar_session_id: str,
     audio: UploadFile,
     source_image: UploadFile | None,
+    source_video: UploadFile | None,
     source_frame: str,
     mode: str,
     motion_stride: int,
@@ -5114,6 +5271,20 @@ async def create_and_enqueue_audio_job(
     audio_eye_hard_factor: float,
     audio_eye_hard_dy_min: float,
     audio_eye_hard_dy_max: float,
+    audio_motion_tuning_enabled: bool,
+    audio_reanchor_first_n: int,
+    audio_mouth_open_factor: float,
+    audio_pose_smooth_window: int,
+    audio_exp_smooth_window: int,
+    audio_pose_jump_threshold: float,
+    audio_translation_jump_threshold: float,
+    audio_lip_sync_assist: bool,
+    audio_lip_sync_min_ratio: float,
+    audio_lip_sync_max_ratio: float,
+    audio_lip_sync_smooth_window: int,
+    audio_lip_sync_strength: float,
+    audio_lip_sync_power: float,
+    audio_lip_sync_offset_ms: int,
     driving_multiplier: float,
     cfg_scale: float,
     joyvasa_inference_steps: int,
@@ -5169,6 +5340,43 @@ async def create_and_enqueue_audio_job(
         raise HTTPException(status_code=400, detail="Invalid audio_eye_hard_dy_max.")
     normalized_audio_eye_hard_dy_min = min(raw_audio_eye_hard_dy_min, raw_audio_eye_hard_dy_max)
     normalized_audio_eye_hard_dy_max = max(raw_audio_eye_hard_dy_min, raw_audio_eye_hard_dy_max)
+    normalized_audio_reanchor_first_n = int(audio_reanchor_first_n)
+    normalized_audio_reanchor_first_n = min(15, max(1, normalized_audio_reanchor_first_n))
+    normalized_audio_mouth_open_factor = float(audio_mouth_open_factor)
+    if not math.isfinite(normalized_audio_mouth_open_factor):
+        raise HTTPException(status_code=400, detail="Invalid audio_mouth_open_factor.")
+    normalized_audio_mouth_open_factor = min(3.0, max(0.0, normalized_audio_mouth_open_factor))
+    normalized_audio_pose_smooth_window = min(21, max(0, int(audio_pose_smooth_window)))
+    normalized_audio_exp_smooth_window = min(21, max(0, int(audio_exp_smooth_window)))
+    normalized_audio_pose_jump_threshold = float(audio_pose_jump_threshold)
+    if not math.isfinite(normalized_audio_pose_jump_threshold):
+        raise HTTPException(status_code=400, detail="Invalid audio_pose_jump_threshold.")
+    normalized_audio_pose_jump_threshold = min(60.0, max(0.0, normalized_audio_pose_jump_threshold))
+    normalized_audio_translation_jump_threshold = float(audio_translation_jump_threshold)
+    if not math.isfinite(normalized_audio_translation_jump_threshold):
+        raise HTTPException(status_code=400, detail="Invalid audio_translation_jump_threshold.")
+    normalized_audio_translation_jump_threshold = min(
+        1.0,
+        max(0.0, normalized_audio_translation_jump_threshold),
+    )
+    normalized_audio_lip_sync_min_ratio = float(audio_lip_sync_min_ratio)
+    normalized_audio_lip_sync_max_ratio = float(audio_lip_sync_max_ratio)
+    if not math.isfinite(normalized_audio_lip_sync_min_ratio):
+        raise HTTPException(status_code=400, detail="Invalid audio_lip_sync_min_ratio.")
+    if not math.isfinite(normalized_audio_lip_sync_max_ratio):
+        raise HTTPException(status_code=400, detail="Invalid audio_lip_sync_max_ratio.")
+    normalized_audio_lip_sync_min_ratio = min(1.0, max(0.0, normalized_audio_lip_sync_min_ratio))
+    normalized_audio_lip_sync_max_ratio = min(1.0, max(normalized_audio_lip_sync_min_ratio, normalized_audio_lip_sync_max_ratio))
+    normalized_audio_lip_sync_smooth_window = min(21, max(0, int(audio_lip_sync_smooth_window)))
+    normalized_audio_lip_sync_strength = float(audio_lip_sync_strength)
+    if not math.isfinite(normalized_audio_lip_sync_strength):
+        raise HTTPException(status_code=400, detail="Invalid audio_lip_sync_strength.")
+    normalized_audio_lip_sync_strength = min(4.0, max(0.0, normalized_audio_lip_sync_strength))
+    normalized_audio_lip_sync_power = float(audio_lip_sync_power)
+    if not math.isfinite(normalized_audio_lip_sync_power):
+        raise HTTPException(status_code=400, detail="Invalid audio_lip_sync_power.")
+    normalized_audio_lip_sync_power = min(4.0, max(0.001, normalized_audio_lip_sync_power))
+    normalized_audio_lip_sync_offset_ms = min(1000, max(-1000, int(audio_lip_sync_offset_ms)))
     normalized_driving_multiplier = float(driving_multiplier)
     if not math.isfinite(normalized_driving_multiplier):
         raise HTTPException(status_code=400, detail="Invalid driving_multiplier.")
@@ -5204,6 +5412,7 @@ async def create_and_enqueue_audio_job(
     source_frame_abs, source_frame_arg = await resolve_requested_source_frame(
         source_frame=source_frame,
         source_image=source_image,
+        source_video=source_video,
         output_abs=output_abs,
         output_rel=output_rel,
         audio_duration_sec=audio_duration_sec,
@@ -5234,6 +5443,20 @@ async def create_and_enqueue_audio_job(
         audio_eye_hard_factor=normalized_audio_eye_hard_factor,
         audio_eye_hard_dy_min=normalized_audio_eye_hard_dy_min,
         audio_eye_hard_dy_max=normalized_audio_eye_hard_dy_max,
+        audio_motion_tuning_enabled=bool(audio_motion_tuning_enabled),
+        audio_reanchor_first_n=normalized_audio_reanchor_first_n,
+        audio_mouth_open_factor=normalized_audio_mouth_open_factor,
+        audio_pose_smooth_window=normalized_audio_pose_smooth_window,
+        audio_exp_smooth_window=normalized_audio_exp_smooth_window,
+        audio_pose_jump_threshold=normalized_audio_pose_jump_threshold,
+        audio_translation_jump_threshold=normalized_audio_translation_jump_threshold,
+        audio_lip_sync_assist=bool(audio_lip_sync_assist),
+        audio_lip_sync_min_ratio=normalized_audio_lip_sync_min_ratio,
+        audio_lip_sync_max_ratio=normalized_audio_lip_sync_max_ratio,
+        audio_lip_sync_smooth_window=normalized_audio_lip_sync_smooth_window,
+        audio_lip_sync_strength=normalized_audio_lip_sync_strength,
+        audio_lip_sync_power=normalized_audio_lip_sync_power,
+        audio_lip_sync_offset_ms=normalized_audio_lip_sync_offset_ms,
         driving_multiplier=normalized_driving_multiplier,
         cfg_scale=normalized_cfg_scale,
         joyvasa_inference_steps=normalized_joyvasa_inference_steps,
@@ -5245,6 +5468,7 @@ async def create_and_enqueue_audio_job(
             mode,
             bool(paste_back),
             bool(stitching),
+            source_frame_abs,
         ),
         log_rel=log_rel,
         log_abs=log_abs,
@@ -5341,6 +5565,20 @@ def create_app() -> FastAPI:
             "defaultAudioEyeHardFactor": DEFAULT_AUDIO_EYE_HARD_FACTOR,
             "defaultAudioEyeHardDyMin": DEFAULT_AUDIO_EYE_HARD_DY_MIN,
             "defaultAudioEyeHardDyMax": DEFAULT_AUDIO_EYE_HARD_DY_MAX,
+            "defaultAudioMotionTuningEnabled": DEFAULT_AUDIO_MOTION_TUNING_ENABLED,
+            "defaultAudioReanchorFirstN": DEFAULT_AUDIO_REANCHOR_FIRST_N,
+            "defaultAudioMouthOpenFactor": DEFAULT_AUDIO_MOUTH_OPEN_FACTOR,
+            "defaultAudioPoseSmoothWindow": DEFAULT_AUDIO_POSE_SMOOTH_WINDOW,
+            "defaultAudioExpSmoothWindow": DEFAULT_AUDIO_EXP_SMOOTH_WINDOW,
+            "defaultAudioPoseJumpThreshold": DEFAULT_AUDIO_POSE_JUMP_THRESHOLD,
+            "defaultAudioTranslationJumpThreshold": DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD,
+            "defaultAudioLipSyncAssist": DEFAULT_AUDIO_LIP_SYNC_ASSIST,
+            "defaultAudioLipSyncMinRatio": DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO,
+            "defaultAudioLipSyncMaxRatio": DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO,
+            "defaultAudioLipSyncSmoothWindow": DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW,
+            "defaultAudioLipSyncStrength": DEFAULT_AUDIO_LIP_SYNC_STRENGTH,
+            "defaultAudioLipSyncPower": DEFAULT_AUDIO_LIP_SYNC_POWER,
+            "defaultAudioLipSyncOffsetMs": DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS,
             "defaultDrivingMultiplier": DEFAULT_DRIVING_MULTIPLIER,
             "defaultCfgScale": DEFAULT_CFG_SCALE,
             "defaultJoyvasaInferenceSteps": DEFAULT_JOYVASA_INFERENCE_STEPS,
@@ -5487,6 +5725,7 @@ def create_app() -> FastAPI:
         request: Request,
         audio: UploadFile = File(...),
         source_image: UploadFile | None = File(None),
+        source_video: UploadFile | None = File(None),
         source_frame: str = Form(DEFAULT_SOURCE_FRAME),
         mode: str = Form(DEFAULT_MODE),
         motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
@@ -5496,6 +5735,20 @@ def create_app() -> FastAPI:
         audio_eye_hard_factor: float = Form(DEFAULT_AUDIO_EYE_HARD_FACTOR),
         audio_eye_hard_dy_min: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MIN),
         audio_eye_hard_dy_max: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MAX),
+        audio_motion_tuning_enabled: bool = Form(DEFAULT_AUDIO_MOTION_TUNING_ENABLED),
+        audio_reanchor_first_n: int = Form(DEFAULT_AUDIO_REANCHOR_FIRST_N),
+        audio_mouth_open_factor: float = Form(DEFAULT_AUDIO_MOUTH_OPEN_FACTOR),
+        audio_pose_smooth_window: int = Form(DEFAULT_AUDIO_POSE_SMOOTH_WINDOW),
+        audio_exp_smooth_window: int = Form(DEFAULT_AUDIO_EXP_SMOOTH_WINDOW),
+        audio_pose_jump_threshold: float = Form(DEFAULT_AUDIO_POSE_JUMP_THRESHOLD),
+        audio_translation_jump_threshold: float = Form(DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD),
+        audio_lip_sync_assist: bool = Form(DEFAULT_AUDIO_LIP_SYNC_ASSIST),
+        audio_lip_sync_min_ratio: float = Form(DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO),
+        audio_lip_sync_max_ratio: float = Form(DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO),
+        audio_lip_sync_smooth_window: int = Form(DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW),
+        audio_lip_sync_strength: float = Form(DEFAULT_AUDIO_LIP_SYNC_STRENGTH),
+        audio_lip_sync_power: float = Form(DEFAULT_AUDIO_LIP_SYNC_POWER),
+        audio_lip_sync_offset_ms: int = Form(DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS),
         driving_multiplier: float = Form(DEFAULT_DRIVING_MULTIPLIER),
         cfg_scale: float = Form(DEFAULT_CFG_SCALE),
         joyvasa_inference_steps: int = Form(DEFAULT_JOYVASA_INFERENCE_STEPS),
@@ -5509,6 +5762,7 @@ def create_app() -> FastAPI:
             avatar_session_id=avatar_session_id,
             audio=audio,
             source_image=source_image,
+            source_video=source_video,
             source_frame=source_frame,
             mode=mode,
             motion_stride=motion_stride,
@@ -5518,6 +5772,20 @@ def create_app() -> FastAPI:
             audio_eye_hard_factor=audio_eye_hard_factor,
             audio_eye_hard_dy_min=audio_eye_hard_dy_min,
             audio_eye_hard_dy_max=audio_eye_hard_dy_max,
+            audio_motion_tuning_enabled=audio_motion_tuning_enabled,
+            audio_reanchor_first_n=audio_reanchor_first_n,
+            audio_mouth_open_factor=audio_mouth_open_factor,
+            audio_pose_smooth_window=audio_pose_smooth_window,
+            audio_exp_smooth_window=audio_exp_smooth_window,
+            audio_pose_jump_threshold=audio_pose_jump_threshold,
+            audio_translation_jump_threshold=audio_translation_jump_threshold,
+            audio_lip_sync_assist=audio_lip_sync_assist,
+            audio_lip_sync_min_ratio=audio_lip_sync_min_ratio,
+            audio_lip_sync_max_ratio=audio_lip_sync_max_ratio,
+            audio_lip_sync_smooth_window=audio_lip_sync_smooth_window,
+            audio_lip_sync_strength=audio_lip_sync_strength,
+            audio_lip_sync_power=audio_lip_sync_power,
+            audio_lip_sync_offset_ms=audio_lip_sync_offset_ms,
             driving_multiplier=driving_multiplier,
             cfg_scale=cfg_scale,
             joyvasa_inference_steps=joyvasa_inference_steps,
@@ -5533,6 +5801,7 @@ def create_app() -> FastAPI:
         request: Request,
         audio: UploadFile = File(...),
         source_image: UploadFile | None = File(None),
+        source_video: UploadFile | None = File(None),
         source_frame: str = Form(DEFAULT_SOURCE_FRAME),
         mode: str = Form(DEFAULT_MODE),
         motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
@@ -5542,6 +5811,20 @@ def create_app() -> FastAPI:
         audio_eye_hard_factor: float = Form(DEFAULT_AUDIO_EYE_HARD_FACTOR),
         audio_eye_hard_dy_min: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MIN),
         audio_eye_hard_dy_max: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MAX),
+        audio_motion_tuning_enabled: bool = Form(DEFAULT_AUDIO_MOTION_TUNING_ENABLED),
+        audio_reanchor_first_n: int = Form(DEFAULT_AUDIO_REANCHOR_FIRST_N),
+        audio_mouth_open_factor: float = Form(DEFAULT_AUDIO_MOUTH_OPEN_FACTOR),
+        audio_pose_smooth_window: int = Form(DEFAULT_AUDIO_POSE_SMOOTH_WINDOW),
+        audio_exp_smooth_window: int = Form(DEFAULT_AUDIO_EXP_SMOOTH_WINDOW),
+        audio_pose_jump_threshold: float = Form(DEFAULT_AUDIO_POSE_JUMP_THRESHOLD),
+        audio_translation_jump_threshold: float = Form(DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD),
+        audio_lip_sync_assist: bool = Form(DEFAULT_AUDIO_LIP_SYNC_ASSIST),
+        audio_lip_sync_min_ratio: float = Form(DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO),
+        audio_lip_sync_max_ratio: float = Form(DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO),
+        audio_lip_sync_smooth_window: int = Form(DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW),
+        audio_lip_sync_strength: float = Form(DEFAULT_AUDIO_LIP_SYNC_STRENGTH),
+        audio_lip_sync_power: float = Form(DEFAULT_AUDIO_LIP_SYNC_POWER),
+        audio_lip_sync_offset_ms: int = Form(DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS),
         driving_multiplier: float = Form(DEFAULT_DRIVING_MULTIPLIER),
         cfg_scale: float = Form(DEFAULT_CFG_SCALE),
         joyvasa_inference_steps: int = Form(DEFAULT_JOYVASA_INFERENCE_STEPS),
@@ -5555,6 +5838,7 @@ def create_app() -> FastAPI:
             avatar_session_id=avatar_session_id,
             audio=audio,
             source_image=source_image,
+            source_video=source_video,
             source_frame=source_frame,
             mode=mode,
             motion_stride=motion_stride,
@@ -5564,6 +5848,20 @@ def create_app() -> FastAPI:
             audio_eye_hard_factor=audio_eye_hard_factor,
             audio_eye_hard_dy_min=audio_eye_hard_dy_min,
             audio_eye_hard_dy_max=audio_eye_hard_dy_max,
+            audio_motion_tuning_enabled=audio_motion_tuning_enabled,
+            audio_reanchor_first_n=audio_reanchor_first_n,
+            audio_mouth_open_factor=audio_mouth_open_factor,
+            audio_pose_smooth_window=audio_pose_smooth_window,
+            audio_exp_smooth_window=audio_exp_smooth_window,
+            audio_pose_jump_threshold=audio_pose_jump_threshold,
+            audio_translation_jump_threshold=audio_translation_jump_threshold,
+            audio_lip_sync_assist=audio_lip_sync_assist,
+            audio_lip_sync_min_ratio=audio_lip_sync_min_ratio,
+            audio_lip_sync_max_ratio=audio_lip_sync_max_ratio,
+            audio_lip_sync_smooth_window=audio_lip_sync_smooth_window,
+            audio_lip_sync_strength=audio_lip_sync_strength,
+            audio_lip_sync_power=audio_lip_sync_power,
+            audio_lip_sync_offset_ms=audio_lip_sync_offset_ms,
             driving_multiplier=driving_multiplier,
             cfg_scale=cfg_scale,
             joyvasa_inference_steps=joyvasa_inference_steps,

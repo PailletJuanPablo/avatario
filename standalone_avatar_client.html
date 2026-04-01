@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Standalone Avatar Client</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #0f141c;
+      color: #f3f6fb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(34, 91, 177, 0.35), transparent 32%),
+        radial-gradient(circle at top right, rgba(16, 166, 127, 0.22), transparent 30%),
+        #0f141c;
+    }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+    }
+
+    p {
+      margin: 0;
+      color: #bfd0ea;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 20px;
+      margin-top: 24px;
+    }
+
+    .panel {
+      background: rgba(13, 18, 26, 0.9);
+      border: 1px solid rgba(145, 169, 204, 0.18);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #9eb5d9;
+    }
+
+    .control {
+      margin-bottom: 14px;
+    }
+
+    .control label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: #d8e3f5;
+    }
+
+    .control input[type="text"],
+    .control input[type="url"],
+    .control input[type="file"],
+    .control input[type="number"],
+    .control select,
+    .control button {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid rgba(145, 169, 204, 0.24);
+      background: #101826;
+      color: #f3f6fb;
+      padding: 11px 12px;
+      font-size: 14px;
+    }
+
+    .control button {
+      cursor: pointer;
+      background: linear-gradient(135deg, #2a77ff, #1ba784);
+      border: none;
+      font-weight: 700;
+    }
+
+    .control button.secondary {
+      background: #1a2433;
+      border: 1px solid rgba(145, 169, 204, 0.24);
+      font-weight: 600;
+    }
+
+    .control input[type="checkbox"] {
+      margin-right: 8px;
+    }
+
+    .inline {
+      display: flex;
+      gap: 10px;
+    }
+
+    .inline > * {
+      flex: 1;
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .control-grid .control {
+      margin-bottom: 0;
+    }
+
+    .section-title {
+      margin: 18px 0 10px;
+      font-size: 12px;
+      color: #8ea6cb;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .metric {
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(145, 169, 204, 0.14);
+    }
+
+    .metric .label {
+      display: block;
+      font-size: 11px;
+      color: #8ea6cb;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+
+    .metric .value {
+      font-size: 14px;
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .video-shell {
+      position: relative;
+      overflow: hidden;
+      border-radius: 20px;
+      background: #080b11;
+      border: 1px solid rgba(145, 169, 204, 0.18);
+      aspect-ratio: 16 / 9;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+      background: #000;
+    }
+
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #8ea6cb;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #dfe8f7;
+    }
+
+    @media (max-width: 960px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .status-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Standalone Avatar Client</h1>
+    <p>Pure HTML client for the realtime avatar API. Open it from the same API origin, for example <code>/standalone_avatar_client.html?token=...</code>.</p>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>Connection</h2>
+
+        <div class="control">
+          <label for="apiBaseInput">API base URL</label>
+          <input id="apiBaseInput" type="url" />
+        </div>
+
+        <div class="control">
+          <label for="tokenInput">API token</label>
+          <input id="tokenInput" type="text" autocomplete="off" />
+        </div>
+
+        <div class="control inline">
+          <button id="connectButton" type="button">Connect</button>
+          <button id="reconnectButton" type="button" class="secondary">Reconnect stream</button>
+        </div>
+
+        <div class="control inline">
+          <button id="refreshStatusButton" type="button" class="secondary">Refresh status</button>
+          <button id="resetSessionButton" type="button" class="secondary">Reset session</button>
+        </div>
+
+        <div class="control">
+          <label for="muteCheckbox">
+            <input id="muteCheckbox" type="checkbox" checked />
+            Start muted
+          </label>
+        </div>
+
+        <div class="control">
+          <label for="audioInput">Audio file</label>
+          <input id="audioInput" type="file" accept="audio/*" />
+        </div>
+
+        <div class="control">
+          <label for="sourceImageInput">Source media (optional)</label>
+          <input id="sourceImageInput" type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.webp,.mp4,.avi,.mov,.mkv,.webm,.flv,.m4v,.wmv" />
+        </div>
+
+        <div class="section-title">Render</div>
+        <div class="control-grid">
+          <div class="control">
+            <label for="modeSelect">Mode</label>
+            <select id="modeSelect">
+              <option value="preview">preview</option>
+              <option value="full">full</option>
+            </select>
+          </div>
+
+          <div class="control">
+            <label for="motionStrideInput">Motion Stride</label>
+            <input id="motionStrideInput" type="number" min="1" max="6" step="1" inputmode="numeric" />
+          </div>
+
+          <div class="control">
+            <label for="generationFrameCountInput">Generation Frames</label>
+            <input id="generationFrameCountInput" type="number" min="1" max="1200" step="1" inputmode="numeric" />
+          </div>
+
+          <div class="control">
+            <label for="animationRegionSelect">Animation Region</label>
+            <select id="animationRegionSelect">
+              <option value="all">all</option>
+              <option value="exp">exp</option>
+              <option value="pose">pose</option>
+              <option value="lip">lip</option>
+              <option value="eyes">eyes</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control">
+          <label for="sourceFrameInput">Source frame</label>
+          <input id="sourceFrameInput" type="text" autocomplete="off" />
+        </div>
+
+        <div class="control-grid">
+          <div class="control">
+            <label for="stitchingCheckbox">
+              <input id="stitchingCheckbox" type="checkbox" />
+              Stitching
+            </label>
+          </div>
+
+          <div class="control">
+            <label for="relativeMotionCheckbox">
+              <input id="relativeMotionCheckbox" type="checkbox" />
+              Relative motion
+            </label>
+          </div>
+
+          <div class="control">
+            <label for="pasteBackCheckbox">
+              <input id="pasteBackCheckbox" type="checkbox" />
+              Paste back
+            </label>
+          </div>
+        </div>
+
+        <div class="section-title">Audio To Motion</div>
+        <div class="control-grid">
+          <div class="control">
+            <label for="drivingMultiplierInput">Driving Multiplier</label>
+            <input id="drivingMultiplierInput" type="number" min="0" max="2" step="0.01" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="cfgScaleInput">CFG Scale</label>
+            <input id="cfgScaleInput" type="number" min="0" max="10" step="0.1" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="joyvasaInferenceStepsInput">JoyVASA Steps</label>
+            <input id="joyvasaInferenceStepsInput" type="number" min="1" max="100" step="1" inputmode="numeric" />
+          </div>
+        </div>
+
+        <div class="section-title">Eye Tuning</div>
+        <div class="control-grid">
+          <div class="control">
+            <label for="audioEyeTamedPresetCheckbox">
+              <input id="audioEyeTamedPresetCheckbox" type="checkbox" />
+              Eye tamed preset
+            </label>
+          </div>
+
+          <div class="control">
+            <label for="audioEyeSoftFactorInput">Eye Soft Factor</label>
+            <input id="audioEyeSoftFactorInput" type="number" min="0" max="1" step="0.01" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioEyeHardFactorInput">Eye Hard Factor</label>
+            <input id="audioEyeHardFactorInput" type="number" min="-1" max="1" step="0.01" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioEyeHardDyMinInput">Eye Hard Dy Min</label>
+            <input id="audioEyeHardDyMinInput" type="number" min="-1" max="1" step="0.0001" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioEyeHardDyMaxInput">Eye Hard Dy Max</label>
+            <input id="audioEyeHardDyMaxInput" type="number" min="-1" max="1" step="0.0001" inputmode="decimal" />
+          </div>
+        </div>
+
+        <div class="section-title">Audio Motion Tuning</div>
+        <div class="control-grid">
+          <div class="control">
+            <label for="audioMotionTuningEnabledCheckbox">
+              <input id="audioMotionTuningEnabledCheckbox" type="checkbox" />
+              Audio motion tuning
+            </label>
+          </div>
+
+          <div class="control">
+            <label for="audioLipSyncAssistCheckbox">
+              <input id="audioLipSyncAssistCheckbox" type="checkbox" />
+              Audio lip sync assist
+            </label>
+          </div>
+
+          <div class="control">
+            <label for="audioReanchorFirstNInput">Reanchor First N</label>
+            <input id="audioReanchorFirstNInput" type="number" min="1" max="15" step="1" inputmode="numeric" />
+          </div>
+
+          <div class="control">
+            <label for="audioMouthOpenFactorInput">Mouth Open Factor</label>
+            <input id="audioMouthOpenFactorInput" type="number" min="0" max="3" step="0.01" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioPoseSmoothWindowInput">Head Pose Smooth</label>
+            <input id="audioPoseSmoothWindowInput" type="number" min="0" max="21" step="1" inputmode="numeric" />
+          </div>
+
+          <div class="control">
+            <label for="audioExpSmoothWindowInput">Expression Smooth</label>
+            <input id="audioExpSmoothWindowInput" type="number" min="0" max="21" step="1" inputmode="numeric" />
+          </div>
+
+          <div class="control">
+            <label for="audioPoseJumpThresholdInput">Head Jump Clamp</label>
+            <input id="audioPoseJumpThresholdInput" type="number" min="0" max="60" step="0.5" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioTranslationJumpThresholdInput">Translation Clamp</label>
+            <input id="audioTranslationJumpThresholdInput" type="number" min="0" max="1" step="0.005" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioLipSyncMinRatioInput">Lip Min Ratio</label>
+            <input id="audioLipSyncMinRatioInput" type="number" min="0" max="1" step="0.005" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioLipSyncMaxRatioInput">Lip Max Ratio</label>
+            <input id="audioLipSyncMaxRatioInput" type="number" min="0" max="1" step="0.01" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioLipSyncSmoothWindowInput">Lip Sync Smooth</label>
+            <input id="audioLipSyncSmoothWindowInput" type="number" min="0" max="21" step="1" inputmode="numeric" />
+          </div>
+
+          <div class="control">
+            <label for="audioLipSyncStrengthInput">Lip Sync Strength</label>
+            <input id="audioLipSyncStrengthInput" type="number" min="0" max="4" step="0.05" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioLipSyncPowerInput">Lip Sync Power</label>
+            <input id="audioLipSyncPowerInput" type="number" min="0.001" max="4" step="0.05" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioLipSyncOffsetMsInput">Lip Sync Offset MS</label>
+            <input id="audioLipSyncOffsetMsInput" type="number" min="-1000" max="1000" step="10" inputmode="numeric" />
+          </div>
+        </div>
+
+        <div class="control inline">
+          <button id="sendAudioButton" type="button">Send audio</button>
+          <button id="playButton" type="button" class="secondary">Play video</button>
+        </div>
+
+        <div class="control">
+          <pre id="logOutput">Waiting for connection…</pre>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Avatar</h2>
+
+        <div class="status-strip">
+          <div class="metric">
+            <span class="label">Session</span>
+            <span id="sessionValue" class="value">-</span>
+          </div>
+          <div class="metric">
+            <span class="label">Mode</span>
+            <span id="modeValue" class="value">idle</span>
+          </div>
+          <div class="metric">
+            <span class="label">Queue</span>
+            <span id="queueValue" class="value">0</span>
+          </div>
+          <div class="metric">
+            <span class="label">Current job</span>
+            <span id="jobValue" class="value">-</span>
+          </div>
+        </div>
+
+        <div class="video-shell">
+          <video id="avatarVideo" autoplay playsinline controls muted></video>
+        </div>
+        <div class="hint">The video element uses the continuous HTTP stream exposed by <code>/api/avatar/video.mp4</code>.</div>
+
+        <div class="control" style="margin-top: 14px;">
+          <pre id="statusOutput">{}</pre>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const API_TOKEN_QUERY_KEY = "token";
+    const SESSION_QUERY_KEY = "sessionId";
+    const SESSION_HEADER_NAME = "X-Avatar-Session-Id";
+    const AUTHORIZATION_HEADER_NAME = "Authorization";
+    const AUTHORIZATION_PREFIX = "Bearer ";
+    const DEFAULT_HEALTH_PATH = "/api/health";
+    const DEFAULT_STATUS_PATH = "/api/avatar/status";
+    const DEFAULT_ENQUEUE_PATH = "/api/avatar/enqueue";
+    const DEFAULT_VIDEO_PATH = "/api/avatar/video.mp4";
+    const STATUS_POLL_INTERVAL_MS = 1000;
+    const DEFAULT_MODE = "preview";
+    const DEFAULT_MOTION_STRIDE = 2;
+    const DEFAULT_GENERATION_FRAME_COUNT_MIN = 1;
+    const DEFAULT_GENERATION_FRAME_COUNT_MAX = 1200;
+    const DEFAULT_ANIMATION_REGION = "all";
+    const DEFAULT_STITCHING_ENABLED = true;
+    const DEFAULT_RELATIVE_MOTION_ENABLED = true;
+    const DEFAULT_PASTE_BACK_ENABLED = true;
+    const DEFAULT_DRIVING_MULTIPLIER = 1;
+    const DEFAULT_CFG_SCALE = 1.2;
+    const DEFAULT_JOYVASA_INFERENCE_STEPS = 15;
+    const DEFAULT_AUDIO_EYE_TAMED_PRESET = true;
+    const DEFAULT_AUDIO_EYE_SOFT_FACTOR = 0.45;
+    const DEFAULT_AUDIO_EYE_HARD_FACTOR = 0.18;
+    const DEFAULT_AUDIO_EYE_HARD_DY_MIN = -0.0045;
+    const DEFAULT_AUDIO_EYE_HARD_DY_MAX = 0.0035;
+    const DEFAULT_AUDIO_MOTION_TUNING_ENABLED = true;
+    const DEFAULT_AUDIO_REANCHOR_FIRST_N = 5;
+    const DEFAULT_AUDIO_MOUTH_OPEN_FACTOR = 1.18;
+    const DEFAULT_AUDIO_POSE_SMOOTH_WINDOW = 5;
+    const DEFAULT_AUDIO_EXP_SMOOTH_WINDOW = 3;
+    const DEFAULT_AUDIO_POSE_JUMP_THRESHOLD = 8;
+    const DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD = 0.03;
+    const DEFAULT_AUDIO_LIP_SYNC_ASSIST = false;
+    const DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO = 0.03;
+    const DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO = 0.32;
+    const DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW = 5;
+    const DEFAULT_AUDIO_LIP_SYNC_STRENGTH = 1.15;
+    const DEFAULT_AUDIO_LIP_SYNC_POWER = 0.85;
+    const DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS = 0;
+    const VALID_MODE_VALUES = new Set(["preview", "full"]);
+    const VALID_ANIMATION_REGION_VALUES = new Set(["all", "exp", "pose", "lip", "eyes"]);
+
+    const elements = {
+      apiBaseInput: document.getElementById("apiBaseInput"),
+      tokenInput: document.getElementById("tokenInput"),
+      connectButton: document.getElementById("connectButton"),
+      reconnectButton: document.getElementById("reconnectButton"),
+      refreshStatusButton: document.getElementById("refreshStatusButton"),
+      resetSessionButton: document.getElementById("resetSessionButton"),
+      muteCheckbox: document.getElementById("muteCheckbox"),
+      audioInput: document.getElementById("audioInput"),
+      sourceImageInput: document.getElementById("sourceImageInput"),
+      modeSelect: document.getElementById("modeSelect"),
+      motionStrideInput: document.getElementById("motionStrideInput"),
+      generationFrameCountInput: document.getElementById("generationFrameCountInput"),
+      animationRegionSelect: document.getElementById("animationRegionSelect"),
+      sourceFrameInput: document.getElementById("sourceFrameInput"),
+      stitchingCheckbox: document.getElementById("stitchingCheckbox"),
+      relativeMotionCheckbox: document.getElementById("relativeMotionCheckbox"),
+      pasteBackCheckbox: document.getElementById("pasteBackCheckbox"),
+      drivingMultiplierInput: document.getElementById("drivingMultiplierInput"),
+      cfgScaleInput: document.getElementById("cfgScaleInput"),
+      joyvasaInferenceStepsInput: document.getElementById("joyvasaInferenceStepsInput"),
+      audioEyeTamedPresetCheckbox: document.getElementById("audioEyeTamedPresetCheckbox"),
+      audioEyeSoftFactorInput: document.getElementById("audioEyeSoftFactorInput"),
+      audioEyeHardFactorInput: document.getElementById("audioEyeHardFactorInput"),
+      audioEyeHardDyMinInput: document.getElementById("audioEyeHardDyMinInput"),
+      audioEyeHardDyMaxInput: document.getElementById("audioEyeHardDyMaxInput"),
+      audioMotionTuningEnabledCheckbox: document.getElementById("audioMotionTuningEnabledCheckbox"),
+      audioLipSyncAssistCheckbox: document.getElementById("audioLipSyncAssistCheckbox"),
+      audioReanchorFirstNInput: document.getElementById("audioReanchorFirstNInput"),
+      audioMouthOpenFactorInput: document.getElementById("audioMouthOpenFactorInput"),
+      audioPoseSmoothWindowInput: document.getElementById("audioPoseSmoothWindowInput"),
+      audioExpSmoothWindowInput: document.getElementById("audioExpSmoothWindowInput"),
+      audioPoseJumpThresholdInput: document.getElementById("audioPoseJumpThresholdInput"),
+      audioTranslationJumpThresholdInput: document.getElementById("audioTranslationJumpThresholdInput"),
+      audioLipSyncMinRatioInput: document.getElementById("audioLipSyncMinRatioInput"),
+      audioLipSyncMaxRatioInput: document.getElementById("audioLipSyncMaxRatioInput"),
+      audioLipSyncSmoothWindowInput: document.getElementById("audioLipSyncSmoothWindowInput"),
+      audioLipSyncStrengthInput: document.getElementById("audioLipSyncStrengthInput"),
+      audioLipSyncPowerInput: document.getElementById("audioLipSyncPowerInput"),
+      audioLipSyncOffsetMsInput: document.getElementById("audioLipSyncOffsetMsInput"),
+      sendAudioButton: document.getElementById("sendAudioButton"),
+      playButton: document.getElementById("playButton"),
+      avatarVideo: document.getElementById("avatarVideo"),
+      sessionValue: document.getElementById("sessionValue"),
+      modeValue: document.getElementById("modeValue"),
+      queueValue: document.getElementById("queueValue"),
+      jobValue: document.getElementById("jobValue"),
+      logOutput: document.getElementById("logOutput"),
+      statusOutput: document.getElementById("statusOutput")
+    };
+
+    const state = {
+      sessionId: "",
+      statusPollHandle: 0,
+      lastHealth: null,
+      lastStatus: null,
+      generationFrameCountSupported: true,
+      generationFrameCountMin: DEFAULT_GENERATION_FRAME_COUNT_MIN,
+      generationFrameCountMax: DEFAULT_GENERATION_FRAME_COUNT_MAX,
+      allowCustomSourceFrame: true
+    };
+
+    function getDefaultApiBase() {
+      if ((window.location.protocol === "http:" || window.location.protocol === "https:") && window.location.host) {
+        return `${window.location.protocol}//${window.location.host}`;
+      }
+      return "http://127.0.0.1:8010";
+    }
+
+    function getDefaultToken() {
+      try {
+        return String(new URL(window.location.href).searchParams.get(API_TOKEN_QUERY_KEY) || "").trim();
+      } catch (_error) {
+        return "";
+      }
+    }
+
+    function normalizeApiBase() {
+      return String(elements.apiBaseInput.value || "").trim().replace(/\/+$/, "");
+    }
+
+    function getToken() {
+      return String(elements.tokenInput.value || "").trim();
+    }
+
+    function buildHeaders(sessionId) {
+      const headers = new Headers();
+      const token = getToken();
+      if (token) {
+        headers.set(AUTHORIZATION_HEADER_NAME, `${AUTHORIZATION_PREFIX}${token}`);
+      }
+      if (sessionId) {
+        headers.set(SESSION_HEADER_NAME, sessionId);
+      }
+      return headers;
+    }
+
+    function buildAbsoluteUrl(pathOrUrl) {
+      if (!pathOrUrl) {
+        return "";
+      }
+      if (/^https?:\/\//i.test(pathOrUrl)) {
+        return pathOrUrl;
+      }
+      return new URL(pathOrUrl, `${normalizeApiBase()}/`).toString();
+    }
+
+    function buildMediaUrl(pathOrUrl, sessionId) {
+      const targetUrl = new URL(buildAbsoluteUrl(pathOrUrl), window.location.href);
+      const token = getToken();
+      if (token) {
+        targetUrl.searchParams.set(API_TOKEN_QUERY_KEY, token);
+      }
+      if (sessionId) {
+        targetUrl.searchParams.set(SESSION_QUERY_KEY, sessionId);
+      }
+      return targetUrl.toString();
+    }
+
+    function createClientSessionId() {
+      if (window.crypto && typeof window.crypto.randomUUID === "function") {
+        return `avatar_${window.crypto.randomUUID().replace(/-/g, "")}`;
+      }
+      return `avatar_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+    }
+
+    function setLog(message, payload) {
+      if (payload === undefined) {
+        elements.logOutput.textContent = String(message);
+        return;
+      }
+      elements.logOutput.textContent = `${String(message)}\n\n${JSON.stringify(payload, null, 2)}`;
+    }
+
+    function applyVideoMutedState() {
+      elements.avatarVideo.muted = Boolean(elements.muteCheckbox.checked);
+    }
+
+    function normalizeNumberValue(rawValue, fallbackValue, minValue, maxValue) {
+      const parsedValue = Number(rawValue);
+      if (!Number.isFinite(parsedValue)) {
+        return fallbackValue;
+      }
+      return Math.min(maxValue, Math.max(minValue, parsedValue));
+    }
+
+    function normalizeBooleanValue(rawValue, fallbackValue) {
+      if (typeof rawValue === "boolean") {
+        return rawValue;
+      }
+      if (typeof rawValue === "string") {
+        const normalizedValue = rawValue.trim().toLowerCase();
+        if (normalizedValue === "true") {
+          return true;
+        }
+        if (normalizedValue === "false") {
+          return false;
+        }
+      }
+      return fallbackValue;
+    }
+
+    function applyTuningDefaults(healthPayload) {
+      const payload = healthPayload || {};
+      state.generationFrameCountSupported = Boolean(payload.generationFrameCountSupported ?? true);
+      state.generationFrameCountMin = Math.round(
+        normalizeNumberValue(payload.generationFrameCountMin, DEFAULT_GENERATION_FRAME_COUNT_MIN, 1, 100000)
+      );
+      state.generationFrameCountMax = Math.round(
+        normalizeNumberValue(payload.generationFrameCountMax, DEFAULT_GENERATION_FRAME_COUNT_MAX, state.generationFrameCountMin, 100000)
+      );
+      state.allowCustomSourceFrame = Boolean(payload.allowCustomSourceFrame ?? true);
+      const modeValue = String(payload.defaultMode || DEFAULT_MODE);
+      elements.modeSelect.value = VALID_MODE_VALUES.has(modeValue) ? modeValue : DEFAULT_MODE;
+      elements.motionStrideInput.value = String(
+        Math.round(normalizeNumberValue(payload.defaultAudioMotionStride, DEFAULT_MOTION_STRIDE, 1, 6))
+      );
+      elements.generationFrameCountInput.min = String(state.generationFrameCountMin);
+      elements.generationFrameCountInput.max = String(state.generationFrameCountMax);
+      elements.generationFrameCountInput.disabled = !state.generationFrameCountSupported;
+      elements.generationFrameCountInput.value = "";
+      const animationRegionValue = String(payload.defaultAnimationRegion || DEFAULT_ANIMATION_REGION);
+      elements.animationRegionSelect.value = VALID_ANIMATION_REGION_VALUES.has(animationRegionValue)
+        ? animationRegionValue
+        : DEFAULT_ANIMATION_REGION;
+      const sourceFrameValue = String(payload.fixedSourceFrame || "").trim();
+      elements.sourceFrameInput.value = sourceFrameValue;
+      elements.sourceFrameInput.disabled = !state.allowCustomSourceFrame;
+      elements.stitchingCheckbox.checked = normalizeBooleanValue(payload.defaultStitchingEnabled, DEFAULT_STITCHING_ENABLED);
+      elements.relativeMotionCheckbox.checked = normalizeBooleanValue(payload.defaultRelativeMotionEnabled, DEFAULT_RELATIVE_MOTION_ENABLED);
+      elements.pasteBackCheckbox.checked = normalizeBooleanValue(payload.defaultPasteBackEnabled, DEFAULT_PASTE_BACK_ENABLED);
+      elements.drivingMultiplierInput.value = String(
+        normalizeNumberValue(
+          payload.defaultDrivingMultiplier,
+          DEFAULT_DRIVING_MULTIPLIER,
+          0,
+          2
+        )
+      );
+      elements.cfgScaleInput.value = String(
+        normalizeNumberValue(
+          payload.defaultCfgScale,
+          DEFAULT_CFG_SCALE,
+          0,
+          10
+        )
+      );
+      elements.joyvasaInferenceStepsInput.value = String(
+        Math.round(
+          normalizeNumberValue(
+            payload.defaultJoyvasaInferenceSteps,
+            DEFAULT_JOYVASA_INFERENCE_STEPS,
+            1,
+            100
+          )
+        )
+      );
+      elements.audioEyeTamedPresetCheckbox.checked = normalizeBooleanValue(
+        payload.defaultAudioEyeTamedPreset,
+        DEFAULT_AUDIO_EYE_TAMED_PRESET
+      );
+      elements.audioEyeSoftFactorInput.value = String(
+        normalizeNumberValue(payload.defaultAudioEyeSoftFactor, DEFAULT_AUDIO_EYE_SOFT_FACTOR, 0, 1)
+      );
+      elements.audioEyeHardFactorInput.value = String(
+        normalizeNumberValue(payload.defaultAudioEyeHardFactor, DEFAULT_AUDIO_EYE_HARD_FACTOR, -1, 1)
+      );
+      elements.audioEyeHardDyMinInput.value = String(
+        normalizeNumberValue(payload.defaultAudioEyeHardDyMin, DEFAULT_AUDIO_EYE_HARD_DY_MIN, -1, 1)
+      );
+      elements.audioEyeHardDyMaxInput.value = String(
+        normalizeNumberValue(payload.defaultAudioEyeHardDyMax, DEFAULT_AUDIO_EYE_HARD_DY_MAX, -1, 1)
+      );
+      elements.audioMotionTuningEnabledCheckbox.checked = normalizeBooleanValue(
+        payload.defaultAudioMotionTuningEnabled,
+        DEFAULT_AUDIO_MOTION_TUNING_ENABLED
+      );
+      elements.audioLipSyncAssistCheckbox.checked = normalizeBooleanValue(
+        payload.defaultAudioLipSyncAssist,
+        DEFAULT_AUDIO_LIP_SYNC_ASSIST
+      );
+      elements.audioReanchorFirstNInput.value = String(
+        Math.round(normalizeNumberValue(payload.defaultAudioReanchorFirstN, DEFAULT_AUDIO_REANCHOR_FIRST_N, 1, 15))
+      );
+      elements.audioMouthOpenFactorInput.value = String(
+        normalizeNumberValue(payload.defaultAudioMouthOpenFactor, DEFAULT_AUDIO_MOUTH_OPEN_FACTOR, 0, 3)
+      );
+      elements.audioPoseSmoothWindowInput.value = String(
+        Math.round(normalizeNumberValue(payload.defaultAudioPoseSmoothWindow, DEFAULT_AUDIO_POSE_SMOOTH_WINDOW, 0, 21))
+      );
+      elements.audioExpSmoothWindowInput.value = String(
+        Math.round(normalizeNumberValue(payload.defaultAudioExpSmoothWindow, DEFAULT_AUDIO_EXP_SMOOTH_WINDOW, 0, 21))
+      );
+      elements.audioPoseJumpThresholdInput.value = String(
+        normalizeNumberValue(payload.defaultAudioPoseJumpThreshold, DEFAULT_AUDIO_POSE_JUMP_THRESHOLD, 0, 60)
+      );
+      elements.audioTranslationJumpThresholdInput.value = String(
+        normalizeNumberValue(
+          payload.defaultAudioTranslationJumpThreshold,
+          DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD,
+          0,
+          1
+        )
+      );
+      elements.audioLipSyncMinRatioInput.value = String(
+        normalizeNumberValue(payload.defaultAudioLipSyncMinRatio, DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO, 0, 1)
+      );
+      elements.audioLipSyncMaxRatioInput.value = String(
+        normalizeNumberValue(payload.defaultAudioLipSyncMaxRatio, DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO, 0, 1)
+      );
+      elements.audioLipSyncSmoothWindowInput.value = String(
+        Math.round(normalizeNumberValue(payload.defaultAudioLipSyncSmoothWindow, DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW, 0, 21))
+      );
+      elements.audioLipSyncStrengthInput.value = String(
+        normalizeNumberValue(payload.defaultAudioLipSyncStrength, DEFAULT_AUDIO_LIP_SYNC_STRENGTH, 0, 4)
+      );
+      elements.audioLipSyncPowerInput.value = String(
+        normalizeNumberValue(payload.defaultAudioLipSyncPower, DEFAULT_AUDIO_LIP_SYNC_POWER, 0.001, 4)
+      );
+      elements.audioLipSyncOffsetMsInput.value = String(
+        Math.round(normalizeNumberValue(payload.defaultAudioLipSyncOffsetMs, DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS, -1000, 1000))
+      );
+    }
+
+    function readTuningConfig() {
+      const normalizedMode = String(elements.modeSelect.value || DEFAULT_MODE).trim().toLowerCase();
+      const generationFrameCountRaw = String(elements.generationFrameCountInput.value || "").trim();
+      const generationFrameCount = state.generationFrameCountSupported && generationFrameCountRaw
+        ? Math.round(
+            normalizeNumberValue(
+              generationFrameCountRaw,
+              state.generationFrameCountMin,
+              state.generationFrameCountMin,
+              state.generationFrameCountMax
+            )
+          )
+        : null;
+      const normalizedSourceFrame = String(elements.sourceFrameInput.value || "").trim();
+      const audioLipSyncMinRatio = normalizeNumberValue(
+        elements.audioLipSyncMinRatioInput.value,
+        DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO,
+        0,
+        1
+      );
+      const audioLipSyncMaxRatio = normalizeNumberValue(
+        elements.audioLipSyncMaxRatioInput.value,
+        DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO,
+        0,
+        1
+      );
+      return {
+        sourceFrame: state.allowCustomSourceFrame ? normalizedSourceFrame : "",
+        mode: VALID_MODE_VALUES.has(normalizedMode) ? normalizedMode : DEFAULT_MODE,
+        motionStride: Math.round(normalizeNumberValue(elements.motionStrideInput.value, DEFAULT_MOTION_STRIDE, 1, 6)),
+        generationFrameCount,
+        animationRegion: VALID_ANIMATION_REGION_VALUES.has(String(elements.animationRegionSelect.value || "").trim().toLowerCase())
+          ? String(elements.animationRegionSelect.value || "").trim().toLowerCase()
+          : DEFAULT_ANIMATION_REGION,
+        stitching: Boolean(elements.stitchingCheckbox.checked),
+        relativeMotion: Boolean(elements.relativeMotionCheckbox.checked),
+        pasteBack: Boolean(elements.pasteBackCheckbox.checked),
+        drivingMultiplier: normalizeNumberValue(elements.drivingMultiplierInput.value, DEFAULT_DRIVING_MULTIPLIER, 0, 2),
+        cfgScale: normalizeNumberValue(elements.cfgScaleInput.value, DEFAULT_CFG_SCALE, 0, 10),
+        joyvasaInferenceSteps: Math.round(
+          normalizeNumberValue(elements.joyvasaInferenceStepsInput.value, DEFAULT_JOYVASA_INFERENCE_STEPS, 1, 100)
+        ),
+        audioEyeTamedPreset: Boolean(elements.audioEyeTamedPresetCheckbox.checked),
+        audioEyeSoftFactor: normalizeNumberValue(elements.audioEyeSoftFactorInput.value, DEFAULT_AUDIO_EYE_SOFT_FACTOR, 0, 1),
+        audioEyeHardFactor: normalizeNumberValue(elements.audioEyeHardFactorInput.value, DEFAULT_AUDIO_EYE_HARD_FACTOR, -1, 1),
+        audioEyeHardDyMin: normalizeNumberValue(elements.audioEyeHardDyMinInput.value, DEFAULT_AUDIO_EYE_HARD_DY_MIN, -1, 1),
+        audioEyeHardDyMax: normalizeNumberValue(elements.audioEyeHardDyMaxInput.value, DEFAULT_AUDIO_EYE_HARD_DY_MAX, -1, 1),
+        audioMotionTuningEnabled: Boolean(elements.audioMotionTuningEnabledCheckbox.checked),
+        audioLipSyncAssist: Boolean(elements.audioLipSyncAssistCheckbox.checked),
+        audioReanchorFirstN: Math.round(
+          normalizeNumberValue(elements.audioReanchorFirstNInput.value, DEFAULT_AUDIO_REANCHOR_FIRST_N, 1, 15)
+        ),
+        audioMouthOpenFactor: normalizeNumberValue(elements.audioMouthOpenFactorInput.value, DEFAULT_AUDIO_MOUTH_OPEN_FACTOR, 0, 3),
+        audioPoseSmoothWindow: Math.round(
+          normalizeNumberValue(elements.audioPoseSmoothWindowInput.value, DEFAULT_AUDIO_POSE_SMOOTH_WINDOW, 0, 21)
+        ),
+        audioExpSmoothWindow: Math.round(
+          normalizeNumberValue(elements.audioExpSmoothWindowInput.value, DEFAULT_AUDIO_EXP_SMOOTH_WINDOW, 0, 21)
+        ),
+        audioPoseJumpThreshold: normalizeNumberValue(
+          elements.audioPoseJumpThresholdInput.value,
+          DEFAULT_AUDIO_POSE_JUMP_THRESHOLD,
+          0,
+          60
+        ),
+        audioTranslationJumpThreshold: normalizeNumberValue(
+          elements.audioTranslationJumpThresholdInput.value,
+          DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD,
+          0,
+          1
+        ),
+        audioLipSyncMinRatio: Math.min(audioLipSyncMinRatio, audioLipSyncMaxRatio),
+        audioLipSyncMaxRatio: Math.max(audioLipSyncMinRatio, audioLipSyncMaxRatio),
+        audioLipSyncSmoothWindow: Math.round(
+          normalizeNumberValue(elements.audioLipSyncSmoothWindowInput.value, DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW, 0, 21)
+        ),
+        audioLipSyncStrength: normalizeNumberValue(elements.audioLipSyncStrengthInput.value, DEFAULT_AUDIO_LIP_SYNC_STRENGTH, 0, 4),
+        audioLipSyncPower: normalizeNumberValue(elements.audioLipSyncPowerInput.value, DEFAULT_AUDIO_LIP_SYNC_POWER, 0.001, 4),
+        audioLipSyncOffsetMs: Math.round(
+          normalizeNumberValue(elements.audioLipSyncOffsetMsInput.value, DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS, -1000, 1000)
+        )
+      };
+    }
+
+    async function fetchJson(path, sessionId) {
+      const response = await fetch(buildAbsoluteUrl(path), {
+        method: "GET",
+        cache: "no-store",
+        headers: buildHeaders(sessionId)
+      });
+      if (!response.ok) {
+        throw new Error(`GET ${path} failed with HTTP ${response.status}`);
+      }
+      return response.json();
+    }
+
+    function renderStatus(statusPayload) {
+      const payload = statusPayload || {};
+      elements.sessionValue.textContent = state.sessionId || "-";
+      elements.modeValue.textContent = String(payload.mode || payload.avatarMode || "idle");
+      elements.queueValue.textContent = String(payload.queueDepth || payload.avatarQueueDepth || 0);
+      elements.jobValue.textContent = String(payload.currentJobId || payload.avatarCurrentJobId || "-") || "-";
+      elements.statusOutput.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function restartStatusPolling() {
+      if (state.statusPollHandle) {
+        window.clearInterval(state.statusPollHandle);
+      }
+      state.statusPollHandle = window.setInterval(() => {
+        refreshAvatarStatus().catch((error) => {
+          setLog(`Status poll failed: ${String(error)}`);
+        });
+      }, STATUS_POLL_INTERVAL_MS);
+    }
+
+    async function refreshAvatarStatus() {
+      if (!state.sessionId) {
+        return;
+      }
+      const payload = await fetchJson(DEFAULT_STATUS_PATH, state.sessionId);
+      state.lastStatus = payload;
+      renderStatus(payload);
+      return payload;
+    }
+
+    async function connectClient() {
+      const healthPayload = await fetchJson(DEFAULT_HEALTH_PATH, "");
+      state.lastHealth = healthPayload;
+      state.sessionId = String(healthPayload.avatarSessionId || state.sessionId || createClientSessionId()).trim();
+      applyTuningDefaults(healthPayload);
+      renderStatus(healthPayload);
+
+      const streamPath = String(healthPayload.avatarVideoHttpUrl || DEFAULT_VIDEO_PATH);
+      const streamUrl = buildMediaUrl(streamPath, state.sessionId);
+      elements.avatarVideo.src = streamUrl;
+      applyVideoMutedState();
+      elements.avatarVideo.load();
+      try {
+        await elements.avatarVideo.play();
+      } catch (_error) {
+      }
+
+      await refreshAvatarStatus();
+      restartStatusPolling();
+      setLog("Connected to avatar API.", {
+        apiBase: normalizeApiBase(),
+        sessionId: state.sessionId,
+        videoUrl: streamUrl,
+        backend: healthPayload.backend,
+        trtRuntime: healthPayload.trtRuntime
+      });
+    }
+
+    async function sendAudio() {
+      if (!state.sessionId) {
+        await connectClient();
+      }
+      const audioFile = elements.audioInput.files && elements.audioInput.files[0];
+      if (!audioFile) {
+        throw new Error("Select an audio file first.");
+      }
+      const tuningConfig = readTuningConfig();
+      const formData = new FormData();
+      formData.append("audio", audioFile);
+      const sourceImageFile = elements.sourceImageInput.files && elements.sourceImageInput.files[0];
+      if (sourceImageFile) {
+        formData.append("source_image", sourceImageFile, sourceImageFile.name);
+      }
+      if (tuningConfig.sourceFrame) {
+        formData.append("source_frame", tuningConfig.sourceFrame);
+      }
+      formData.append("mode", tuningConfig.mode);
+      formData.append("motion_stride", String(tuningConfig.motionStride));
+      if (tuningConfig.generationFrameCount !== null) {
+        formData.append("generation_frame_count", String(tuningConfig.generationFrameCount));
+      }
+      formData.append("animation_region", tuningConfig.animationRegion);
+      formData.append("stitching", tuningConfig.stitching ? "true" : "false");
+      formData.append("relative_motion", tuningConfig.relativeMotion ? "true" : "false");
+      formData.append("paste_back", tuningConfig.pasteBack ? "true" : "false");
+      formData.append("driving_multiplier", String(tuningConfig.drivingMultiplier));
+      formData.append("cfg_scale", String(tuningConfig.cfgScale));
+      formData.append("joyvasa_inference_steps", String(tuningConfig.joyvasaInferenceSteps));
+      formData.append("audio_eye_tamed_preset", tuningConfig.audioEyeTamedPreset ? "true" : "false");
+      formData.append("audio_eye_soft_factor", String(tuningConfig.audioEyeSoftFactor));
+      formData.append("audio_eye_hard_factor", String(tuningConfig.audioEyeHardFactor));
+      formData.append("audio_eye_hard_dy_min", String(tuningConfig.audioEyeHardDyMin));
+      formData.append("audio_eye_hard_dy_max", String(tuningConfig.audioEyeHardDyMax));
+      formData.append("audio_motion_tuning_enabled", tuningConfig.audioMotionTuningEnabled ? "true" : "false");
+      formData.append("audio_reanchor_first_n", String(tuningConfig.audioReanchorFirstN));
+      formData.append("audio_mouth_open_factor", String(tuningConfig.audioMouthOpenFactor));
+      formData.append("audio_pose_smooth_window", String(tuningConfig.audioPoseSmoothWindow));
+      formData.append("audio_exp_smooth_window", String(tuningConfig.audioExpSmoothWindow));
+      formData.append("audio_pose_jump_threshold", String(tuningConfig.audioPoseJumpThreshold));
+      formData.append("audio_translation_jump_threshold", String(tuningConfig.audioTranslationJumpThreshold));
+      formData.append("audio_lip_sync_assist", tuningConfig.audioLipSyncAssist ? "true" : "false");
+      formData.append("audio_lip_sync_min_ratio", String(tuningConfig.audioLipSyncMinRatio));
+      formData.append("audio_lip_sync_max_ratio", String(tuningConfig.audioLipSyncMaxRatio));
+      formData.append("audio_lip_sync_smooth_window", String(tuningConfig.audioLipSyncSmoothWindow));
+      formData.append("audio_lip_sync_strength", String(tuningConfig.audioLipSyncStrength));
+      formData.append("audio_lip_sync_power", String(tuningConfig.audioLipSyncPower));
+      formData.append("audio_lip_sync_offset_ms", String(tuningConfig.audioLipSyncOffsetMs));
+      const response = await fetch(buildAbsoluteUrl(DEFAULT_ENQUEUE_PATH), {
+        method: "POST",
+        headers: buildHeaders(state.sessionId),
+        body: formData
+      });
+      if (!response.ok) {
+        const bodyText = await response.text();
+        throw new Error(`POST ${DEFAULT_ENQUEUE_PATH} failed with HTTP ${response.status}: ${bodyText}`);
+      }
+      const payload = await response.json();
+      setLog("Audio enqueued.", {
+        ...payload,
+        requestedTuning: tuningConfig
+      });
+      await refreshAvatarStatus();
+    }
+
+    function resetSession() {
+      state.sessionId = "";
+      state.lastHealth = null;
+      state.lastStatus = null;
+      if (state.statusPollHandle) {
+        window.clearInterval(state.statusPollHandle);
+        state.statusPollHandle = 0;
+      }
+      elements.avatarVideo.pause();
+      elements.avatarVideo.removeAttribute("src");
+      elements.avatarVideo.load();
+      renderStatus({});
+      setLog("Session reset. Click Connect to create a new session.");
+    }
+
+    elements.connectButton.addEventListener("click", () => {
+      connectClient().catch((error) => setLog(`Connect failed: ${String(error)}`));
+    });
+
+    elements.reconnectButton.addEventListener("click", () => {
+      connectClient().catch((error) => setLog(`Reconnect failed: ${String(error)}`));
+    });
+
+    elements.refreshStatusButton.addEventListener("click", () => {
+      refreshAvatarStatus().catch((error) => setLog(`Refresh failed: ${String(error)}`));
+    });
+
+    elements.sendAudioButton.addEventListener("click", () => {
+      sendAudio().catch((error) => setLog(`Send audio failed: ${String(error)}`));
+    });
+
+    elements.resetSessionButton.addEventListener("click", () => {
+      resetSession();
+    });
+
+    elements.playButton.addEventListener("click", () => {
+      elements.avatarVideo.play().catch((error) => setLog(`Play failed: ${String(error)}`));
+    });
+
+    elements.muteCheckbox.addEventListener("change", () => {
+      applyVideoMutedState();
+    });
+
+    elements.avatarVideo.addEventListener("error", () => {
+      const mediaError = elements.avatarVideo.error;
+      setLog("Video element reported an error.", {
+        code: mediaError ? mediaError.code : null,
+        message: mediaError ? mediaError.message : ""
+      });
+    });
+
+    elements.avatarVideo.addEventListener("loadedmetadata", () => {
+      applyVideoMutedState();
+    });
+
+    elements.apiBaseInput.value = getDefaultApiBase();
+    elements.tokenInput.value = getDefaultToken();
+    applyTuningDefaults(null);
+    applyVideoMutedState();
+    connectClient().catch((error) => setLog(`Initial connect failed: ${String(error)}`));
+  </script>
+</body>
+</html>

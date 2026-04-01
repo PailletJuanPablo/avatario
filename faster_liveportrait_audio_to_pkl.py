@@ -15,6 +15,8 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
+from motion_pkl_tuning import MotionPklTuningConfig, apply_audio_lip_sync_to_payload, tune_motion_pkl_payload
+
 
 DEFAULT_MOTION_STRIDE = 2
 DEFAULT_ENABLE_EYE_TAMED_PRESET = True
@@ -24,6 +26,20 @@ DEFAULT_EYE_SOFT_FACTOR = 0.45
 DEFAULT_EYE_HARD_FACTOR = 0.18
 DEFAULT_EYE_HARD_DY_MIN = -0.0045
 DEFAULT_EYE_HARD_DY_MAX = 0.0035
+DEFAULT_ENABLE_AUDIO_MOTION_TUNING = True
+DEFAULT_AUDIO_REANCHOR_FIRST_N = 5
+DEFAULT_AUDIO_MOUTH_OPEN_FACTOR = 1.18
+DEFAULT_AUDIO_POSE_SMOOTH_WINDOW = 5
+DEFAULT_AUDIO_EXP_SMOOTH_WINDOW = 3
+DEFAULT_AUDIO_POSE_JUMP_THRESHOLD = 8.0
+DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD = 0.03
+DEFAULT_ENABLE_AUDIO_LIP_SYNC_ASSIST = False
+DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO = 0.03
+DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO = 0.32
+DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW = 5
+DEFAULT_AUDIO_LIP_SYNC_STRENGTH = 1.15
+DEFAULT_AUDIO_LIP_SYNC_POWER = 0.85
+DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS = 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -96,7 +112,107 @@ def parse_args() -> argparse.Namespace:
         default=15,
         help="JoyVASA diffusion inference step override [1..100].",
     )
+    parser.add_argument(
+        "--enable-audio-motion-tuning",
+        dest="enable_audio_motion_tuning",
+        action="store_true",
+        help="Apply deterministic PKL cleanup for smoother head motion and cleaner expressions.",
+    )
+    parser.add_argument(
+        "--disable-audio-motion-tuning",
+        dest="enable_audio_motion_tuning",
+        action="store_false",
+        help="Disable deterministic PKL cleanup.",
+    )
+    parser.add_argument(
+        "--reanchor-first-n",
+        type=int,
+        default=DEFAULT_AUDIO_REANCHOR_FIRST_N,
+        help="Median anchor span used to stabilize the initial baseline.",
+    )
+    parser.add_argument(
+        "--mouth-open-factor",
+        type=float,
+        default=DEFAULT_AUDIO_MOUTH_OPEN_FACTOR,
+        help="Relative mouth-opening gain applied on lip expression deltas.",
+    )
+    parser.add_argument(
+        "--pose-smooth-window",
+        type=int,
+        default=DEFAULT_AUDIO_POSE_SMOOTH_WINDOW,
+        help="Median smoothing window applied to head pose channels.",
+    )
+    parser.add_argument(
+        "--exp-smooth-window",
+        type=int,
+        default=DEFAULT_AUDIO_EXP_SMOOTH_WINDOW,
+        help="Median smoothing window applied to non-mouth expression channels.",
+    )
+    parser.add_argument(
+        "--pose-jump-threshold",
+        type=float,
+        default=DEFAULT_AUDIO_POSE_JUMP_THRESHOLD,
+        help="Maximum per-frame pose delta in degrees before clamping.",
+    )
+    parser.add_argument(
+        "--translation-jump-threshold",
+        type=float,
+        default=DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD,
+        help="Maximum per-frame translation delta before clamping.",
+    )
+    parser.add_argument(
+        "--enable-audio-lip-sync-assist",
+        dest="enable_audio_lip_sync_assist",
+        action="store_true",
+        help="Reinforce mouth motion using the driving-audio envelope.",
+    )
+    parser.add_argument(
+        "--disable-audio-lip-sync-assist",
+        dest="enable_audio_lip_sync_assist",
+        action="store_false",
+        help="Disable mouth reinforcement from the driving-audio envelope.",
+    )
+    parser.add_argument(
+        "--lip-sync-min-ratio",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO,
+        help="Minimum lip ratio derived from the audio envelope.",
+    )
+    parser.add_argument(
+        "--lip-sync-max-ratio",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO,
+        help="Maximum lip ratio derived from the audio envelope.",
+    )
+    parser.add_argument(
+        "--lip-sync-smooth-window",
+        type=int,
+        default=DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW,
+        help="Moving-average window used on the audio envelope before lip sync.",
+    )
+    parser.add_argument(
+        "--lip-sync-strength",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_STRENGTH,
+        help="Overall gain applied to the audio-driven mouth reinforcement.",
+    )
+    parser.add_argument(
+        "--lip-sync-power",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_POWER,
+        help="Envelope exponent shaping low- versus high-energy syllables.",
+    )
+    parser.add_argument(
+        "--lip-sync-offset-ms",
+        type=int,
+        default=DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS,
+        help="Time offset in milliseconds applied to the audio envelope sampling.",
+    )
     parser.set_defaults(enable_eye_tamed_preset=DEFAULT_ENABLE_EYE_TAMED_PRESET)
+    parser.set_defaults(
+        enable_audio_motion_tuning=DEFAULT_ENABLE_AUDIO_MOTION_TUNING,
+        enable_audio_lip_sync_assist=DEFAULT_ENABLE_AUDIO_LIP_SYNC_ASSIST,
+    )
     return parser.parse_args()
 
 
@@ -257,6 +373,30 @@ def main() -> None:
             hard_dy_min=float(args.eye_hard_dy_min),
             hard_dy_max=float(args.eye_hard_dy_max),
         )
+    if bool(args.enable_audio_motion_tuning):
+        tuning_config = MotionPklTuningConfig(
+            enabled=True,
+            reanchor_first_n=max(1, int(args.reanchor_first_n)),
+            mouth_open_factor=float(args.mouth_open_factor),
+            pose_smooth_window=max(0, int(args.pose_smooth_window)),
+            exp_smooth_window=max(0, int(args.exp_smooth_window)),
+            pose_jump_threshold=max(0.0, float(args.pose_jump_threshold)),
+            translation_jump_threshold=max(0.0, float(args.translation_jump_threshold)),
+            lip_sync_enabled=bool(args.enable_audio_lip_sync_assist),
+            lip_sync_min_ratio=float(np.clip(float(args.lip_sync_min_ratio), 0.0, 1.0)),
+            lip_sync_max_ratio=float(np.clip(float(args.lip_sync_max_ratio), 0.0, 1.0)),
+            lip_sync_smooth_window=max(0, int(args.lip_sync_smooth_window)),
+            lip_sync_strength=max(0.0, float(args.lip_sync_strength)),
+            lip_sync_power=max(0.001, float(args.lip_sync_power)),
+            lip_sync_offset_ms=int(args.lip_sync_offset_ms),
+        )
+        motion_data = tune_motion_pkl_payload(motion_data, tuning_config)
+        if tuning_config.lip_sync_enabled:
+            motion_data = apply_audio_lip_sync_to_payload(
+                payload=motion_data,
+                audio_path=str(driving_audio_path),
+                config=tuning_config,
+            )
 
     output_pkl_path.parent.mkdir(parents=True, exist_ok=True)
     with output_pkl_path.open("wb") as handle:

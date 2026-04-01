@@ -706,7 +706,7 @@
         <span class="compact-label">Source</span>
         <span class="compact-picker-value" id="sourceImagePickerValue">Runtime source</span>
       </label>
-      <input class="visually-hidden-input" id="sourceImageInput" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp">
+      <input class="visually-hidden-input" id="sourceImageInput" type="file" accept=".png,.jpg,.jpeg,.webp,.mp4,.avi,.mov,.mkv,.webm,.flv,.m4v,.wmv,image/*,video/*">
       <button class="primary compact-button" id="btnGenerate"><span class="compact-button-label">Generate</span></button>
       <button class="primary compact-button compact-icon-button" id="btnPlay" title="Play" aria-label="Play"><span class="compact-icon play" aria-hidden="true"></span></button>
       <button class="compact-button compact-icon-button" id="btnPause" title="Pause" aria-label="Pause"><span class="compact-icon pause" aria-hidden="true"></span></button>
@@ -802,6 +802,69 @@
         <label class="tuning-field">
           <span class="compact-label">Eye Hard DY Max</span>
           <input id="audioEyeHardDyMaxInput" type="number" min="-1" max="1" step="0.0001" inputmode="decimal">
+        </label>
+      </div>
+      <hr class="tuning-divider">
+      <div class="tuning-toggle-grid">
+        <label class="tuning-toggle" for="audioMotionTuningEnabledCheck">
+          <input id="audioMotionTuningEnabledCheck" type="checkbox">
+          <span>Audio Motion Tuning</span>
+        </label>
+        <label class="tuning-toggle" for="audioLipSyncAssistCheck">
+          <input id="audioLipSyncAssistCheck" type="checkbox">
+          <span>Audio Lip Sync Assist</span>
+        </label>
+      </div>
+      <div class="tuning-grid">
+        <label class="tuning-field">
+          <span class="compact-label">Reanchor First N</span>
+          <input id="audioReanchorFirstNInput" type="number" min="1" max="15" step="1" inputmode="numeric">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Mouth Open Factor</span>
+          <input id="audioMouthOpenFactorInput" type="number" min="0" max="3" step="0.01" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Head Pose Smooth</span>
+          <input id="audioPoseSmoothWindowInput" type="number" min="0" max="21" step="1" inputmode="numeric">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Expression Smooth</span>
+          <input id="audioExpSmoothWindowInput" type="number" min="0" max="21" step="1" inputmode="numeric">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Head Jump Clamp</span>
+          <input id="audioPoseJumpThresholdInput" type="number" min="0" max="60" step="0.5" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Translation Clamp</span>
+          <input id="audioTranslationJumpThresholdInput" type="number" min="0" max="1" step="0.005" inputmode="decimal">
+        </label>
+      </div>
+      <div class="tuning-grid">
+        <label class="tuning-field">
+          <span class="compact-label">Lip Min Ratio</span>
+          <input id="audioLipSyncMinRatioInput" type="number" min="0" max="1" step="0.005" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Lip Max Ratio</span>
+          <input id="audioLipSyncMaxRatioInput" type="number" min="0" max="1" step="0.01" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Lip Sync Smooth</span>
+          <input id="audioLipSyncSmoothWindowInput" type="number" min="0" max="21" step="1" inputmode="numeric">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Lip Sync Strength</span>
+          <input id="audioLipSyncStrengthInput" type="number" min="0" max="4" step="0.05" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Lip Sync Power</span>
+          <input id="audioLipSyncPowerInput" type="number" min="0.001" max="4" step="0.05" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Lip Sync Offset MS</span>
+          <input id="audioLipSyncOffsetMsInput" type="number" min="-1000" max="1000" step="10" inputmode="numeric">
         </label>
       </div>
     </section>
@@ -918,7 +981,8 @@
       <button id="btnStopStream">Stop Stream</button>
       <input id="speedRange" type="range" min="0.5" max="1.5" step="0.05" value="1.0">
       <span id="speedValue">1.00x</span>
-      <img id="sourcePreview" src="output/frames/frame_00061.png" alt="source frame">
+      <img id="sourcePreview" src="output/frames/frame_00061.png" alt="source preview">
+      <video id="sourcePreviewVideo" class="hidden" muted loop playsinline preload="metadata"></video>
       <video id="drivingVideo" controls loop preload="auto"></video>
       <div class="audio-wrap hidden" id="drivingAudioWrap">
         <audio id="drivingAudio" controls preload="auto"></audio>
@@ -993,6 +1057,20 @@
     const DEFAULT_AUDIO_EYE_HARD_FACTOR = 0.18;
     const DEFAULT_AUDIO_EYE_HARD_DY_MIN = -0.0045;
     const DEFAULT_AUDIO_EYE_HARD_DY_MAX = 0.0035;
+    const DEFAULT_AUDIO_MOTION_TUNING_ENABLED = true;
+    const DEFAULT_AUDIO_REANCHOR_FIRST_N = 5;
+    const DEFAULT_AUDIO_MOUTH_OPEN_FACTOR = 1.18;
+    const DEFAULT_AUDIO_POSE_SMOOTH_WINDOW = 5;
+    const DEFAULT_AUDIO_EXP_SMOOTH_WINDOW = 3;
+    const DEFAULT_AUDIO_POSE_JUMP_THRESHOLD = 8;
+    const DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD = 0.03;
+    const DEFAULT_AUDIO_LIP_SYNC_ASSIST = false;
+    const DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO = 0.03;
+    const DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO = 0.32;
+    const DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW = 5;
+    const DEFAULT_AUDIO_LIP_SYNC_STRENGTH = 1.15;
+    const DEFAULT_AUDIO_LIP_SYNC_POWER = 0.85;
+    const DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS = 0;
     const DEFAULT_DRIVING_MULTIPLIER = 1;
     const DEFAULT_CFG_SCALE = 1.2;
     const DEFAULT_JOYVASA_INFERENCE_STEPS = 15;
@@ -1119,6 +1197,7 @@
       avatarStage: document.getElementById("avatarStage"),
       idleVideo: document.getElementById("idleVideo"),
       sourcePreview: document.getElementById("sourcePreview"),
+      sourcePreviewVideo: document.getElementById("sourcePreviewVideo"),
       streamVideo: document.getElementById("streamVideo"),
       reportText: document.getElementById("reportText"),
       resultVideo: document.getElementById("resultVideo"),
@@ -1147,6 +1226,20 @@
       audioEyeHardFactorInput: document.getElementById("audioEyeHardFactorInput"),
       audioEyeHardDyMinInput: document.getElementById("audioEyeHardDyMinInput"),
       audioEyeHardDyMaxInput: document.getElementById("audioEyeHardDyMaxInput"),
+      audioMotionTuningEnabledCheck: document.getElementById("audioMotionTuningEnabledCheck"),
+      audioLipSyncAssistCheck: document.getElementById("audioLipSyncAssistCheck"),
+      audioReanchorFirstNInput: document.getElementById("audioReanchorFirstNInput"),
+      audioMouthOpenFactorInput: document.getElementById("audioMouthOpenFactorInput"),
+      audioPoseSmoothWindowInput: document.getElementById("audioPoseSmoothWindowInput"),
+      audioExpSmoothWindowInput: document.getElementById("audioExpSmoothWindowInput"),
+      audioPoseJumpThresholdInput: document.getElementById("audioPoseJumpThresholdInput"),
+      audioTranslationJumpThresholdInput: document.getElementById("audioTranslationJumpThresholdInput"),
+      audioLipSyncMinRatioInput: document.getElementById("audioLipSyncMinRatioInput"),
+      audioLipSyncMaxRatioInput: document.getElementById("audioLipSyncMaxRatioInput"),
+      audioLipSyncSmoothWindowInput: document.getElementById("audioLipSyncSmoothWindowInput"),
+      audioLipSyncStrengthInput: document.getElementById("audioLipSyncStrengthInput"),
+      audioLipSyncPowerInput: document.getElementById("audioLipSyncPowerInput"),
+      audioLipSyncOffsetMsInput: document.getElementById("audioLipSyncOffsetMsInput"),
       btnGenerate: document.getElementById("btnGenerate"),
       btnResetTuning: document.getElementById("btnResetTuning"),
       btnWarmup: document.getElementById("btnWarmup"),
@@ -1208,7 +1301,21 @@
         audioEyeSoftFactor: DEFAULT_AUDIO_EYE_SOFT_FACTOR,
         audioEyeHardFactor: DEFAULT_AUDIO_EYE_HARD_FACTOR,
         audioEyeHardDyMin: DEFAULT_AUDIO_EYE_HARD_DY_MIN,
-        audioEyeHardDyMax: DEFAULT_AUDIO_EYE_HARD_DY_MAX
+        audioEyeHardDyMax: DEFAULT_AUDIO_EYE_HARD_DY_MAX,
+        audioMotionTuningEnabled: DEFAULT_AUDIO_MOTION_TUNING_ENABLED,
+        audioReanchorFirstN: DEFAULT_AUDIO_REANCHOR_FIRST_N,
+        audioMouthOpenFactor: DEFAULT_AUDIO_MOUTH_OPEN_FACTOR,
+        audioPoseSmoothWindow: DEFAULT_AUDIO_POSE_SMOOTH_WINDOW,
+        audioExpSmoothWindow: DEFAULT_AUDIO_EXP_SMOOTH_WINDOW,
+        audioPoseJumpThreshold: DEFAULT_AUDIO_POSE_JUMP_THRESHOLD,
+        audioTranslationJumpThreshold: DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD,
+        audioLipSyncAssist: DEFAULT_AUDIO_LIP_SYNC_ASSIST,
+        audioLipSyncMinRatio: DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO,
+        audioLipSyncMaxRatio: DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO,
+        audioLipSyncSmoothWindow: DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW,
+        audioLipSyncStrength: DEFAULT_AUDIO_LIP_SYNC_STRENGTH,
+        audioLipSyncPower: DEFAULT_AUDIO_LIP_SYNC_POWER,
+        audioLipSyncOffsetMs: DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS
       };
     }
 
@@ -1339,24 +1446,51 @@
       sourcePreviewObjectUrl = "";
     }
 
+    function isVideoPreviewValue(pathOrUrl, mimeType = "") {
+      const normalizedMimeType = String(mimeType || "").trim().toLowerCase();
+      if (normalizedMimeType.startsWith("video/")) {
+        return true;
+      }
+      const normalizedValue = String(pathOrUrl || "").trim().split(/[?#]/, 1)[0].toLowerCase();
+      return /\.(mp4|avi|mov|mkv|webm|flv|m4v|wmv)$/i.test(normalizedValue);
+    }
+
+    function updateSourcePreviewVisibility(previewKind) {
+      const showVideo = previewKind === "video";
+      elements.sourcePreview.classList.toggle("hidden", showVideo);
+      elements.sourcePreviewVideo.classList.toggle("hidden", !showVideo);
+      if (!showVideo) {
+        elements.sourcePreviewVideo.pause();
+        elements.sourcePreviewVideo.removeAttribute("src");
+        elements.sourcePreviewVideo.load();
+      }
+    }
+
     /**
      * Update the source preview element only when the underlying source actually changes.
      *
-     * @param {string} nextSource - Preview image URL or object URL.
+     * @param {string} nextSource - Preview image or video URL.
      * @param {string} cacheKey - Stable key representing the underlying source content.
+     * @param {"image" | "video"} previewKind - Media kind to render.
      */
-    function applySourcePreviewSource(nextSource, cacheKey) {
-      if (!elements.sourcePreview || !nextSource) {
+    function applySourcePreviewSource(nextSource, cacheKey, previewKind = "image") {
+      if (!nextSource) {
         return;
       }
       if (sourcePreviewCacheKey === cacheKey) {
         return;
       }
       sourcePreviewCacheKey = cacheKey;
+      updateSourcePreviewVisibility(previewKind);
+      if (previewKind === "video") {
+        elements.sourcePreviewVideo.src = nextSource;
+        elements.sourcePreviewVideo.load();
+        return;
+      }
       elements.sourcePreview.src = nextSource;
     }
 
-    function getSelectedSourceImageFile() {
+    function getSelectedSourceMediaFile() {
       const files = elements.sourceImageInput.files;
       return files && files[0] ? files[0] : null;
     }
@@ -1388,12 +1522,12 @@
     /**
      * Synchronize source-related labels without exposing full server paths in the UI.
      *
-     * @param {File | null} sourceImageFile - Locally selected source image, if present.
+     * @param {File | null} sourceMediaFile - Locally selected source media, if present.
      */
-    function renderSourceSelectionState(sourceImageFile) {
-      if (sourceImageFile && sourceImageFile.name) {
-        elements.sourceBadge.textContent = sourceImageFile.name;
-        setCompactPickerValue(elements.sourceImagePickerValue, sourceImageFile.name);
+    function renderSourceSelectionState(sourceMediaFile) {
+      if (sourceMediaFile && sourceMediaFile.name) {
+        elements.sourceBadge.textContent = sourceMediaFile.name;
+        setCompactPickerValue(elements.sourceImagePickerValue, sourceMediaFile.name);
         return;
       }
       elements.sourceBadge.textContent = UI_TEXT.SOURCE_BADGE_RUNTIME;
@@ -1445,17 +1579,22 @@
       revokeSourcePreviewObjectUrl();
       const normalizedPath = String(path || "").trim() || DEFAULT_SOURCE_FRAME;
       const resolvedUrl = resolveMediaUrl(normalizedPath) || normalizedPath;
-      applySourcePreviewSource(withCacheBust(resolvedUrl), `path:${normalizedPath}`);
+      const previewKind = isVideoPreviewValue(normalizedPath) ? "video" : "image";
+      applySourcePreviewSource(withCacheBust(resolvedUrl), `path:${previewKind}:${normalizedPath}`, previewKind);
     }
 
-    function setSourcePreviewFromUrl(pathOrUrl) {
+    function setSourcePreviewFromUrl(pathOrUrl, sourceMediaType = "") {
       revokeSourcePreviewObjectUrl();
       const resolvedUrl = resolveMediaUrl(pathOrUrl);
       if (!resolvedUrl) {
         setSourcePreviewFromPath(DEFAULT_SOURCE_FRAME);
         return;
       }
-      applySourcePreviewSource(withCacheBust(resolvedUrl), `url:${resolvedUrl}`);
+      const previewKind = String(sourceMediaType || "").trim().toLowerCase() === "video"
+        || isVideoPreviewValue(resolvedUrl)
+        ? "video"
+        : "image";
+      applySourcePreviewSource(withCacheBust(resolvedUrl), `url:${previewKind}:${resolvedUrl}`, previewKind);
     }
 
     function setSourcePreviewFromFile(file) {
@@ -1465,17 +1604,19 @@
         return;
       }
       sourcePreviewObjectUrl = URL.createObjectURL(file);
+      const previewKind = isVideoPreviewValue(file.name, file.type) ? "video" : "image";
       applySourcePreviewSource(
         sourcePreviewObjectUrl,
-        `file:${String(file.name || "")}:${Number(file.size || 0)}:${Number(file.lastModified || 0)}`
+        `file:${previewKind}:${String(file.name || "")}:${Number(file.size || 0)}:${Number(file.lastModified || 0)}`,
+        previewKind
       );
     }
 
     function updateSelectedSourcePreview() {
-      const sourceImageFile = getSelectedSourceImageFile();
-      renderSourceSelectionState(sourceImageFile);
-      if (sourceImageFile) {
-        setSourcePreviewFromFile(sourceImageFile);
+      const sourceMediaFile = getSelectedSourceMediaFile();
+      renderSourceSelectionState(sourceMediaFile);
+      if (sourceMediaFile) {
+        setSourcePreviewFromFile(sourceMediaFile);
         return;
       }
       const sourceFrame = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim() || DEFAULT_SOURCE_FRAME;
@@ -1947,6 +2088,90 @@
           DEFAULT_AUDIO_EYE_HARD_DY_MAX,
           -1,
           1
+        ),
+        audioMotionTuningEnabled: Boolean(healthPayload.defaultAudioMotionTuningEnabled),
+        audioReanchorFirstN: Math.round(
+          normalizeNumberInputValue(
+            healthPayload.defaultAudioReanchorFirstN,
+            DEFAULT_AUDIO_REANCHOR_FIRST_N,
+            1,
+            15
+          )
+        ),
+        audioMouthOpenFactor: normalizeNumberInputValue(
+          healthPayload.defaultAudioMouthOpenFactor,
+          DEFAULT_AUDIO_MOUTH_OPEN_FACTOR,
+          0,
+          3
+        ),
+        audioPoseSmoothWindow: Math.round(
+          normalizeNumberInputValue(
+            healthPayload.defaultAudioPoseSmoothWindow,
+            DEFAULT_AUDIO_POSE_SMOOTH_WINDOW,
+            0,
+            21
+          )
+        ),
+        audioExpSmoothWindow: Math.round(
+          normalizeNumberInputValue(
+            healthPayload.defaultAudioExpSmoothWindow,
+            DEFAULT_AUDIO_EXP_SMOOTH_WINDOW,
+            0,
+            21
+          )
+        ),
+        audioPoseJumpThreshold: normalizeNumberInputValue(
+          healthPayload.defaultAudioPoseJumpThreshold,
+          DEFAULT_AUDIO_POSE_JUMP_THRESHOLD,
+          0,
+          60
+        ),
+        audioTranslationJumpThreshold: normalizeNumberInputValue(
+          healthPayload.defaultAudioTranslationJumpThreshold,
+          DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD,
+          0,
+          1
+        ),
+        audioLipSyncAssist: Boolean(healthPayload.defaultAudioLipSyncAssist),
+        audioLipSyncMinRatio: normalizeNumberInputValue(
+          healthPayload.defaultAudioLipSyncMinRatio,
+          DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO,
+          0,
+          1
+        ),
+        audioLipSyncMaxRatio: normalizeNumberInputValue(
+          healthPayload.defaultAudioLipSyncMaxRatio,
+          DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO,
+          0,
+          1
+        ),
+        audioLipSyncSmoothWindow: Math.round(
+          normalizeNumberInputValue(
+            healthPayload.defaultAudioLipSyncSmoothWindow,
+            DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW,
+            0,
+            21
+          )
+        ),
+        audioLipSyncStrength: normalizeNumberInputValue(
+          healthPayload.defaultAudioLipSyncStrength,
+          DEFAULT_AUDIO_LIP_SYNC_STRENGTH,
+          0,
+          4
+        ),
+        audioLipSyncPower: normalizeNumberInputValue(
+          healthPayload.defaultAudioLipSyncPower,
+          DEFAULT_AUDIO_LIP_SYNC_POWER,
+          0.001,
+          4
+        ),
+        audioLipSyncOffsetMs: Math.round(
+          normalizeNumberInputValue(
+            healthPayload.defaultAudioLipSyncOffsetMs,
+            DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS,
+            -1000,
+            1000
+          )
         )
       };
     }
@@ -2011,6 +2236,62 @@
       elements.audioEyeHardDyMaxInput.value = String(
         normalizeNumberInputValue(safeConfig.audioEyeHardDyMax, DEFAULT_AUDIO_EYE_HARD_DY_MAX, -1, 1)
       );
+      elements.audioMotionTuningEnabledCheck.checked = Boolean(safeConfig.audioMotionTuningEnabled);
+      elements.audioLipSyncAssistCheck.checked = Boolean(safeConfig.audioLipSyncAssist);
+      elements.audioReanchorFirstNInput.value = String(
+        Math.round(normalizeNumberInputValue(safeConfig.audioReanchorFirstN, DEFAULT_AUDIO_REANCHOR_FIRST_N, 1, 15))
+      );
+      elements.audioMouthOpenFactorInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioMouthOpenFactor, DEFAULT_AUDIO_MOUTH_OPEN_FACTOR, 0, 3)
+      );
+      elements.audioPoseSmoothWindowInput.value = String(
+        Math.round(
+          normalizeNumberInputValue(safeConfig.audioPoseSmoothWindow, DEFAULT_AUDIO_POSE_SMOOTH_WINDOW, 0, 21)
+        )
+      );
+      elements.audioExpSmoothWindowInput.value = String(
+        Math.round(
+          normalizeNumberInputValue(safeConfig.audioExpSmoothWindow, DEFAULT_AUDIO_EXP_SMOOTH_WINDOW, 0, 21)
+        )
+      );
+      elements.audioPoseJumpThresholdInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioPoseJumpThreshold, DEFAULT_AUDIO_POSE_JUMP_THRESHOLD, 0, 60)
+      );
+      elements.audioTranslationJumpThresholdInput.value = String(
+        normalizeNumberInputValue(
+          safeConfig.audioTranslationJumpThreshold,
+          DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD,
+          0,
+          1
+        )
+      );
+      elements.audioLipSyncMinRatioInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioLipSyncMinRatio, DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO, 0, 1)
+      );
+      elements.audioLipSyncMaxRatioInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioLipSyncMaxRatio, DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO, 0, 1)
+      );
+      elements.audioLipSyncSmoothWindowInput.value = String(
+        Math.round(
+          normalizeNumberInputValue(
+            safeConfig.audioLipSyncSmoothWindow,
+            DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW,
+            0,
+            21
+          )
+        )
+      );
+      elements.audioLipSyncStrengthInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioLipSyncStrength, DEFAULT_AUDIO_LIP_SYNC_STRENGTH, 0, 4)
+      );
+      elements.audioLipSyncPowerInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioLipSyncPower, DEFAULT_AUDIO_LIP_SYNC_POWER, 0.001, 4)
+      );
+      elements.audioLipSyncOffsetMsInput.value = String(
+        Math.round(
+          normalizeNumberInputValue(safeConfig.audioLipSyncOffsetMs, DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS, -1000, 1000)
+        )
+      );
       if (clearFrameOverride) {
         elements.generationFrameCountInput.value = "";
       }
@@ -2049,6 +2330,18 @@
         elements.audioEyeHardDyMaxInput.value,
         tuningDefaults.audioEyeHardDyMax,
         -1,
+        1
+      );
+      const audioLipSyncMinRatio = normalizeNumberInputValue(
+        elements.audioLipSyncMinRatioInput.value,
+        tuningDefaults.audioLipSyncMinRatio,
+        0,
+        1
+      );
+      const audioLipSyncMaxRatio = normalizeNumberInputValue(
+        elements.audioLipSyncMaxRatioInput.value,
+        tuningDefaults.audioLipSyncMaxRatio,
+        0,
         1
       );
       return {
@@ -2097,7 +2390,76 @@
           1
         ),
         audioEyeHardDyMin: Math.min(audioEyeHardDyMin, audioEyeHardDyMax),
-        audioEyeHardDyMax: Math.max(audioEyeHardDyMin, audioEyeHardDyMax)
+        audioEyeHardDyMax: Math.max(audioEyeHardDyMin, audioEyeHardDyMax),
+        audioMotionTuningEnabled: Boolean(elements.audioMotionTuningEnabledCheck.checked),
+        audioReanchorFirstN: Math.round(
+          normalizeNumberInputValue(elements.audioReanchorFirstNInput.value, tuningDefaults.audioReanchorFirstN, 1, 15)
+        ),
+        audioMouthOpenFactor: normalizeNumberInputValue(
+          elements.audioMouthOpenFactorInput.value,
+          tuningDefaults.audioMouthOpenFactor,
+          0,
+          3
+        ),
+        audioPoseSmoothWindow: Math.round(
+          normalizeNumberInputValue(
+            elements.audioPoseSmoothWindowInput.value,
+            tuningDefaults.audioPoseSmoothWindow,
+            0,
+            21
+          )
+        ),
+        audioExpSmoothWindow: Math.round(
+          normalizeNumberInputValue(
+            elements.audioExpSmoothWindowInput.value,
+            tuningDefaults.audioExpSmoothWindow,
+            0,
+            21
+          )
+        ),
+        audioPoseJumpThreshold: normalizeNumberInputValue(
+          elements.audioPoseJumpThresholdInput.value,
+          tuningDefaults.audioPoseJumpThreshold,
+          0,
+          60
+        ),
+        audioTranslationJumpThreshold: normalizeNumberInputValue(
+          elements.audioTranslationJumpThresholdInput.value,
+          tuningDefaults.audioTranslationJumpThreshold,
+          0,
+          1
+        ),
+        audioLipSyncAssist: Boolean(elements.audioLipSyncAssistCheck.checked),
+        audioLipSyncMinRatio: Math.min(audioLipSyncMinRatio, audioLipSyncMaxRatio),
+        audioLipSyncMaxRatio: Math.max(audioLipSyncMinRatio, audioLipSyncMaxRatio),
+        audioLipSyncSmoothWindow: Math.round(
+          normalizeNumberInputValue(
+            elements.audioLipSyncSmoothWindowInput.value,
+            tuningDefaults.audioLipSyncSmoothWindow,
+            0,
+            21
+          )
+        ),
+        audioLipSyncStrength: normalizeNumberInputValue(
+          elements.audioLipSyncStrengthInput.value,
+          tuningDefaults.audioLipSyncStrength,
+          0,
+          4
+        ),
+        audioLipSyncPower: normalizeNumberInputValue(
+          elements.audioLipSyncPowerInput.value,
+          tuningDefaults.audioLipSyncPower,
+          0.001,
+          4
+        ),
+        audioLipSyncOffsetMs: Math.round(
+          normalizeNumberInputValue(
+            elements.audioLipSyncOffsetMsInput.value,
+            tuningDefaults.audioLipSyncOffsetMs,
+            -1000,
+            1000
+          )
+        )
       };
     }
 
@@ -2118,6 +2480,12 @@
       ];
       if (tuningConfig.audioEyeTamedPreset) {
         parts.push("eye tame");
+      }
+      if (tuningConfig.audioMotionTuningEnabled) {
+        parts.push("motion tune");
+      }
+      if (tuningConfig.audioLipSyncAssist) {
+        parts.push("lip sync");
       }
       return parts.join(" | ");
     }
@@ -2589,6 +2957,20 @@
         audioEyeHardFactor: payload.audioEyeHardFactor ?? null,
         audioEyeHardDyMin: payload.audioEyeHardDyMin ?? null,
         audioEyeHardDyMax: payload.audioEyeHardDyMax ?? null,
+        audioMotionTuningEnabled: Boolean(payload.audioMotionTuningEnabled),
+        audioReanchorFirstN: payload.audioReanchorFirstN ?? null,
+        audioMouthOpenFactor: payload.audioMouthOpenFactor ?? null,
+        audioPoseSmoothWindow: payload.audioPoseSmoothWindow ?? null,
+        audioExpSmoothWindow: payload.audioExpSmoothWindow ?? null,
+        audioPoseJumpThreshold: payload.audioPoseJumpThreshold ?? null,
+        audioTranslationJumpThreshold: payload.audioTranslationJumpThreshold ?? null,
+        audioLipSyncAssist: Boolean(payload.audioLipSyncAssist),
+        audioLipSyncMinRatio: payload.audioLipSyncMinRatio ?? null,
+        audioLipSyncMaxRatio: payload.audioLipSyncMaxRatio ?? null,
+        audioLipSyncSmoothWindow: payload.audioLipSyncSmoothWindow ?? null,
+        audioLipSyncStrength: payload.audioLipSyncStrength ?? null,
+        audioLipSyncPower: payload.audioLipSyncPower ?? null,
+        audioLipSyncOffsetMs: payload.audioLipSyncOffsetMs ?? null,
         progress: streamStatus.progress || 0,
         frameIndex: streamStatus.frameIndex || 0,
         frameTotal: streamStatus.frameTotal || 0,
@@ -3114,10 +3496,10 @@
         elements.drivingBadge.textContent = "embedded in avatar stream";
       }
       if (payload.sourceFrame) {
-        renderSourceSelectionState(getSelectedSourceImageFile());
+        renderSourceSelectionState(getSelectedSourceMediaFile());
       }
       if (payload.sourceFrameUrl) {
-        setSourcePreviewFromUrl(payload.sourceFrameUrl);
+        setSourcePreviewFromUrl(payload.sourceFrameUrl, payload.sourceMediaType || "");
       }
       if (!useUnifiedAvatarTransport && payload.resultVideoUrl) {
         activeVideoPaths.result = resolveMediaUrl(payload.resultVideoUrl);
@@ -3560,7 +3942,7 @@
         return;
       }
       const sourceFrame = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim() || DEFAULT_SOURCE_FRAME;
-      const sourceImageFile = getSelectedSourceImageFile();
+      const sourceMediaFile = getSelectedSourceMediaFile();
       const tuningConfig = getSelectedTuningConfig();
       const inferenceProfileLabel = buildTuningLabel(tuningConfig);
       await checkApiHealth();
@@ -3579,8 +3961,11 @@
       const formData = new FormData();
       formData.append("audio", file, file.name);
       formData.append("source_frame", sourceFrame);
-      if (sourceImageFile) {
-        formData.append("source_image", sourceImageFile, sourceImageFile.name);
+      if (sourceMediaFile) {
+        const sourceFieldName = isVideoPreviewValue(sourceMediaFile.name, sourceMediaFile.type)
+          ? "source_video"
+          : "source_image";
+        formData.append(sourceFieldName, sourceMediaFile, sourceMediaFile.name);
       }
       formData.append("mode", tuningConfig.mode);
       formData.append("motion_stride", String(tuningConfig.motionStride));
@@ -3599,6 +3984,20 @@
       formData.append("audio_eye_hard_factor", String(tuningConfig.audioEyeHardFactor));
       formData.append("audio_eye_hard_dy_min", String(tuningConfig.audioEyeHardDyMin));
       formData.append("audio_eye_hard_dy_max", String(tuningConfig.audioEyeHardDyMax));
+      formData.append("audio_motion_tuning_enabled", tuningConfig.audioMotionTuningEnabled ? "true" : "false");
+      formData.append("audio_reanchor_first_n", String(tuningConfig.audioReanchorFirstN));
+      formData.append("audio_mouth_open_factor", String(tuningConfig.audioMouthOpenFactor));
+      formData.append("audio_pose_smooth_window", String(tuningConfig.audioPoseSmoothWindow));
+      formData.append("audio_exp_smooth_window", String(tuningConfig.audioExpSmoothWindow));
+      formData.append("audio_pose_jump_threshold", String(tuningConfig.audioPoseJumpThreshold));
+      formData.append("audio_translation_jump_threshold", String(tuningConfig.audioTranslationJumpThreshold));
+      formData.append("audio_lip_sync_assist", tuningConfig.audioLipSyncAssist ? "true" : "false");
+      formData.append("audio_lip_sync_min_ratio", String(tuningConfig.audioLipSyncMinRatio));
+      formData.append("audio_lip_sync_max_ratio", String(tuningConfig.audioLipSyncMaxRatio));
+      formData.append("audio_lip_sync_smooth_window", String(tuningConfig.audioLipSyncSmoothWindow));
+      formData.append("audio_lip_sync_strength", String(tuningConfig.audioLipSyncStrength));
+      formData.append("audio_lip_sync_power", String(tuningConfig.audioLipSyncPower));
+      formData.append("audio_lip_sync_offset_ms", String(tuningConfig.audioLipSyncOffsetMs));
 
       elements.btnGenerate.disabled = true;
       setStatusBadge("submitting job", false);
@@ -3863,7 +4262,7 @@
         } else {
           elements.sourceImageInput.disabled = false;
           elements.sourceFrameInput.disabled = false;
-          renderSourceSelectionState(getSelectedSourceImageFile());
+      renderSourceSelectionState(getSelectedSourceMediaFile());
         }
         if (isUnifiedAvatarTransportActive()) {
           ensureUnifiedAvatarStreamConnected();
@@ -3984,6 +4383,30 @@
     elements.joyvasaInferenceStepsInput.max = String(JOYVASA_INFERENCE_STEPS_LIMITS.MAX);
     elements.generationFrameCountInput.min = String(GENERATION_FRAME_COUNT_LIMITS.MIN);
     elements.generationFrameCountInput.max = String(GENERATION_FRAME_COUNT_LIMITS.MAX);
+    elements.audioReanchorFirstNInput.min = "1";
+    elements.audioReanchorFirstNInput.max = "15";
+    elements.audioMouthOpenFactorInput.min = "0";
+    elements.audioMouthOpenFactorInput.max = "3";
+    elements.audioPoseSmoothWindowInput.min = "0";
+    elements.audioPoseSmoothWindowInput.max = "21";
+    elements.audioExpSmoothWindowInput.min = "0";
+    elements.audioExpSmoothWindowInput.max = "21";
+    elements.audioPoseJumpThresholdInput.min = "0";
+    elements.audioPoseJumpThresholdInput.max = "60";
+    elements.audioTranslationJumpThresholdInput.min = "0";
+    elements.audioTranslationJumpThresholdInput.max = "1";
+    elements.audioLipSyncMinRatioInput.min = "0";
+    elements.audioLipSyncMinRatioInput.max = "1";
+    elements.audioLipSyncMaxRatioInput.min = "0";
+    elements.audioLipSyncMaxRatioInput.max = "1";
+    elements.audioLipSyncSmoothWindowInput.min = "0";
+    elements.audioLipSyncSmoothWindowInput.max = "21";
+    elements.audioLipSyncStrengthInput.min = "0";
+    elements.audioLipSyncStrengthInput.max = "4";
+    elements.audioLipSyncPowerInput.min = "0.001";
+    elements.audioLipSyncPowerInput.max = "4";
+    elements.audioLipSyncOffsetMsInput.min = "-1000";
+    elements.audioLipSyncOffsetMsInput.max = "1000";
     applyTuningConfigToControls(tuningDefaults, true);
     renderAudioSelectionState(null);
     updateSelectedSourcePreview();

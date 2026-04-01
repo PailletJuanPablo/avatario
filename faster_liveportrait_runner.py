@@ -141,11 +141,44 @@ DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY = "ANIMATION_AUDIO_EYE_SOFT_FACTOR"
 DEFAULT_AUDIO_EYE_HARD_FACTOR_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_FACTOR"
 DEFAULT_AUDIO_EYE_HARD_DY_MIN_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_DY_MIN"
 DEFAULT_AUDIO_EYE_HARD_DY_MAX_ENV_KEY = "ANIMATION_AUDIO_EYE_HARD_DY_MAX"
+DEFAULT_AUDIO_MOTION_TUNING_ENABLED_ENV_KEY = "ANIMATION_AUDIO_MOTION_TUNING_ENABLED"
+DEFAULT_AUDIO_REANCHOR_FIRST_N_ENV_KEY = "ANIMATION_AUDIO_REANCHOR_FIRST_N"
+DEFAULT_AUDIO_MOUTH_OPEN_FACTOR_ENV_KEY = "ANIMATION_AUDIO_MOUTH_OPEN_FACTOR"
+DEFAULT_AUDIO_POSE_SMOOTH_WINDOW_ENV_KEY = "ANIMATION_AUDIO_POSE_SMOOTH_WINDOW"
+DEFAULT_AUDIO_EXP_SMOOTH_WINDOW_ENV_KEY = "ANIMATION_AUDIO_EXP_SMOOTH_WINDOW"
+DEFAULT_AUDIO_POSE_JUMP_THRESHOLD_ENV_KEY = "ANIMATION_AUDIO_POSE_JUMP_THRESHOLD"
+DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD_ENV_KEY = "ANIMATION_AUDIO_TRANSLATION_JUMP_THRESHOLD"
+DEFAULT_AUDIO_LIP_SYNC_ASSIST_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_ASSIST"
+DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_MIN_RATIO"
+DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_MAX_RATIO"
+DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_SMOOTH_WINDOW"
+DEFAULT_AUDIO_LIP_SYNC_STRENGTH_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_STRENGTH"
+DEFAULT_AUDIO_LIP_SYNC_POWER_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_POWER"
+DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_OFFSET_MS"
 DEFAULT_AUDIO_EYE_TAMED_PRESET = read_env_bool(DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY, True)
 DEFAULT_AUDIO_EYE_SOFT_FACTOR = read_env_float(DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY, 0.45, 0.0, 1.0)
 DEFAULT_AUDIO_EYE_HARD_FACTOR = read_env_float(DEFAULT_AUDIO_EYE_HARD_FACTOR_ENV_KEY, 0.18, 0.0, 1.0)
 DEFAULT_AUDIO_EYE_HARD_DY_MIN = read_env_float(DEFAULT_AUDIO_EYE_HARD_DY_MIN_ENV_KEY, -0.0045)
 DEFAULT_AUDIO_EYE_HARD_DY_MAX = read_env_float(DEFAULT_AUDIO_EYE_HARD_DY_MAX_ENV_KEY, 0.0035)
+DEFAULT_AUDIO_MOTION_TUNING_ENABLED = read_env_bool(DEFAULT_AUDIO_MOTION_TUNING_ENABLED_ENV_KEY, True)
+DEFAULT_AUDIO_REANCHOR_FIRST_N = read_env_int(DEFAULT_AUDIO_REANCHOR_FIRST_N_ENV_KEY, 5, 1, 15)
+DEFAULT_AUDIO_MOUTH_OPEN_FACTOR = read_env_float(DEFAULT_AUDIO_MOUTH_OPEN_FACTOR_ENV_KEY, 1.18, 0.0, 3.0)
+DEFAULT_AUDIO_POSE_SMOOTH_WINDOW = read_env_int(DEFAULT_AUDIO_POSE_SMOOTH_WINDOW_ENV_KEY, 5, 0, 21)
+DEFAULT_AUDIO_EXP_SMOOTH_WINDOW = read_env_int(DEFAULT_AUDIO_EXP_SMOOTH_WINDOW_ENV_KEY, 3, 0, 21)
+DEFAULT_AUDIO_POSE_JUMP_THRESHOLD = read_env_float(DEFAULT_AUDIO_POSE_JUMP_THRESHOLD_ENV_KEY, 8.0, 0.0, 60.0)
+DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD = read_env_float(
+    DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD_ENV_KEY,
+    0.03,
+    0.0,
+    1.0,
+)
+DEFAULT_AUDIO_LIP_SYNC_ASSIST = read_env_bool(DEFAULT_AUDIO_LIP_SYNC_ASSIST_ENV_KEY, False)
+DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO = read_env_float(DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO_ENV_KEY, 0.03, 0.0, 1.0)
+DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO = read_env_float(DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO_ENV_KEY, 0.32, 0.0, 1.0)
+DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW = read_env_int(DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW_ENV_KEY, 5, 0, 21)
+DEFAULT_AUDIO_LIP_SYNC_STRENGTH = read_env_float(DEFAULT_AUDIO_LIP_SYNC_STRENGTH_ENV_KEY, 1.15, 0.0, 4.0)
+DEFAULT_AUDIO_LIP_SYNC_POWER = read_env_float(DEFAULT_AUDIO_LIP_SYNC_POWER_ENV_KEY, 0.85, 0.001, 4.0)
+DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS = read_env_int(DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS_ENV_KEY, 0, -1000, 1000)
 DEFAULT_DRIVING_MULTIPLIER = read_env_float("ANIMATION_DRIVING_MULTIPLIER", 1.0, 0.0, 2.0)
 DEFAULT_CFG_SCALE = read_env_float("ANIMATION_CFG_SCALE", 1.2, 0.0, 10.0)
 DEFAULT_JOYVASA_INFERENCE_STEPS = read_env_int("ANIMATION_JOYVASA_INFERENCE_STEPS", 15, 1, 100)
@@ -185,6 +218,7 @@ DEFAULT_VIDEO_ENCODER = os.getenv("ANIMATION_VIDEO_ENCODER", VIDEO_ENCODER_AUTO)
 if DEFAULT_VIDEO_ENCODER not in VIDEO_ENCODER_CHOICES:
     DEFAULT_VIDEO_ENCODER = VIDEO_ENCODER_AUTO
 FFMPEG_ENCODER_SUPPORT_CACHE: dict[str, bool] = {}
+SOURCE_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".m4v", ".wmv"}
 
 
 @dataclass
@@ -216,6 +250,20 @@ class RunnerConfig:
     audio_eye_hard_factor: float
     audio_eye_hard_dy_min: float
     audio_eye_hard_dy_max: float
+    audio_motion_tuning_enabled: bool
+    audio_reanchor_first_n: int
+    audio_mouth_open_factor: float
+    audio_pose_smooth_window: int
+    audio_exp_smooth_window: int
+    audio_pose_jump_threshold: float
+    audio_translation_jump_threshold: float
+    audio_lip_sync_assist: bool
+    audio_lip_sync_min_ratio: float
+    audio_lip_sync_max_ratio: float
+    audio_lip_sync_smooth_window: int
+    audio_lip_sync_strength: float
+    audio_lip_sync_power: float
+    audio_lip_sync_offset_ms: int
     driving_multiplier: float
     cfg_scale: float
     joyvasa_inference_steps: int
@@ -296,6 +344,104 @@ def parse_args() -> RunnerConfig:
         type=float,
         default=DEFAULT_AUDIO_EYE_HARD_DY_MAX,
         help="Maximum vertical eyelid delta allowed while building audio motion templates.",
+    )
+    parser.add_argument(
+        "--audio-motion-tuning-enabled",
+        dest="audio_motion_tuning_enabled",
+        action="store_true",
+        help="Apply deterministic PKL cleanup for audio-generated motion templates.",
+    )
+    parser.add_argument(
+        "--no-audio-motion-tuning",
+        dest="audio_motion_tuning_enabled",
+        action="store_false",
+        help="Disable deterministic PKL cleanup for audio-generated motion templates.",
+    )
+    parser.set_defaults(audio_motion_tuning_enabled=DEFAULT_AUDIO_MOTION_TUNING_ENABLED)
+    parser.add_argument(
+        "--audio-reanchor-first-n",
+        type=int,
+        default=DEFAULT_AUDIO_REANCHOR_FIRST_N,
+        help="Initial median anchor span used to stabilize audio-generated motion templates.",
+    )
+    parser.add_argument(
+        "--audio-mouth-open-factor",
+        type=float,
+        default=DEFAULT_AUDIO_MOUTH_OPEN_FACTOR,
+        help="Relative mouth-opening gain applied to audio-generated motion templates.",
+    )
+    parser.add_argument(
+        "--audio-pose-smooth-window",
+        type=int,
+        default=DEFAULT_AUDIO_POSE_SMOOTH_WINDOW,
+        help="Median smoothing window applied to pitch/yaw/roll in audio-generated motion templates.",
+    )
+    parser.add_argument(
+        "--audio-exp-smooth-window",
+        type=int,
+        default=DEFAULT_AUDIO_EXP_SMOOTH_WINDOW,
+        help="Median smoothing window applied to non-mouth expression channels.",
+    )
+    parser.add_argument(
+        "--audio-pose-jump-threshold",
+        type=float,
+        default=DEFAULT_AUDIO_POSE_JUMP_THRESHOLD,
+        help="Maximum per-frame pose delta in degrees before clamping.",
+    )
+    parser.add_argument(
+        "--audio-translation-jump-threshold",
+        type=float,
+        default=DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD,
+        help="Maximum per-frame translation delta before clamping.",
+    )
+    parser.add_argument(
+        "--audio-lip-sync-assist",
+        dest="audio_lip_sync_assist",
+        action="store_true",
+        help="Reinforce mouth motion using the audio envelope.",
+    )
+    parser.add_argument(
+        "--no-audio-lip-sync-assist",
+        dest="audio_lip_sync_assist",
+        action="store_false",
+        help="Disable mouth reinforcement from the audio envelope.",
+    )
+    parser.set_defaults(audio_lip_sync_assist=DEFAULT_AUDIO_LIP_SYNC_ASSIST)
+    parser.add_argument(
+        "--audio-lip-sync-min-ratio",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO,
+        help="Minimum lip ratio derived from the audio envelope.",
+    )
+    parser.add_argument(
+        "--audio-lip-sync-max-ratio",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO,
+        help="Maximum lip ratio derived from the audio envelope.",
+    )
+    parser.add_argument(
+        "--audio-lip-sync-smooth-window",
+        type=int,
+        default=DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW,
+        help="Moving-average window used on the audio envelope before lip sync.",
+    )
+    parser.add_argument(
+        "--audio-lip-sync-strength",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_STRENGTH,
+        help="Gain applied to the audio-driven lip-sync assist.",
+    )
+    parser.add_argument(
+        "--audio-lip-sync-power",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_POWER,
+        help="Envelope exponent shaping low- versus high-energy syllables.",
+    )
+    parser.add_argument(
+        "--audio-lip-sync-offset-ms",
+        type=int,
+        default=DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS,
+        help="Time offset in milliseconds applied when sampling the audio envelope.",
     )
     parser.add_argument(
         "--driving-multiplier",
@@ -422,6 +568,18 @@ def parse_args() -> RunnerConfig:
     audio_eye_hard_factor = float(np.clip(float(args.audio_eye_hard_factor), 0.0, 1.0))
     audio_eye_hard_dy_min = float(min(args.audio_eye_hard_dy_min, args.audio_eye_hard_dy_max))
     audio_eye_hard_dy_max = float(max(args.audio_eye_hard_dy_min, args.audio_eye_hard_dy_max))
+    audio_reanchor_first_n = int(np.clip(int(args.audio_reanchor_first_n), 1, 15))
+    audio_mouth_open_factor = float(np.clip(float(args.audio_mouth_open_factor), 0.0, 3.0))
+    audio_pose_smooth_window = max(0, int(args.audio_pose_smooth_window))
+    audio_exp_smooth_window = max(0, int(args.audio_exp_smooth_window))
+    audio_pose_jump_threshold = float(np.clip(float(args.audio_pose_jump_threshold), 0.0, 60.0))
+    audio_translation_jump_threshold = float(np.clip(float(args.audio_translation_jump_threshold), 0.0, 1.0))
+    audio_lip_sync_min_ratio = float(np.clip(float(args.audio_lip_sync_min_ratio), 0.0, 1.0))
+    audio_lip_sync_max_ratio = float(np.clip(float(args.audio_lip_sync_max_ratio), audio_lip_sync_min_ratio, 1.0))
+    audio_lip_sync_smooth_window = max(0, int(args.audio_lip_sync_smooth_window))
+    audio_lip_sync_strength = float(np.clip(float(args.audio_lip_sync_strength), 0.0, 4.0))
+    audio_lip_sync_power = float(np.clip(float(args.audio_lip_sync_power), 0.001, 4.0))
+    audio_lip_sync_offset_ms = int(np.clip(int(args.audio_lip_sync_offset_ms), -1000, 1000))
     driving_multiplier = float(np.clip(float(args.driving_multiplier), 0.0, 2.0))
     cfg_scale = float(np.clip(float(args.cfg_scale), 0.0, 10.0))
     joyvasa_inference_steps = int(np.clip(int(args.joyvasa_inference_steps), 1, 100))
@@ -460,6 +618,20 @@ def parse_args() -> RunnerConfig:
         audio_eye_hard_factor=audio_eye_hard_factor,
         audio_eye_hard_dy_min=audio_eye_hard_dy_min,
         audio_eye_hard_dy_max=audio_eye_hard_dy_max,
+        audio_motion_tuning_enabled=bool(args.audio_motion_tuning_enabled),
+        audio_reanchor_first_n=audio_reanchor_first_n,
+        audio_mouth_open_factor=audio_mouth_open_factor,
+        audio_pose_smooth_window=audio_pose_smooth_window,
+        audio_exp_smooth_window=audio_exp_smooth_window,
+        audio_pose_jump_threshold=audio_pose_jump_threshold,
+        audio_translation_jump_threshold=audio_translation_jump_threshold,
+        audio_lip_sync_assist=bool(args.audio_lip_sync_assist),
+        audio_lip_sync_min_ratio=audio_lip_sync_min_ratio,
+        audio_lip_sync_max_ratio=audio_lip_sync_max_ratio,
+        audio_lip_sync_smooth_window=audio_lip_sync_smooth_window,
+        audio_lip_sync_strength=audio_lip_sync_strength,
+        audio_lip_sync_power=audio_lip_sync_power,
+        audio_lip_sync_offset_ms=audio_lip_sync_offset_ms,
         driving_multiplier=driving_multiplier,
         cfg_scale=cfg_scale,
         joyvasa_inference_steps=joyvasa_inference_steps,
@@ -493,6 +665,8 @@ def is_deferred_paste_back_enabled(config: RunnerConfig) -> bool:
     """
     Enable deferred paste-back only when the final contract still requires paste-back output.
     """
+    if config.source_frame.suffix.lower() in SOURCE_VIDEO_EXTENSIONS:
+        return False
     return bool(config.defer_paste_back and config.paste_back and config.stitching_enabled)
 
 
@@ -526,6 +700,29 @@ def read_fps(meta_path: Path) -> float:
     if fps_value <= 0:
         return DEFAULT_FPS
     return float(fps_value)
+
+
+def read_source_video_fps(source_path: Path) -> float:
+    """
+    Read FPS from a source video with a safe default.
+    """
+    capture = cv2.VideoCapture(str(source_path))
+    try:
+        fps_value = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    finally:
+        capture.release()
+    if fps_value <= 0 or not np.isfinite(fps_value):
+        return DEFAULT_FPS
+    return float(fps_value)
+
+
+def resolve_source_fps(config: RunnerConfig) -> float:
+    """
+    Resolve effective source FPS from source video when available, else from metadata.
+    """
+    if config.source_frame.suffix.lower() in SOURCE_VIDEO_EXTENSIONS:
+        return read_source_video_fps(config.source_frame)
+    return read_fps(config.meta_path)
 
 
 def read_template_fps(template_path: Path, fallback_fps: float) -> float:
@@ -1180,6 +1377,20 @@ def build_audio_template_generation_profile(
         "eyeHardFactor": round(float(config.audio_eye_hard_factor), 6),
         "eyeHardDyMin": round(float(config.audio_eye_hard_dy_min), 6),
         "eyeHardDyMax": round(float(config.audio_eye_hard_dy_max), 6),
+        "audioMotionTuningEnabled": bool(config.audio_motion_tuning_enabled),
+        "audioReanchorFirstN": int(config.audio_reanchor_first_n),
+        "audioMouthOpenFactor": round(float(config.audio_mouth_open_factor), 6),
+        "audioPoseSmoothWindow": int(config.audio_pose_smooth_window),
+        "audioExpSmoothWindow": int(config.audio_exp_smooth_window),
+        "audioPoseJumpThreshold": round(float(config.audio_pose_jump_threshold), 6),
+        "audioTranslationJumpThreshold": round(float(config.audio_translation_jump_threshold), 6),
+        "audioLipSyncAssist": bool(config.audio_lip_sync_assist),
+        "audioLipSyncMinRatio": round(float(config.audio_lip_sync_min_ratio), 6),
+        "audioLipSyncMaxRatio": round(float(config.audio_lip_sync_max_ratio), 6),
+        "audioLipSyncSmoothWindow": int(config.audio_lip_sync_smooth_window),
+        "audioLipSyncStrength": round(float(config.audio_lip_sync_strength), 6),
+        "audioLipSyncPower": round(float(config.audio_lip_sync_power), 6),
+        "audioLipSyncOffsetMs": int(config.audio_lip_sync_offset_ms),
         "cfgScale": round(float(config.cfg_scale), 6),
         "joyvasaInferenceSteps": int(config.joyvasa_inference_steps),
     }
@@ -1187,9 +1398,13 @@ def build_audio_template_generation_profile(
 
 def should_prebuild_audio_template(config: RunnerConfig) -> bool:
     """
-    Use the slower audio-to-PKL path only when the request needs exact frame-count control.
+    Route audio requests through PKL generation whenever one template-only control is active.
     """
-    return config.generation_frame_count is not None
+    return bool(
+        config.generation_frame_count is not None
+        or config.audio_eye_tamed_preset
+        or config.audio_motion_tuning_enabled
+    )
 
 
 def build_audio_template_cache_key(
@@ -1356,6 +1571,30 @@ def build_audio_to_pkl_extra_args(config: RunnerConfig) -> list[str]:
         f"{float(config.cfg_scale):.6f}",
         "--inference-steps",
         str(int(config.joyvasa_inference_steps)),
+        "--reanchor-first-n",
+        str(int(config.audio_reanchor_first_n)),
+        "--mouth-open-factor",
+        f"{float(config.audio_mouth_open_factor):.6f}",
+        "--pose-smooth-window",
+        str(int(config.audio_pose_smooth_window)),
+        "--exp-smooth-window",
+        str(int(config.audio_exp_smooth_window)),
+        "--pose-jump-threshold",
+        f"{float(config.audio_pose_jump_threshold):.6f}",
+        "--translation-jump-threshold",
+        f"{float(config.audio_translation_jump_threshold):.6f}",
+        "--lip-sync-min-ratio",
+        f"{float(config.audio_lip_sync_min_ratio):.6f}",
+        "--lip-sync-max-ratio",
+        f"{float(config.audio_lip_sync_max_ratio):.6f}",
+        "--lip-sync-smooth-window",
+        str(int(config.audio_lip_sync_smooth_window)),
+        "--lip-sync-strength",
+        f"{float(config.audio_lip_sync_strength):.6f}",
+        "--lip-sync-power",
+        f"{float(config.audio_lip_sync_power):.6f}",
+        "--lip-sync-offset-ms",
+        str(int(config.audio_lip_sync_offset_ms)),
     ]
     if config.generation_frame_count is not None:
         command.extend(
@@ -1365,6 +1604,12 @@ def build_audio_to_pkl_extra_args(config: RunnerConfig) -> list[str]:
             ]
         )
     command.append("--enable-eye-tamed-preset" if config.audio_eye_tamed_preset else "--disable-eye-tamed-preset")
+    command.append(
+        "--enable-audio-motion-tuning" if config.audio_motion_tuning_enabled else "--disable-audio-motion-tuning"
+    )
+    command.append(
+        "--enable-audio-lip-sync-assist" if config.audio_lip_sync_assist else "--disable-audio-lip-sync-assist"
+    )
     return command
 
 
@@ -2588,6 +2833,7 @@ def write_report(
         "motionTargetFps": float(FIXED_AUDIO_MOTION_TARGET_FPS),
         "inputs": {
             "sourceFrame": str(config.source_frame),
+            "sourceMediaType": "video" if config.source_frame.suffix.lower() in SOURCE_VIDEO_EXTENSIONS else "image",
             "framesDir": str(config.frames_dir),
             "metaPath": str(config.meta_path),
             "drivingInput": str(driving_input),
@@ -2637,13 +2883,16 @@ def main() -> None:
     phase_started_at = time.time()
 
     assert_path_exists(config.source_frame, "Source frame")
-    assert_path_exists(config.frames_dir, "Frames directory")
+    if config.driving_audio is None:
+        assert_path_exists(config.frames_dir, "Frames directory")
     assert_path_exists(config.faster_repo_dir, "FasterLivePortrait repo")
     assert_path_exists(config.faster_repo_dir / "run.py", "FasterLivePortrait run.py")
     if not (config.backend == BACKEND_TRT and config.trt_runtime == TRT_RUNTIME_DOCKER):
         assert_path_exists(config.python_executable, "Python executable")
 
-    source_fps = read_fps(config.meta_path)
+    if config.source_frame.suffix.lower() not in SOURCE_VIDEO_EXTENSIONS:
+        assert_path_exists(config.meta_path, "Source metadata")
+    source_fps = resolve_source_fps(config)
     driving_video, driving_template, _ = resolve_driving_paths(config)
     audio_template = resolve_audio_template_path(config)
     audio_template_meta = resolve_audio_template_meta_path(config)
