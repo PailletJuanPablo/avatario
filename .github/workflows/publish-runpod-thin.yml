@@ -1,0 +1,70 @@
+name: Publish Runpod Thin Image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Dockerfile.runpod"
+      - "requirements-runpod.txt"
+      - "faster_liveportrait_runner.py"
+      - "faster_liveportrait_audio_to_pkl.py"
+      - "index.html"
+      - "job_stream_shared_memory.py"
+      - "realtime_stream_api.py"
+      - "runtime_env.py"
+      - "scripts/runpod_entrypoint.sh"
+      - "scripts/runpod_image_start.sh"
+      - "scripts/bootstrap_faster_liveportrait.sh"
+      - "scripts/runpod_bootstrap.sh"
+      - "scripts/runpod_validate_runtime.sh"
+      - "third_party/FasterLivePortrait/api.py"
+      - "third_party/FasterLivePortrait/run.py"
+      - "third_party/FasterLivePortrait/run_persistent_worker.py"
+      - "third_party/FasterLivePortrait/configs/onnx_infer.yaml"
+      - "third_party/FasterLivePortrait/configs/onnx_mp_infer.yaml"
+      - "third_party/FasterLivePortrait/configs/trt_infer.yaml"
+      - "third_party/FasterLivePortrait/configs/trt_mp_infer.yaml"
+      - "third_party/FasterLivePortrait/scripts/onnx2trt.py"
+      - "third_party/FasterLivePortrait/src/models/predictor.py"
+      - "third_party/FasterLivePortrait/src/models/warping_spade_model.py"
+      - "third_party/FasterLivePortrait/src/pipelines/faster_live_portrait_pipeline.py"
+      - "third_party/FasterLivePortrait/src/pipelines/joyvasa_audio_to_motion_pipeline.py"
+      - ".github/workflows/publish-runpod-thin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set image repository
+        id: vars
+        shell: bash
+        run: echo "image_repo=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/avatario-runpod" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish thin image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.runpod
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.image_repo }}:thin
+            ${{ steps.vars.outputs.image_repo }}:${{ github.sha }}
