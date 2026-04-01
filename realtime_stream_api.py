@@ -3033,6 +3033,13 @@ def normalize_avatar_session_id(raw_value: Any) -> str:
     return normalized_value
 
 
+def issue_avatar_session_id() -> str:
+    """
+    Issue one new public avatar session identifier for client use.
+    """
+    return normalize_avatar_session_id(f"avatar_{uuid.uuid4().hex}")
+
+
 def ensure_avatar_session_state(avatar_session_id: str) -> AvatarSessionState:
     """
     Create or fetch one avatar scheduler state bucket.
@@ -5285,7 +5292,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     async def health(request: Request) -> dict[str, Any]:
-        avatar_session_id = get_optional_avatar_session_id_from_request(request)
+        request_avatar_session_id = get_optional_avatar_session_id_from_request(request)
+        response_avatar_session_id = request_avatar_session_id or issue_avatar_session_id()
         with JOB_QUEUE_CONDITION:
             queue_depth = len(JOB_QUEUE)
         worker_alive = bool(JOB_WORKER_THREAD is not None and JOB_WORKER_THREAD.is_alive())
@@ -5302,8 +5310,8 @@ def create_app() -> FastAPI:
         except RuntimeError as exc:
             fixed_source_error = str(exc)
         avatar_payload = (
-            build_avatar_payload(avatar_session_id)
-            if avatar_session_id is not None
+            build_avatar_payload(request_avatar_session_id)
+            if request_avatar_session_id is not None
             else build_public_avatar_health_payload()
         )
         with WARMUP_LOCK:
@@ -5362,7 +5370,7 @@ def create_app() -> FastAPI:
             "headQueuedJobId": head_queued_job_id,
             "jobWorkerAlive": worker_alive,
             "jobQueueDepth": queue_depth,
-            "avatarSessionId": avatar_session_id or "",
+            "avatarSessionId": response_avatar_session_id,
             "avatarMode": avatar_payload["mode"],
             "avatarSequence": avatar_payload["sequence"],
             "avatarCurrentJobId": avatar_payload["currentJobId"],
@@ -6071,11 +6079,16 @@ def main() -> None:
     CURRENT_API_PORT = int(args.port)
     if args.no_warmup:
         WARMUP_ENABLED = False
+    app_target: Any = "realtime_stream_api:create_app"
+    factory_mode = True
+    if not args.reload:
+        app_target = create_app()
+        factory_mode = False
     uvicorn.run(
-        "realtime_stream_api:create_app",
+        app_target,
         host=CURRENT_API_HOST,
         port=CURRENT_API_PORT,
-        factory=True,
+        factory=factory_mode,
         reload=args.reload,
         proxy_headers=True,
         forwarded_allow_ips="*",

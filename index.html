@@ -953,25 +953,28 @@
         return "";
       }
     })();
-    const DEFAULT_AVATAR_SESSION_ID = (() => {
-      const buildSessionId = () => {
-        if (window.crypto && typeof window.crypto.randomUUID === "function") {
-          return `avatar_${window.crypto.randomUUID().replace(/-/g, "")}`;
-        }
-        return `avatar_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
-      };
+    function readStoredAvatarSessionId() {
       try {
-        const existingValue = String(window.sessionStorage.getItem(AVATAR_SESSION_ID_STORAGE_KEY) || "").trim();
-        if (existingValue) {
-          return existingValue;
-        }
-        const nextValue = buildSessionId();
-        window.sessionStorage.setItem(AVATAR_SESSION_ID_STORAGE_KEY, nextValue);
-        return nextValue;
+        return String(window.sessionStorage.getItem(AVATAR_SESSION_ID_STORAGE_KEY) || "").trim();
       } catch (_error) {
-        return buildSessionId();
+        return "";
       }
-    })();
+    }
+
+    function storeAvatarSessionId(sessionId) {
+      const normalizedValue = String(sessionId || "").trim();
+      try {
+        if (normalizedValue) {
+          window.sessionStorage.setItem(AVATAR_SESSION_ID_STORAGE_KEY, normalizedValue);
+        } else {
+          window.sessionStorage.removeItem(AVATAR_SESSION_ID_STORAGE_KEY);
+        }
+      } catch (_error) {
+      }
+      return normalizedValue;
+    }
+
+    const DEFAULT_AVATAR_SESSION_ID = readStoredAvatarSessionId();
     const DEFAULT_SOURCE_FRAME = "output/frames/frame_00061.png";
     const DRIVING_MEDIA_DEFAULT_PATH = "";
     const WS_PROTOCOL_HTTP = "ws:";
@@ -1647,7 +1650,7 @@
     }
 
     function getAvatarSessionId() {
-      return DEFAULT_AVATAR_SESSION_ID;
+      return String((avatarState && avatarState.sessionId) || DEFAULT_AVATAR_SESSION_ID || "").trim();
     }
 
     function buildAbsoluteUrl(pathOrUrl) {
@@ -3308,6 +3311,9 @@
     }
 
     function connectUnifiedAvatarStream() {
+      if (!getAvatarSessionId()) {
+        return;
+      }
       if (!isUnifiedAvatarTransportActive()) {
         return;
       }
@@ -3348,8 +3354,9 @@
       if (!payload) {
         return;
       }
+      const resolvedAvatarSessionId = storeAvatarSessionId(payload.avatarSessionId || avatarState.sessionId || "");
       avatarState = {
-        sessionId: String(payload.avatarSessionId || avatarState.sessionId || DEFAULT_AVATAR_SESSION_ID),
+        sessionId: resolvedAvatarSessionId,
         mode: String(payload.mode || AVATAR_MODE.IDLE),
         sequence: Number(payload.sequence || 0),
         currentJobId: String(payload.currentJobId || ""),
@@ -3412,6 +3419,9 @@
     }
 
     function connectAvatarStatusSocket() {
+      if (!getAvatarSessionId()) {
+        return;
+      }
       if (avatarStatusSocket && avatarStatusSocket.readyState <= WebSocket.OPEN) {
         return;
       }
@@ -3791,6 +3801,7 @@
           throw new Error(`HTTP ${response.status}`);
         }
         const data = await response.json();
+        const resolvedAvatarSessionId = storeAvatarSessionId(data.avatarSessionId || avatarState.sessionId || "");
         initializeTuningControls(data);
         runtimeState = {
           backend: String(data.backend || ""),
@@ -3823,7 +3834,7 @@
           jobWorkerAlive: Boolean(data.jobWorkerAlive)
         };
         avatarState.mode = String(data.avatarMode || avatarState.mode || AVATAR_MODE.IDLE);
-        avatarState.sessionId = String(data.avatarSessionId || avatarState.sessionId || DEFAULT_AVATAR_SESSION_ID);
+        avatarState.sessionId = resolvedAvatarSessionId;
         avatarState.sequence = Number(data.avatarSequence || avatarState.sequence || 0);
         avatarState.currentJobId = String(data.avatarCurrentJobId || avatarState.currentJobId || "");
         avatarState.currentJobStartedAtMs = Number(data.avatarCurrentJobStartedAtMs || avatarState.currentJobStartedAtMs || 0);
@@ -3932,22 +3943,26 @@
     elements.sourceFrameInput.addEventListener("change", () => {
       updateSelectedSourcePreview();
     });
-    elements.apiBaseInput.addEventListener("change", () => {
+    elements.apiBaseInput.addEventListener("change", async () => {
       stopStreamView();
       closeAvatarPeerConnection();
       closeStatusSocket();
       closeAvatarStatusSocket();
-      checkApiHealth().catch(() => {});
+      storeAvatarSessionId("");
+      avatarState.sessionId = "";
+      await checkApiHealth().catch(() => {});
       connectAvatarStatusSocket();
       connectUnifiedAvatarStream();
       refreshRuntimeLogs(false).catch(() => {});
     });
-    elements.apiTokenInput.addEventListener("change", () => {
+    elements.apiTokenInput.addEventListener("change", async () => {
       stopStreamView();
       closeAvatarPeerConnection();
       closeStatusSocket();
       closeAvatarStatusSocket();
-      checkApiHealth().catch(() => {});
+      storeAvatarSessionId("");
+      avatarState.sessionId = "";
+      await checkApiHealth().catch(() => {});
       connectAvatarStatusSocket();
       connectUnifiedAvatarStream();
       refreshRuntimeLogs(false).catch(() => {});
@@ -3980,10 +3995,12 @@
     updateGenerateAvailability();
     renderRuntimeState();
     renderBenchmarkState();
-    checkApiHealth();
-    connectAvatarStatusSocket();
-    connectUnifiedAvatarStream();
-    refreshRuntimeLogs().catch(() => {});
+    (async () => {
+      await checkApiHealth().catch(() => {});
+      connectAvatarStatusSocket();
+      connectUnifiedAvatarStream();
+      refreshRuntimeLogs().catch(() => {});
+    })();
     window.setInterval(() => {
       checkApiHealth(false).catch(() => {});
       connectAvatarStatusSocket();
