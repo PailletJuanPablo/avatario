@@ -699,11 +699,21 @@ ensure_checkpoints() {
     "liveportrait_onnx/stitching_lip.onnx"
     "JoyVASA/motion_generator/motion_generator_hubert_chinese.pt"
     "JoyVASA/motion_template/motion_template.pkl"
-    "chinese-hubert-base/config.json"
   )
   local relative_path
   local missing_paths=()
   local hf_cli_command_name
+  local missing_faster_liveportrait="0"
+  local missing_joyvasa="0"
+  local missing_chinese_hubert="0"
+  local chinese_hubert_root="${checkpoint_root}/chinese-hubert-base"
+  local chinese_hubert_config_path="${chinese_hubert_root}/config.json"
+  local chinese_hubert_bin_path="${chinese_hubert_root}/pytorch_model.bin"
+  local chinese_hubert_safetensors_path="${chinese_hubert_root}/model.safetensors"
+
+  has_chinese_hubert_weights() {
+    [[ -f "${chinese_hubert_bin_path}" || -f "${chinese_hubert_safetensors_path}" ]]
+  }
 
   if [[ "${RUNPOD_DOWNLOAD_CHECKPOINTS:-1}" != "1" ]]; then
     print_warning "Checkpoint download disabled by RUNPOD_DOWNLOAD_CHECKPOINTS=${RUNPOD_DOWNLOAD_CHECKPOINTS}"
@@ -711,26 +721,46 @@ ensure_checkpoints() {
     for relative_path in "${required_paths[@]}"; do
       if [[ ! -e "${checkpoint_root}/${relative_path}" ]]; then
         missing_paths+=("${relative_path}")
+        if [[ "${relative_path}" == liveportrait_onnx/* ]]; then
+          missing_faster_liveportrait="1"
+        elif [[ "${relative_path}" == JoyVASA/* ]]; then
+          missing_joyvasa="1"
+        fi
       fi
     done
+    if [[ ! -f "${chinese_hubert_config_path}" ]]; then
+      missing_paths+=("chinese-hubert-base/config.json")
+      missing_chinese_hubert="1"
+    fi
+    if ! has_chinese_hubert_weights; then
+      missing_paths+=("chinese-hubert-base/(pytorch_model.bin|model.safetensors)")
+      missing_chinese_hubert="1"
+    fi
+
     if ((${#missing_paths[@]} > 0)); then
       huggingface_cli_bin="$(resolve_huggingface_cli_bin "${PYTHON_BIN}")"
       hf_cli_command_name="$(basename "${huggingface_cli_bin}")"
 
-      print_info "Downloading FasterLivePortrait checkpoints from ${DEFAULT_CHECKPOINT_REPO_ID}"
-      "${huggingface_cli_bin}" \
-        download "${DEFAULT_CHECKPOINT_REPO_ID}" \
-        --local-dir "${checkpoint_root}"
+      if [[ "${missing_faster_liveportrait}" == "1" ]]; then
+        print_info "Downloading FasterLivePortrait checkpoints from ${DEFAULT_CHECKPOINT_REPO_ID}"
+        "${huggingface_cli_bin}" \
+          download "${DEFAULT_CHECKPOINT_REPO_ID}" \
+          --local-dir "${checkpoint_root}"
+      fi
 
-      print_info "Downloading JoyVASA checkpoints from ${DEFAULT_JOYVASA_CHECKPOINT_REPO_ID}"
-      "${huggingface_cli_bin}" \
-        download "${DEFAULT_JOYVASA_CHECKPOINT_REPO_ID}" \
-        --local-dir "${checkpoint_root}/JoyVASA"
+      if [[ "${missing_joyvasa}" == "1" ]]; then
+        print_info "Downloading JoyVASA checkpoints from ${DEFAULT_JOYVASA_CHECKPOINT_REPO_ID}"
+        "${huggingface_cli_bin}" \
+          download "${DEFAULT_JOYVASA_CHECKPOINT_REPO_ID}" \
+          --local-dir "${checkpoint_root}/JoyVASA"
+      fi
 
-      print_info "Downloading chinese-hubert-base checkpoints from ${DEFAULT_CHINESE_HUBERT_REPO_ID}"
-      "${huggingface_cli_bin}" \
-        download "${DEFAULT_CHINESE_HUBERT_REPO_ID}" \
-        --local-dir "${checkpoint_root}/chinese-hubert-base"
+      if [[ "${missing_chinese_hubert}" == "1" ]]; then
+        print_info "Downloading chinese-hubert-base checkpoints from ${DEFAULT_CHINESE_HUBERT_REPO_ID}"
+        "${huggingface_cli_bin}" \
+          download "${DEFAULT_CHINESE_HUBERT_REPO_ID}" \
+          --local-dir "${checkpoint_root}/chinese-hubert-base"
+      fi
 
       if [[ "${hf_cli_command_name}" == "huggingface-cli" ]]; then
         print_warning "huggingface-cli is deprecated. The bootstrap prefers the newer 'hf' command when available."
@@ -744,6 +774,12 @@ ensure_checkpoints() {
       missing_paths+=("${relative_path}")
     fi
   done
+  if [[ ! -f "${chinese_hubert_config_path}" ]]; then
+    missing_paths+=("chinese-hubert-base/config.json")
+  fi
+  if ! has_chinese_hubert_weights; then
+    missing_paths+=("chinese-hubert-base/(pytorch_model.bin|model.safetensors)")
+  fi
   if ((${#missing_paths[@]} > 0)); then
     print_error "Missing checkpoints after bootstrap: ${missing_paths[*]}"
     exit 1

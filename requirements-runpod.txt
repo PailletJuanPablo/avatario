@@ -13,6 +13,7 @@ opencv-python-headless
 pillow
 pycuda
 python-multipart
+safetensors
 scikit-image
 torchgeometry
 transformers==4.40.2
