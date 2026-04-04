@@ -3359,6 +3359,7 @@ def main() -> None:
     driving_audio = config.driving_audio
     if driving_audio is not None:
         assert_path_exists(driving_audio, "Driving audio")
+        direct_audio_input = driving_audio
         requires_audio_template_prebuild = should_prebuild_audio_template(config)
         if requires_audio_template_prebuild:
             print(f"[info] normalizing driving audio for progressive render: {driving_audio}")
@@ -3452,6 +3453,17 @@ def main() -> None:
             driving_fps = read_template_fps(audio_template, source_fps)
         else:
             template_used = False
+            if driving_audio.suffix.lower() != ".wav":
+                print(f"[info] normalizing driving audio for direct render: {driving_audio}")
+                publish_runner_status(
+                    runner_status_writer,
+                    "normalizing driving audio",
+                    RUNNER_PREPARE_PROGRESS_NORMALIZE_AUDIO,
+                    {"phase": "normalize_audio"},
+                )
+                normalize_audio_for_joyvasa(driving_audio, audio_template_input_wav)
+                assert_path_exists(audio_template_input_wav, "Normalized driving audio")
+                direct_audio_input = audio_template_input_wav
             publish_runner_status(
                 runner_status_writer,
                 "starting direct audio render",
@@ -3465,7 +3477,7 @@ def main() -> None:
                 f"audio_eye_tamed_preset={config.audio_eye_tamed_preset})",
                 flush=True,
             )
-            driving_input = driving_audio
+            driving_input = direct_audio_input
             driving_fps = float(resolve_motion_stride_target_fps(source_fps, config.audio_motion_stride))
         driving_media = driving_audio
     else:
