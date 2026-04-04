@@ -615,6 +615,7 @@ PREVIEW_COMPOSITION_STATUS_KEY = "previewComposition"
 PREVIEW_COMPOSITION_MASK_NAME = "preview_composition_mask.png"
 RUN_LOG_FILE_NAME = "run.log"
 RUN_REPORT_FILE_NAME = "run_report.json"
+RUNNER_STATUS_FILE_NAME = "runner_status.json"
 MAX_LOG_LINES = 400
 JOBS_ROOT_REL = Path("output_fasterliveportrait/jobs")
 JOBS_ROOT = PROJECT_ROOT / JOBS_ROOT_REL
@@ -1094,13 +1095,24 @@ def read_job_stream_status(job: JobRecord) -> dict[str, Any] | None:
     Read one job stream status from shared memory.
     """
     reader = ensure_job_stream_reader(job)
-    if reader is None:
+    if reader is not None:
+        try:
+            payload = reader.read_status_payload()
+            if payload is not None:
+                return payload
+        except Exception:
+            close_job_stream_cache(get_or_create_job_stream_cache(job))
+    return read_runner_prepare_status(job)
+
+
+def read_runner_prepare_status(job: JobRecord) -> dict[str, Any] | None:
+    """
+    Read one coarse pre-render status while the runner is still preparing inputs.
+    """
+    if job.process is None or job.process.poll() is not None:
         return None
-    try:
-        return reader.read_status_payload()
-    except Exception:
-        close_job_stream_cache(get_or_create_job_stream_cache(job))
-        return None
+    payload = read_json(job.output_abs / RUNNER_STATUS_FILE_NAME)
+    return payload if isinstance(payload, dict) else None
 
 
 def read_job_stream_frame_by_index(job: JobRecord, frame_index: int) -> bytes | None:

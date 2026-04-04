@@ -4,7 +4,9 @@ Tune JoyVASA/FasterLivePortrait motion PKL payloads before rendering.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
+from typing import Iterable, Iterator
 
 import numpy as np
 
@@ -246,6 +248,368 @@ def tune_motion_pkl_payload(payload: dict, config: MotionPklTuningConfig | None 
     )
 
 
+def iter_streaming_tuned_motion_infos(
+    motion_info_iter: Iterable[list | tuple],
+    *,
+    frame_total: int,
+    fps: float,
+    audio_path: str,
+    config: MotionPklTuningConfig | None = None,
+) -> Iterator[list | tuple]:
+    """
+    Apply causal motion tuning and lip-sync reinforcement on the streaming path.
+    """
+
+    safe_config = config or get_default_motion_pkl_tuning_config()
+    if not safe_config.enabled and not safe_config.lip_sync_enabled:
+        yield from motion_info_iter
+        return
+
+    processor = _StreamingAudioMotionProcessor(
+        config=safe_config,
+        frame_total=frame_total,
+        fps=fps,
+        audio_path=audio_path,
+    )
+    for motion_info in motion_info_iter:
+        yield from processor.push(motion_info)
+    yield from processor.flush()
+
+
+class _StreamingAudioMotionProcessor:
+    """
+    Stateful causal post-processor for the direct JoyVASA stream.
+    """
+
+    def __init__(
+        self,
+        *,
+        config: MotionPklTuningConfig,
+        frame_total: int,
+        fps: float,
+        audio_path: str,
+    ) -> None:
+        self.config = config
+        self.frame_total = max(0, int(frame_total))
+        self.fps = max(1.0, float(fps or 25.0))
+        self.audio_path = str(audio_path or "").strip()
+        self.mouth_indices = _sanitize_indices(config.mouth_indices, 21)
+        self.mouth_axes = _sanitize_indices(config.mouth_axes, 3)
+        self.non_mouth_indices = tuple(index for index in range(21) if index not in self.mouth_indices)
+        self.anchor_span = max(1, int(config.reanchor_first_n or 1))
+        self.pose_window = _normalize_window(config.pose_smooth_window)
+        self.translation_window = _normalize_window(config.translation_smooth_window)
+        self.exp_window = _normalize_window(config.exp_smooth_window)
+
+        self.pending_motion_infos: list[list | tuple] = []
+        self.anchor_ready = False
+        self.processed_frame_count = 0
+
+        self.anchor_exp: np.ndarray | None = None
+        self.anchor_scale: np.ndarray | None = None
+        self.anchor_t: np.ndarray | None = None
+        self.anchor_pitch: np.ndarray | None = None
+        self.anchor_yaw: np.ndarray | None = None
+        self.anchor_roll: np.ndarray | None = None
+
+        self.pitch_history: deque[np.ndarray] = deque(maxlen=max(1, self.pose_window))
+        self.yaw_history: deque[np.ndarray] = deque(maxlen=max(1, self.pose_window))
+        self.roll_history: deque[np.ndarray] = deque(maxlen=max(1, self.pose_window))
+        self.translation_history: deque[np.ndarray] = deque(maxlen=max(1, self.translation_window))
+        self.exp_history: deque[np.ndarray] = deque(maxlen=max(1, self.exp_window))
+
+        self.previous_pitch: np.ndarray | None = None
+        self.previous_yaw: np.ndarray | None = None
+        self.previous_roll: np.ndarray | None = None
+        self.previous_t: np.ndarray | None = None
+        self.previous_exp: np.ndarray | None = None
+
+        self.reference_delta: np.ndarray | None = None
+        self.reference_sign: np.ndarray | None = None
+        self.lip_ratio_sequence = (
+            build_lip_ratio_sequence_from_audio(
+                audio_path=self.audio_path,
+                frame_total=self.frame_total,
+                fps=self.fps,
+                config=self.config,
+            )
+            if self.config.lip_sync_enabled and self.audio_path and self.frame_total > 0
+            else []
+        )
+        self.audio_activity_sequence = self._build_audio_activity_sequence(self.lip_ratio_sequence)
+
+    def push(self, motion_info: list | tuple) -> list[list | tuple]:
+        self.pending_motion_infos.append(motion_info)
+        if not self.anchor_ready and len(self.pending_motion_infos) < self.anchor_span:
+            return []
+        if not self.anchor_ready:
+            self._initialize_anchor_from_pending()
+        return self._flush_pending()
+
+    def flush(self) -> list[list | tuple]:
+        if not self.pending_motion_infos:
+            return []
+        if not self.anchor_ready:
+            self._initialize_anchor_from_pending()
+        return self._flush_pending()
+
+    def _initialize_anchor_from_pending(self) -> None:
+        if self.anchor_ready or not self.pending_motion_infos:
+            return
+        motion_frames = [
+            item[0]
+            for item in self.pending_motion_infos[: max(1, min(len(self.pending_motion_infos), self.anchor_span))]
+            if isinstance(item, (list, tuple)) and item and isinstance(item[0], dict)
+        ]
+        if not motion_frames:
+            self.anchor_ready = True
+            return
+        exp, scale, t, pitch, yaw, roll = _extract_motion_arrays(motion_frames)
+        self.anchor_exp = np.median(exp, axis=0)
+        self.anchor_scale = np.median(scale, axis=0)
+        self.anchor_t = np.median(t, axis=0)
+        self.anchor_pitch = np.median(pitch, axis=0)
+        self.anchor_yaw = np.median(yaw, axis=0)
+        self.anchor_roll = np.median(roll, axis=0)
+        self.anchor_ready = True
+
+    def _flush_pending(self) -> list[list | tuple]:
+        outputs: list[list | tuple] = []
+        while self.pending_motion_infos:
+            outputs.append(self._process_one(self.pending_motion_infos.pop(0)))
+        return outputs
+
+    def _process_one(self, motion_info: list | tuple) -> list | tuple:
+        if not isinstance(motion_info, (list, tuple)) or not motion_info or not isinstance(motion_info[0], dict):
+            self.processed_frame_count += 1
+            return motion_info
+
+        motion_frame = dict(motion_info[0])
+        raw_exp = _reshape_frame_array(motion_frame, "exp", (1, 21, 3))
+        raw_scale = _reshape_frame_array(motion_frame, "scale", (1, 1))
+        raw_t = _reshape_frame_array(motion_frame, "t", (1, 3))
+        raw_pitch = _reshape_frame_array(motion_frame, "pitch", (1, 1))
+        raw_yaw = _reshape_frame_array(motion_frame, "yaw", (1, 1))
+        raw_roll = _reshape_frame_array(motion_frame, "roll", (1, 1))
+
+        tuned_exp = raw_exp.copy()
+        tuned_scale = raw_scale.copy()
+        tuned_t = raw_t.copy()
+        tuned_pitch = raw_pitch.copy()
+        tuned_yaw = raw_yaw.copy()
+        tuned_roll = raw_roll.copy()
+
+        if self.config.enabled:
+            tuned_pitch = self._smooth_pose_value(self.pitch_history, raw_pitch, self.pose_window)
+            tuned_yaw = self._smooth_pose_value(self.yaw_history, raw_yaw, self.pose_window)
+            tuned_roll = self._smooth_pose_value(self.roll_history, raw_roll, self.pose_window)
+            tuned_t = self._smooth_pose_value(self.translation_history, raw_t, self.translation_window)
+            tuned_exp = self._smooth_expression_value(raw_exp)
+
+            tuned_pitch = _clamp_delta_against_previous(
+                tuned_pitch,
+                self.previous_pitch,
+                self.config.pose_jump_threshold,
+            )
+            tuned_yaw = _clamp_delta_against_previous(
+                tuned_yaw,
+                self.previous_yaw,
+                self.config.pose_jump_threshold,
+            )
+            tuned_roll = _clamp_delta_against_previous(
+                tuned_roll,
+                self.previous_roll,
+                self.config.pose_jump_threshold,
+            )
+            tuned_t = _clamp_delta_against_previous(
+                tuned_t,
+                self.previous_t,
+                self.config.translation_jump_threshold,
+            )
+            tuned_exp = self._clamp_expression_subset_online(
+                tuned_exp,
+                self.previous_exp,
+                self.config.exp_jump_threshold,
+                self.non_mouth_indices,
+            )
+            if self.processed_frame_count == 0 and self.anchor_span > 1:
+                tuned_exp = np.asarray(self.anchor_exp, dtype=np.float32).reshape(1, 21, 3).copy()
+                tuned_scale = np.asarray(self.anchor_scale, dtype=np.float32).reshape(1, 1).copy()
+                tuned_t = np.asarray(self.anchor_t, dtype=np.float32).reshape(1, 3).copy()
+                tuned_pitch = np.asarray(self.anchor_pitch, dtype=np.float32).reshape(1, 1).copy()
+                tuned_yaw = np.asarray(self.anchor_yaw, dtype=np.float32).reshape(1, 1).copy()
+                tuned_roll = np.asarray(self.anchor_roll, dtype=np.float32).reshape(1, 1).copy()
+
+        if (
+            self.config.enabled
+            and self.config.mouth_open_factor > 0
+            and self.config.mouth_open_factor != 1.0
+            and self.mouth_indices
+            and self.mouth_axes
+            and self.anchor_exp is not None
+        ):
+            tuned_exp = self._boost_mouth_frame(tuned_exp)
+
+        if self.config.lip_sync_enabled and self.mouth_indices and self.mouth_axes and self.anchor_exp is not None:
+            tuned_exp = self._apply_lip_sync_frame(tuned_exp)
+
+        if self.config.mouth_jump_threshold > 0 and self.mouth_indices:
+            tuned_exp = self._clamp_expression_subset_online(
+                tuned_exp,
+                self.previous_exp,
+                self.config.mouth_jump_threshold,
+                self.mouth_indices,
+            )
+
+        motion_frame["exp"] = tuned_exp.astype(np.float32)
+        motion_frame["scale"] = tuned_scale.astype(np.float32)
+        motion_frame["t"] = tuned_t.astype(np.float32)
+        motion_frame["pitch"] = tuned_pitch.astype(np.float32)
+        motion_frame["yaw"] = tuned_yaw.astype(np.float32)
+        motion_frame["roll"] = tuned_roll.astype(np.float32)
+
+        pose_changed = _pose_arrays_changed(
+            raw_pitch,
+            raw_yaw,
+            raw_roll,
+            tuned_pitch,
+            tuned_yaw,
+            tuned_roll,
+        )
+        if pose_changed and ("R" in motion_frame or "R_d" in motion_frame):
+            rotation = _get_rotation_matrix(
+                motion_frame["pitch"].reshape(-1),
+                motion_frame["yaw"].reshape(-1),
+                motion_frame["roll"].reshape(-1),
+            ).reshape(1, 3, 3).astype(np.float32)
+            if "R" in motion_frame:
+                motion_frame["R"] = rotation
+            if "R_d" in motion_frame:
+                motion_frame["R_d"] = rotation
+
+        motion_info_items = list(motion_info)
+        motion_info_items[0] = motion_frame
+        if self.config.lip_sync_enabled and self.processed_frame_count < len(self.lip_ratio_sequence):
+            lip_ratio = self.lip_ratio_sequence[self.processed_frame_count]
+            if len(motion_info_items) >= 3:
+                motion_info_items[2] = lip_ratio
+            else:
+                while len(motion_info_items) < 2:
+                    motion_info_items.append(None)
+                motion_info_items.append(lip_ratio)
+
+        self.previous_pitch = tuned_pitch.copy()
+        self.previous_yaw = tuned_yaw.copy()
+        self.previous_roll = tuned_roll.copy()
+        self.previous_t = tuned_t.copy()
+        self.previous_exp = tuned_exp.copy()
+        self.processed_frame_count += 1
+        return tuple(motion_info_items) if isinstance(motion_info, tuple) else motion_info_items
+
+    def _smooth_pose_value(
+        self,
+        history: deque[np.ndarray],
+        current_value: np.ndarray,
+        window_value: int,
+    ) -> np.ndarray:
+        history.append(current_value.copy())
+        if window_value <= 1 or len(history) <= 1:
+            return current_value.copy()
+        return np.median(np.stack(list(history), axis=0), axis=0).astype(np.float32)
+
+    def _smooth_expression_value(self, current_exp: np.ndarray) -> np.ndarray:
+        if self.exp_window <= 1 or not self.non_mouth_indices:
+            return current_exp.copy()
+        current_subset = current_exp[:, self.non_mouth_indices, :].copy()
+        self.exp_history.append(current_subset)
+        smoothed_exp = current_exp.copy()
+        smoothed_exp[:, self.non_mouth_indices, :] = np.median(
+            np.stack(list(self.exp_history), axis=0),
+            axis=0,
+        ).astype(np.float32)
+        return smoothed_exp
+
+    def _clamp_expression_subset_online(
+        self,
+        current_exp: np.ndarray,
+        previous_exp: np.ndarray | None,
+        max_delta: float,
+        indices: tuple[int, ...],
+    ) -> np.ndarray:
+        if previous_exp is None or max_delta <= 0 or not indices:
+            return current_exp.copy()
+        clamped_exp = current_exp.copy()
+        clamped_exp[:, indices, :] = _clamp_delta_against_previous(
+            current_exp[:, indices, :],
+            previous_exp[:, indices, :],
+            max_delta,
+        )
+        return clamped_exp
+
+    def _boost_mouth_frame(self, current_exp: np.ndarray) -> np.ndarray:
+        boosted_exp = current_exp.copy()
+        baseline_exp = np.asarray(self.anchor_exp, dtype=np.float32)
+        safe_factor = max(0.0, float(self.config.mouth_open_factor))
+        for mouth_index in self.mouth_indices:
+            for axis_index in self.mouth_axes:
+                boosted_exp[0, mouth_index, axis_index] = baseline_exp[mouth_index, axis_index] + (
+                    boosted_exp[0, mouth_index, axis_index] - baseline_exp[mouth_index, axis_index]
+                ) * safe_factor
+        return boosted_exp
+
+    def _apply_lip_sync_frame(self, current_exp: np.ndarray) -> np.ndarray:
+        if not self.lip_ratio_sequence or self.processed_frame_count >= len(self.audio_activity_sequence):
+            return current_exp.copy()
+        baseline_exp = np.asarray(self.anchor_exp, dtype=np.float32)
+        baseline_subset = baseline_exp[self.mouth_indices, :]
+        mouth_subset = current_exp[0, self.mouth_indices, :].copy()
+        mouth_delta = mouth_subset[:, self.mouth_axes] - baseline_subset[:, self.mouth_axes]
+        abs_delta = np.abs(mouth_delta).astype(np.float32)
+        if self.reference_delta is None:
+            self.reference_delta = abs_delta.copy()
+        else:
+            self.reference_delta = np.maximum(self.reference_delta * 0.96, abs_delta).astype(np.float32)
+
+        safe_strength = max(0.0, float(self.config.lip_sync_strength))
+        safe_power = max(1e-3, float(self.config.lip_sync_power))
+        audio_activity = float(np.clip(self.audio_activity_sequence[self.processed_frame_count], 0.0, 1.0))
+        frame_gain = np.power(audio_activity, max(1e-3, 1.0 / max(safe_strength, 1e-3)))
+        frame_gain = float(np.clip(frame_gain * safe_strength, 0.0, 1.0 + safe_strength * 0.6))
+
+        floor_scale = max(0.0, float(self.config.mouth_floor_strength))
+        target_floor = audio_activity * self.reference_delta * floor_scale
+
+        mouth_delta_sign = np.sign(mouth_delta).astype(np.float32)
+        dominant_sign = np.sign(np.sum(mouth_delta, axis=0)).astype(np.float32)
+        if self.reference_sign is None:
+            self.reference_sign = np.where(dominant_sign == 0, 1.0, dominant_sign).astype(np.float32)
+        else:
+            self.reference_sign = np.where(dominant_sign == 0, self.reference_sign, dominant_sign).astype(np.float32)
+        mouth_delta_sign = np.where(mouth_delta_sign == 0, self.reference_sign[None, :], mouth_delta_sign)
+
+        synced_delta = np.maximum(abs_delta * frame_gain, target_floor).astype(np.float32)
+        peak_clamp = max(0.0, float(self.config.mouth_peak_clamp))
+        if peak_clamp > 0 and self.reference_delta is not None:
+            peak_limit = np.maximum(self.reference_delta * peak_clamp, 1e-4).astype(np.float32)
+            synced_delta = np.minimum(synced_delta, peak_limit)
+
+        synced_subset = mouth_subset.copy()
+        synced_subset[:, self.mouth_axes] = baseline_subset[:, self.mouth_axes] + (mouth_delta_sign * synced_delta)
+        synced_exp = current_exp.copy()
+        synced_exp[0, self.mouth_indices, :] = synced_subset
+        return synced_exp
+
+    def _build_audio_activity_sequence(self, lip_ratio_sequence: list[list[float]]) -> np.ndarray:
+        if not lip_ratio_sequence:
+            return np.zeros((0,), dtype=np.float32)
+        min_ratio = float(np.clip(self.config.lip_sync_min_ratio, 0.0, 1.0))
+        max_ratio = float(np.clip(self.config.lip_sync_max_ratio, min_ratio, 1.0))
+        ratio_values = np.asarray([float(item[0]) for item in lip_ratio_sequence], dtype=np.float32)
+        if max_ratio <= min_ratio:
+            return np.zeros_like(ratio_values, dtype=np.float32)
+        return np.clip((ratio_values - min_ratio) / (max_ratio - min_ratio), 0.0, 1.0).astype(np.float32)
+
+
 def _extract_motion_arrays(
     motion: list[dict],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -286,6 +650,17 @@ def _normalize_window(window_value: int) -> int:
     if safe_window % 2 == 0:
         safe_window += 1
     return safe_window
+
+
+def _clamp_delta_against_previous(
+    current_value: np.ndarray,
+    previous_value: np.ndarray | None,
+    max_delta: float,
+) -> np.ndarray:
+    safe_delta = float(max_delta)
+    if previous_value is None or safe_delta <= 0:
+        return current_value.copy()
+    return previous_value + np.clip(current_value - previous_value, -safe_delta, safe_delta)
 
 
 def _moving_average(values: np.ndarray, window_value: int) -> np.ndarray:

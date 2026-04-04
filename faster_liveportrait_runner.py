@@ -29,9 +29,6 @@ PERSISTENT_WORKER_WRAPPER_SCRIPT = PROJECT_ROOT / "faster_liveportrait_persisten
 import cv2
 import numpy as np
 
-from job_stream_shared_memory import JobStreamSharedMemoryWriter
-
-
 def read_env_bool(env_key: str, default_value: bool) -> bool:
     """
     Read one boolean environment override with a safe fallback.
@@ -127,6 +124,7 @@ RUNNER_PREPARE_PROGRESS_GLOBAL_AUDIO_CACHE = 0.1
 RUNNER_PREPARE_PROGRESS_BUILD_AUDIO_TEMPLATE = 0.14
 RUNNER_PREPARE_PROGRESS_PREPARE_RUNTIME = 0.2
 RUNNER_PREPARE_PROGRESS_START_RENDER = 0.24
+RUNNER_STATUS_FILE_NAME = "runner_status.json"
 FIXED_AUDIO_MOTION_STRIDE = 2
 GENERATION_FRAME_COUNT_MIN = 1
 GENERATION_FRAME_COUNT_MAX = 1200
@@ -995,21 +993,15 @@ def prepare_stream_dir(config: RunnerConfig) -> None:
     config.stream_dir.mkdir(parents=True, exist_ok=True)
 
 
-def create_runner_status_writer(config: RunnerConfig) -> JobStreamSharedMemoryWriter | None:
+def create_runner_status_writer(config: RunnerConfig) -> Path | None:
     """
-    Create one temporary status stream so clients can observe pre-render work.
+    Create one temporary status file so clients can observe pre-render work.
     """
-    if not config.stream_enabled or not str(config.stream_shm_prefix or "").strip():
-        return None
-    try:
-        return JobStreamSharedMemoryWriter(prefix=config.stream_shm_prefix, frame_capacity=1)
-    except Exception as exc:
-        print(f"[warn] unable to initialize runner status stream: {exc}")
-        return None
+    return config.output_dir / RUNNER_STATUS_FILE_NAME
 
 
 def publish_runner_status(
-    writer: JobStreamSharedMemoryWriter | None,
+    writer: Path | None,
     message: str,
     progress: float,
     extra: dict[str, object] | None = None,
@@ -1031,21 +1023,16 @@ def publish_runner_status(
     if extra:
         payload.update(extra)
     try:
-        writer.write_status_payload(payload)
+        write_json_atomic(writer, payload)
     except Exception as exc:
         print(f"[warn] unable to publish runner status: {exc}")
 
 
-def close_runner_status_writer(writer: JobStreamSharedMemoryWriter | None) -> None:
+def close_runner_status_writer(writer: Path | None) -> None:
     """
-    Close the temporary pre-render status stream before the core renderer recreates it.
+    Keep the temporary pre-render status file on disk for API polling.
     """
-    if writer is None:
-        return
-    try:
-        writer.close()
-    except Exception:
-        pass
+    return
 
 
 def build_runtime_env() -> dict[str, str]:
@@ -1581,28 +1568,17 @@ def build_audio_template_generation_profile(
 
 def should_prebuild_audio_template(config: RunnerConfig) -> bool:
     """
-    Route audio requests through PKL generation only when the request truly
-    depends on post-processed motion payloads.
+    Streaming tuning now runs inside run.py, so audio requests keep the direct
+    path unless a future feature explicitly needs offline materialization again.
     """
-    return bool(
-        config.generation_frame_count is not None
-        or config.audio_motion_tuning_enabled
-        or config.audio_lip_sync_assist
-    )
+    return False
 
 
 def describe_audio_template_build_reasons(config: RunnerConfig) -> list[str]:
     """
     Return explicit reasons why one audio request must prebuild a motion template.
     """
-    reasons: list[str] = []
-    if config.generation_frame_count is not None:
-        reasons.append("generation_frame_count")
-    if config.audio_motion_tuning_enabled:
-        reasons.append("audio_motion_tuning_enabled")
-    if config.audio_lip_sync_assist:
-        reasons.append("audio_lip_sync_assist")
-    return reasons
+    return []
 
 
 def build_audio_template_cache_key(
@@ -2761,6 +2737,88 @@ def wait_for_persistent_worker_result(
     return result_payload
 
 
+def build_audio_stream_tuning_cli_args(config: RunnerConfig) -> list[str]:
+    """
+    Build run.py flags for direct-audio streaming tuning.
+    """
+    return [
+        "--audio-eye-tamed-preset" if config.audio_eye_tamed_preset else "--no-audio-eye-tamed-preset",
+        "--audio-eye-soft-factor",
+        f"{float(config.audio_eye_soft_factor):.6f}",
+        "--audio-eye-hard-factor",
+        f"{float(config.audio_eye_hard_factor):.6f}",
+        "--audio-eye-hard-dy-min",
+        f"{float(config.audio_eye_hard_dy_min):.6f}",
+        "--audio-eye-hard-dy-max",
+        f"{float(config.audio_eye_hard_dy_max):.6f}",
+        "--audio-motion-tuning-enabled" if config.audio_motion_tuning_enabled else "--no-audio-motion-tuning",
+        "--audio-reanchor-first-n",
+        str(int(config.audio_reanchor_first_n)),
+        "--audio-mouth-open-factor",
+        f"{float(config.audio_mouth_open_factor):.6f}",
+        "--audio-pose-smooth-window",
+        str(int(config.audio_pose_smooth_window)),
+        "--audio-exp-smooth-window",
+        str(int(config.audio_exp_smooth_window)),
+        "--audio-pose-jump-threshold",
+        f"{float(config.audio_pose_jump_threshold):.6f}",
+        "--audio-translation-jump-threshold",
+        f"{float(config.audio_translation_jump_threshold):.6f}",
+        "--audio-lip-sync-assist" if config.audio_lip_sync_assist else "--no-audio-lip-sync-assist",
+        "--audio-lip-sync-min-ratio",
+        f"{float(config.audio_lip_sync_min_ratio):.6f}",
+        "--audio-lip-sync-max-ratio",
+        f"{float(config.audio_lip_sync_max_ratio):.6f}",
+        "--audio-lip-sync-smooth-window",
+        str(int(config.audio_lip_sync_smooth_window)),
+        "--audio-lip-sync-strength",
+        f"{float(config.audio_lip_sync_strength):.6f}",
+        "--audio-lip-sync-power",
+        f"{float(config.audio_lip_sync_power):.6f}",
+        "--audio-lip-sync-attack",
+        f"{float(config.audio_lip_sync_attack):.6f}",
+        "--audio-lip-sync-release",
+        f"{float(config.audio_lip_sync_release):.6f}",
+        "--audio-lip-sync-offset-ms",
+        str(int(config.audio_lip_sync_offset_ms)),
+        "--audio-mouth-floor-strength",
+        f"{float(config.audio_mouth_floor_strength):.6f}",
+        "--audio-mouth-peak-clamp",
+        f"{float(config.audio_mouth_peak_clamp):.6f}",
+    ]
+
+
+def build_audio_stream_tuning_payload(config: RunnerConfig) -> dict[str, str | int | float | bool]:
+    """
+    Build persistent-worker payload fields for direct-audio streaming tuning.
+    """
+    return {
+        "audioEyeTamedPreset": bool(config.audio_eye_tamed_preset),
+        "audioEyeSoftFactor": float(config.audio_eye_soft_factor),
+        "audioEyeHardFactor": float(config.audio_eye_hard_factor),
+        "audioEyeHardDyMin": float(config.audio_eye_hard_dy_min),
+        "audioEyeHardDyMax": float(config.audio_eye_hard_dy_max),
+        "audioMotionTuningEnabled": bool(config.audio_motion_tuning_enabled),
+        "audioReanchorFirstN": int(config.audio_reanchor_first_n),
+        "audioMouthOpenFactor": float(config.audio_mouth_open_factor),
+        "audioPoseSmoothWindow": int(config.audio_pose_smooth_window),
+        "audioExpSmoothWindow": int(config.audio_exp_smooth_window),
+        "audioPoseJumpThreshold": float(config.audio_pose_jump_threshold),
+        "audioTranslationJumpThreshold": float(config.audio_translation_jump_threshold),
+        "audioLipSyncAssist": bool(config.audio_lip_sync_assist),
+        "audioLipSyncMinRatio": float(config.audio_lip_sync_min_ratio),
+        "audioLipSyncMaxRatio": float(config.audio_lip_sync_max_ratio),
+        "audioLipSyncSmoothWindow": int(config.audio_lip_sync_smooth_window),
+        "audioLipSyncStrength": float(config.audio_lip_sync_strength),
+        "audioLipSyncPower": float(config.audio_lip_sync_power),
+        "audioLipSyncAttack": float(config.audio_lip_sync_attack),
+        "audioLipSyncRelease": float(config.audio_lip_sync_release),
+        "audioLipSyncOffsetMs": int(config.audio_lip_sync_offset_ms),
+        "audioMouthFloorStrength": float(config.audio_mouth_floor_strength),
+        "audioMouthPeakClamp": float(config.audio_mouth_peak_clamp),
+    }
+
+
 def build_local_driving_args(config: RunnerConfig, driving_input: Path) -> list[str]:
     """
     Build local run.py driving arguments using one single audio/video contract.
@@ -2783,6 +2841,7 @@ def build_local_driving_args(config: RunnerConfig, driving_input: Path) -> list[
                     str(int(config.generation_frame_count)),
                 ]
             )
+        command.extend(build_audio_stream_tuning_cli_args(config))
     else:
         command = [
         "--dri_video",
@@ -2811,6 +2870,7 @@ def build_docker_driving_args(config: RunnerConfig, driving_workspace_path: str)
         )
         if config.generation_frame_count is not None:
             command += f"--generation_frame_count {int(config.generation_frame_count)} "
+        command += " ".join(shlex.quote(token) for token in build_audio_stream_tuning_cli_args(config)) + " "
     else:
         command = f"--dri_video {shlex.quote(driving_workspace_path)} "
     command += f"--driving_multiplier {float(config.driving_multiplier):.6f} "
@@ -2854,6 +2914,7 @@ def build_worker_driving_payload(
         "drivingMultiplier": float(config.driving_multiplier),
         "cfgScale": float(config.cfg_scale),
         "joyvasaInferenceSteps": int(config.joyvasa_inference_steps),
+        **build_audio_stream_tuning_payload(config),
     }
 
 
@@ -3398,7 +3459,10 @@ def main() -> None:
                 {"phase": "direct_audio_render"},
             )
             print(
-                "[info] using direct JoyVASA audio path without motion-template prebuild",
+                "[info] using direct JoyVASA audio path without motion-template prebuild "
+                f"(audio_motion_tuning_enabled={config.audio_motion_tuning_enabled} "
+                f"audio_lip_sync_assist={config.audio_lip_sync_assist} "
+                f"audio_eye_tamed_preset={config.audio_eye_tamed_preset})",
                 flush=True,
             )
             driving_input = driving_audio
