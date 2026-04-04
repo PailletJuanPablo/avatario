@@ -50,7 +50,7 @@ ANIMATION_API_TOKEN=change-me
 ANIMATION_BACKEND=trt
 ANIMATION_TRT_RUNTIME=local
 ANIMATION_TRT_PRECISION=fp16
-ANIMATION_IDLE_VIDEO=inputs/idlevid.mp4
+ANIMATION_IDLE_VIDEO=inputs/idlevid_breath.mp4
 ```
 
 4. Run the deployment script:

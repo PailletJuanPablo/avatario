@@ -39,7 +39,11 @@ DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO = 0.32
 DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW = 5
 DEFAULT_AUDIO_LIP_SYNC_STRENGTH = 1.15
 DEFAULT_AUDIO_LIP_SYNC_POWER = 0.85
+DEFAULT_AUDIO_LIP_SYNC_ATTACK = 1.0
+DEFAULT_AUDIO_LIP_SYNC_RELEASE = 1.0
 DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS = 0
+DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH = 0.26
+DEFAULT_AUDIO_MOUTH_PEAK_CLAMP = 0.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -203,10 +207,34 @@ def parse_args() -> argparse.Namespace:
         help="Envelope exponent shaping low- versus high-energy syllables.",
     )
     parser.add_argument(
+        "--lip-sync-attack",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_ATTACK,
+        help="Attack coefficient [0..1] for the audio envelope follower.",
+    )
+    parser.add_argument(
+        "--lip-sync-release",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_RELEASE,
+        help="Release coefficient [0..1] for the audio envelope follower.",
+    )
+    parser.add_argument(
         "--lip-sync-offset-ms",
         type=int,
         default=DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS,
         help="Time offset in milliseconds applied to the audio envelope sampling.",
+    )
+    parser.add_argument(
+        "--mouth-floor-strength",
+        type=float,
+        default=DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH,
+        help="Minimum audio-driven mouth floor factor [0..1+].",
+    )
+    parser.add_argument(
+        "--mouth-peak-clamp",
+        type=float,
+        default=DEFAULT_AUDIO_MOUTH_PEAK_CLAMP,
+        help="Optional peak clamp multiplier for audio mouth deltas. Zero disables it.",
     )
     parser.set_defaults(enable_eye_tamed_preset=DEFAULT_ENABLE_EYE_TAMED_PRESET)
     parser.set_defaults(
@@ -373,30 +401,34 @@ def main() -> None:
             hard_dy_min=float(args.eye_hard_dy_min),
             hard_dy_max=float(args.eye_hard_dy_max),
         )
+    tuning_config = MotionPklTuningConfig(
+        enabled=bool(args.enable_audio_motion_tuning),
+        reanchor_first_n=max(1, int(args.reanchor_first_n)),
+        mouth_open_factor=float(args.mouth_open_factor),
+        pose_smooth_window=max(0, int(args.pose_smooth_window)),
+        exp_smooth_window=max(0, int(args.exp_smooth_window)),
+        pose_jump_threshold=max(0.0, float(args.pose_jump_threshold)),
+        translation_jump_threshold=max(0.0, float(args.translation_jump_threshold)),
+        lip_sync_enabled=bool(args.enable_audio_lip_sync_assist),
+        lip_sync_min_ratio=float(np.clip(float(args.lip_sync_min_ratio), 0.0, 1.0)),
+        lip_sync_max_ratio=float(np.clip(float(args.lip_sync_max_ratio), 0.0, 1.0)),
+        lip_sync_smooth_window=max(0, int(args.lip_sync_smooth_window)),
+        lip_sync_strength=max(0.0, float(args.lip_sync_strength)),
+        lip_sync_power=max(0.001, float(args.lip_sync_power)),
+        lip_sync_attack=float(np.clip(float(args.lip_sync_attack), 0.0, 1.0)),
+        lip_sync_release=float(np.clip(float(args.lip_sync_release), 0.0, 1.0)),
+        lip_sync_offset_ms=int(args.lip_sync_offset_ms),
+        mouth_floor_strength=max(0.0, float(args.mouth_floor_strength)),
+        mouth_peak_clamp=max(0.0, float(args.mouth_peak_clamp)),
+    )
     if bool(args.enable_audio_motion_tuning):
-        tuning_config = MotionPklTuningConfig(
-            enabled=True,
-            reanchor_first_n=max(1, int(args.reanchor_first_n)),
-            mouth_open_factor=float(args.mouth_open_factor),
-            pose_smooth_window=max(0, int(args.pose_smooth_window)),
-            exp_smooth_window=max(0, int(args.exp_smooth_window)),
-            pose_jump_threshold=max(0.0, float(args.pose_jump_threshold)),
-            translation_jump_threshold=max(0.0, float(args.translation_jump_threshold)),
-            lip_sync_enabled=bool(args.enable_audio_lip_sync_assist),
-            lip_sync_min_ratio=float(np.clip(float(args.lip_sync_min_ratio), 0.0, 1.0)),
-            lip_sync_max_ratio=float(np.clip(float(args.lip_sync_max_ratio), 0.0, 1.0)),
-            lip_sync_smooth_window=max(0, int(args.lip_sync_smooth_window)),
-            lip_sync_strength=max(0.0, float(args.lip_sync_strength)),
-            lip_sync_power=max(0.001, float(args.lip_sync_power)),
-            lip_sync_offset_ms=int(args.lip_sync_offset_ms),
-        )
         motion_data = tune_motion_pkl_payload(motion_data, tuning_config)
-        if tuning_config.lip_sync_enabled:
-            motion_data = apply_audio_lip_sync_to_payload(
-                payload=motion_data,
-                audio_path=str(driving_audio_path),
-                config=tuning_config,
-            )
+    if tuning_config.lip_sync_enabled:
+        motion_data = apply_audio_lip_sync_to_payload(
+            payload=motion_data,
+            audio_path=str(driving_audio_path),
+            config=tuning_config,
+        )
 
     output_pkl_path.parent.mkdir(parents=True, exist_ok=True)
     with output_pkl_path.open("wb") as handle:

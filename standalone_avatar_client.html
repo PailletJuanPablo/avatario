@@ -253,6 +253,33 @@
           <input id="sourceImageInput" type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.webp,.mp4,.avi,.mov,.mkv,.webm,.flv,.m4v,.wmv" />
         </div>
 
+        <div class="control-grid">
+          <div class="control">
+            <label for="sourceTemplatePackSelect">Source template pack</label>
+            <select id="sourceTemplatePackSelect">
+              <option value="">None</option>
+            </select>
+          </div>
+
+          <div class="control">
+            <label for="sourceTemplatePackNameInput">New template name</label>
+            <input id="sourceTemplatePackNameInput" type="text" placeholder="Auto from source" />
+          </div>
+
+          <div class="control">
+            <label for="audioTuningPresetSelect">Audio preset</label>
+            <select id="audioTuningPresetSelect">
+              <option value="">None</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="control inline">
+          <button id="refreshTemplatePacksButton" type="button" class="secondary">Refresh templates</button>
+          <button id="buildTemplatePackButton" type="button" class="secondary">Build template</button>
+          <button id="applyAudioPresetButton" type="button" class="secondary">Apply preset</button>
+        </div>
+
         <div class="section-title">Render</div>
         <div class="control-grid">
           <div class="control">
@@ -433,6 +460,26 @@
           </div>
 
           <div class="control">
+            <label for="audioLipSyncAttackInput">Lip Sync Attack</label>
+            <input id="audioLipSyncAttackInput" type="number" min="0" max="1" step="0.01" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioLipSyncReleaseInput">Lip Sync Release</label>
+            <input id="audioLipSyncReleaseInput" type="number" min="0" max="1" step="0.01" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioMouthFloorStrengthInput">Mouth Floor Strength</label>
+            <input id="audioMouthFloorStrengthInput" type="number" min="0" max="4" step="0.01" inputmode="decimal" />
+          </div>
+
+          <div class="control">
+            <label for="audioMouthPeakClampInput">Mouth Peak Clamp</label>
+            <input id="audioMouthPeakClampInput" type="number" min="0" max="4" step="0.01" inputmode="decimal" />
+          </div>
+
+          <div class="control">
             <label for="audioLipSyncOffsetMsInput">Lip Sync Offset MS</label>
             <input id="audioLipSyncOffsetMsInput" type="number" min="-1000" max="1000" step="10" inputmode="numeric" />
           </div>
@@ -491,6 +538,7 @@
     const DEFAULT_HEALTH_PATH = "/api/health";
     const DEFAULT_STATUS_PATH = "/api/avatar/status";
     const DEFAULT_ENQUEUE_PATH = "/api/avatar/enqueue";
+    const DEFAULT_SOURCE_TEMPLATE_PACKS_PATH = "/api/source-templates";
     const DEFAULT_VIDEO_PATH = "/api/avatar/video.mp4";
     const STATUS_POLL_INTERVAL_MS = 1000;
     const DEFAULT_MODE = "preview";
@@ -522,7 +570,11 @@
     const DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW = 5;
     const DEFAULT_AUDIO_LIP_SYNC_STRENGTH = 1.15;
     const DEFAULT_AUDIO_LIP_SYNC_POWER = 0.85;
+    const DEFAULT_AUDIO_LIP_SYNC_ATTACK = 1.0;
+    const DEFAULT_AUDIO_LIP_SYNC_RELEASE = 1.0;
     const DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS = 0;
+    const DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH = 0.26;
+    const DEFAULT_AUDIO_MOUTH_PEAK_CLAMP = 0.0;
     const VALID_MODE_VALUES = new Set(["preview", "full"]);
     const VALID_ANIMATION_REGION_VALUES = new Set(["all", "exp", "pose", "lip", "eyes"]);
 
@@ -536,6 +588,12 @@
       muteCheckbox: document.getElementById("muteCheckbox"),
       audioInput: document.getElementById("audioInput"),
       sourceImageInput: document.getElementById("sourceImageInput"),
+      sourceTemplatePackSelect: document.getElementById("sourceTemplatePackSelect"),
+      sourceTemplatePackNameInput: document.getElementById("sourceTemplatePackNameInput"),
+      refreshTemplatePacksButton: document.getElementById("refreshTemplatePacksButton"),
+      buildTemplatePackButton: document.getElementById("buildTemplatePackButton"),
+      audioTuningPresetSelect: document.getElementById("audioTuningPresetSelect"),
+      applyAudioPresetButton: document.getElementById("applyAudioPresetButton"),
       modeSelect: document.getElementById("modeSelect"),
       motionStrideInput: document.getElementById("motionStrideInput"),
       generationFrameCountInput: document.getElementById("generationFrameCountInput"),
@@ -565,7 +623,11 @@
       audioLipSyncSmoothWindowInput: document.getElementById("audioLipSyncSmoothWindowInput"),
       audioLipSyncStrengthInput: document.getElementById("audioLipSyncStrengthInput"),
       audioLipSyncPowerInput: document.getElementById("audioLipSyncPowerInput"),
+      audioLipSyncAttackInput: document.getElementById("audioLipSyncAttackInput"),
+      audioLipSyncReleaseInput: document.getElementById("audioLipSyncReleaseInput"),
       audioLipSyncOffsetMsInput: document.getElementById("audioLipSyncOffsetMsInput"),
+      audioMouthFloorStrengthInput: document.getElementById("audioMouthFloorStrengthInput"),
+      audioMouthPeakClampInput: document.getElementById("audioMouthPeakClampInput"),
       sendAudioButton: document.getElementById("sendAudioButton"),
       playButton: document.getElementById("playButton"),
       avatarVideo: document.getElementById("avatarVideo"),
@@ -585,8 +647,68 @@
       generationFrameCountSupported: true,
       generationFrameCountMin: DEFAULT_GENERATION_FRAME_COUNT_MIN,
       generationFrameCountMax: DEFAULT_GENERATION_FRAME_COUNT_MAX,
-      allowCustomSourceFrame: true
+      allowCustomSourceFrame: true,
+      sourceTemplatePacksPath: DEFAULT_SOURCE_TEMPLATE_PACKS_PATH,
+      createSourceTemplatePackPath: DEFAULT_SOURCE_TEMPLATE_PACKS_PATH,
+      sourceTemplatePacks: [],
+      audioTuningPresets: {}
     };
+
+    function formatAudioPresetLabel(presetId) {
+      return String(presetId || "")
+        .trim()
+        .split(/[_-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    }
+
+    function getSelectedSourceTemplatePackId() {
+      return String(elements.sourceTemplatePackSelect.value || "").trim();
+    }
+
+    function getSelectedSourceTemplatePackRecord() {
+      const selectedTemplatePackId = getSelectedSourceTemplatePackId();
+      return state.sourceTemplatePacks.find((item) => String(item.id || "") === selectedTemplatePackId) || null;
+    }
+
+    function populateAudioPresetOptions() {
+      const previousPresetId = String(elements.audioTuningPresetSelect.value || "").trim();
+      elements.audioTuningPresetSelect.innerHTML = "";
+      const noneOption = document.createElement("option");
+      noneOption.value = "";
+      noneOption.textContent = "None";
+      elements.audioTuningPresetSelect.appendChild(noneOption);
+      Object.keys(state.audioTuningPresets || {}).forEach((presetId) => {
+        const option = document.createElement("option");
+        option.value = presetId;
+        option.textContent = formatAudioPresetLabel(presetId);
+        elements.audioTuningPresetSelect.appendChild(option);
+      });
+      elements.audioTuningPresetSelect.value = Object.prototype.hasOwnProperty.call(state.audioTuningPresets, previousPresetId)
+        ? previousPresetId
+        : "";
+    }
+
+    function populateSourceTemplatePackOptions(selectedTemplatePackId = "") {
+      const previousTemplatePackId = selectedTemplatePackId || getSelectedSourceTemplatePackId();
+      elements.sourceTemplatePackSelect.innerHTML = "";
+      const noneOption = document.createElement("option");
+      noneOption.value = "";
+      noneOption.textContent = "None";
+      elements.sourceTemplatePackSelect.appendChild(noneOption);
+      state.sourceTemplatePacks.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = String(item.id || "");
+        option.textContent = String(item.name || item.id || "");
+        elements.sourceTemplatePackSelect.appendChild(option);
+      });
+      elements.sourceTemplatePackSelect.value = state.sourceTemplatePacks.some(
+        (item) => String(item.id || "") === previousTemplatePackId
+      )
+        ? previousTemplatePackId
+        : "";
+    }
 
     function getDefaultApiBase() {
       if ((window.location.protocol === "http:" || window.location.protocol === "https:") && window.location.host) {
@@ -698,6 +820,12 @@
         normalizeNumberValue(payload.generationFrameCountMax, DEFAULT_GENERATION_FRAME_COUNT_MAX, state.generationFrameCountMin, 100000)
       );
       state.allowCustomSourceFrame = Boolean(payload.allowCustomSourceFrame ?? true);
+      state.sourceTemplatePacksPath = String(payload.sourceTemplatePacksUrl || DEFAULT_SOURCE_TEMPLATE_PACKS_PATH);
+      state.createSourceTemplatePackPath = String(payload.createSourceTemplatePackUrl || DEFAULT_SOURCE_TEMPLATE_PACKS_PATH);
+      state.audioTuningPresets = payload.audioTuningPresets && typeof payload.audioTuningPresets === "object"
+        ? payload.audioTuningPresets
+        : {};
+      populateAudioPresetOptions();
       const modeValue = String(payload.defaultMode || DEFAULT_MODE);
       elements.modeSelect.value = VALID_MODE_VALUES.has(modeValue) ? modeValue : DEFAULT_MODE;
       elements.motionStrideInput.value = String(
@@ -714,6 +842,9 @@
       const sourceFrameValue = String(payload.fixedSourceFrame || "").trim();
       elements.sourceFrameInput.value = sourceFrameValue;
       elements.sourceFrameInput.disabled = !state.allowCustomSourceFrame;
+      elements.sourceImageInput.disabled = !state.allowCustomSourceFrame;
+      elements.sourceTemplatePackSelect.disabled = !state.allowCustomSourceFrame;
+      elements.buildTemplatePackButton.disabled = !state.allowCustomSourceFrame;
       elements.stitchingCheckbox.checked = normalizeBooleanValue(payload.defaultStitchingEnabled, DEFAULT_STITCHING_ENABLED);
       elements.relativeMotionCheckbox.checked = normalizeBooleanValue(payload.defaultRelativeMotionEnabled, DEFAULT_RELATIVE_MOTION_ENABLED);
       elements.pasteBackCheckbox.checked = normalizeBooleanValue(payload.defaultPasteBackEnabled, DEFAULT_PASTE_BACK_ENABLED);
@@ -805,8 +936,20 @@
       elements.audioLipSyncPowerInput.value = String(
         normalizeNumberValue(payload.defaultAudioLipSyncPower, DEFAULT_AUDIO_LIP_SYNC_POWER, 0.001, 4)
       );
+      elements.audioLipSyncAttackInput.value = String(
+        normalizeNumberValue(payload.defaultAudioLipSyncAttack, DEFAULT_AUDIO_LIP_SYNC_ATTACK, 0, 1)
+      );
+      elements.audioLipSyncReleaseInput.value = String(
+        normalizeNumberValue(payload.defaultAudioLipSyncRelease, DEFAULT_AUDIO_LIP_SYNC_RELEASE, 0, 1)
+      );
       elements.audioLipSyncOffsetMsInput.value = String(
         Math.round(normalizeNumberValue(payload.defaultAudioLipSyncOffsetMs, DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS, -1000, 1000))
+      );
+      elements.audioMouthFloorStrengthInput.value = String(
+        normalizeNumberValue(payload.defaultAudioMouthFloorStrength, DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH, 0, 4)
+      );
+      elements.audioMouthPeakClampInput.value = String(
+        normalizeNumberValue(payload.defaultAudioMouthPeakClamp, DEFAULT_AUDIO_MOUTH_PEAK_CLAMP, 0, 4)
       );
     }
 
@@ -888,10 +1031,142 @@
         ),
         audioLipSyncStrength: normalizeNumberValue(elements.audioLipSyncStrengthInput.value, DEFAULT_AUDIO_LIP_SYNC_STRENGTH, 0, 4),
         audioLipSyncPower: normalizeNumberValue(elements.audioLipSyncPowerInput.value, DEFAULT_AUDIO_LIP_SYNC_POWER, 0.001, 4),
+        audioLipSyncAttack: normalizeNumberValue(elements.audioLipSyncAttackInput.value, DEFAULT_AUDIO_LIP_SYNC_ATTACK, 0, 1),
+        audioLipSyncRelease: normalizeNumberValue(elements.audioLipSyncReleaseInput.value, DEFAULT_AUDIO_LIP_SYNC_RELEASE, 0, 1),
         audioLipSyncOffsetMs: Math.round(
           normalizeNumberValue(elements.audioLipSyncOffsetMsInput.value, DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS, -1000, 1000)
+        ),
+        audioMouthFloorStrength: normalizeNumberValue(
+          elements.audioMouthFloorStrengthInput.value,
+          DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH,
+          0,
+          4
+        ),
+        audioMouthPeakClamp: normalizeNumberValue(
+          elements.audioMouthPeakClampInput.value,
+          DEFAULT_AUDIO_MOUTH_PEAK_CLAMP,
+          0,
+          4
         )
       };
+    }
+
+    async function refreshSourceTemplatePacks(selectedTemplatePackId = "") {
+      const payload = await fetchJson(state.sourceTemplatePacksPath || DEFAULT_SOURCE_TEMPLATE_PACKS_PATH, "");
+      state.sourceTemplatePacks = Array.isArray(payload.items) ? payload.items : [];
+      populateSourceTemplatePackOptions(selectedTemplatePackId);
+    }
+
+    async function buildSourceTemplatePackFromSelection() {
+      const sourceMediaFile = elements.sourceImageInput.files && elements.sourceImageInput.files[0];
+      const sourceFrameValue = String(elements.sourceFrameInput.value || "").trim();
+      const formData = new FormData();
+      if (sourceMediaFile) {
+        const sourceFieldName = /^video\//i.test(String(sourceMediaFile.type || "")) || /\.(mp4|avi|mov|mkv|webm|flv|m4v|wmv)$/i.test(sourceMediaFile.name)
+          ? "source_video"
+          : "source_image";
+        formData.append(sourceFieldName, sourceMediaFile, sourceMediaFile.name);
+      } else if (sourceFrameValue) {
+        formData.append("source_frame", sourceFrameValue);
+      } else {
+        throw new Error("Select source media or set a source frame before building a template.");
+      }
+
+      const templateName = String(elements.sourceTemplatePackNameInput.value || "").trim();
+      if (templateName) {
+        formData.append("template_name", templateName);
+      }
+
+      const response = await fetch(buildAbsoluteUrl(state.createSourceTemplatePackPath || DEFAULT_SOURCE_TEMPLATE_PACKS_PATH), {
+        method: "POST",
+        headers: buildHeaders(""),
+        body: formData
+      });
+      if (!response.ok) {
+        const bodyText = await response.text();
+        throw new Error(`POST ${state.createSourceTemplatePackPath} failed with HTTP ${response.status}: ${bodyText}`);
+      }
+      const payload = await response.json();
+      const builtTemplatePackId = String(payload.item && payload.item.id ? payload.item.id : "");
+      await refreshSourceTemplatePacks(builtTemplatePackId);
+      elements.sourceTemplatePackSelect.value = builtTemplatePackId;
+      elements.sourceImageInput.value = "";
+      setLog("Template pack created.", payload);
+    }
+
+    function applySelectedAudioPreset() {
+      const presetId = String(elements.audioTuningPresetSelect.value || "").trim();
+      const preset = state.audioTuningPresets[presetId];
+      if (!preset || typeof preset !== "object") {
+        return;
+      }
+      elements.animationRegionSelect.value = VALID_ANIMATION_REGION_VALUES.has(String(preset.animationRegion || "").trim())
+        ? String(preset.animationRegion).trim()
+        : elements.animationRegionSelect.value;
+      elements.stitchingCheckbox.checked = normalizeBooleanValue(preset.stitchingEnabled, elements.stitchingCheckbox.checked);
+      elements.relativeMotionCheckbox.checked = normalizeBooleanValue(preset.relativeMotionEnabled, elements.relativeMotionCheckbox.checked);
+      elements.drivingMultiplierInput.value = String(
+        normalizeNumberValue(preset.drivingMultiplier, DEFAULT_DRIVING_MULTIPLIER, 0, 2)
+      );
+      elements.cfgScaleInput.value = String(
+        normalizeNumberValue(preset.cfgScale, DEFAULT_CFG_SCALE, 0, 10)
+      );
+      elements.audioMotionTuningEnabledCheckbox.checked = normalizeBooleanValue(
+        preset.audioMotionTuningEnabled,
+        elements.audioMotionTuningEnabledCheckbox.checked
+      );
+      elements.audioLipSyncAssistCheckbox.checked = normalizeBooleanValue(
+        preset.audioLipSyncAssist,
+        elements.audioLipSyncAssistCheckbox.checked
+      );
+      elements.audioReanchorFirstNInput.value = String(
+        Math.round(normalizeNumberValue(preset.audioReanchorFirstN, DEFAULT_AUDIO_REANCHOR_FIRST_N, 1, 15))
+      );
+      elements.audioMouthOpenFactorInput.value = String(
+        normalizeNumberValue(preset.audioMouthOpenFactor, DEFAULT_AUDIO_MOUTH_OPEN_FACTOR, 0, 3)
+      );
+      elements.audioPoseSmoothWindowInput.value = String(
+        Math.round(normalizeNumberValue(preset.audioPoseSmoothWindow, DEFAULT_AUDIO_POSE_SMOOTH_WINDOW, 0, 21))
+      );
+      elements.audioExpSmoothWindowInput.value = String(
+        Math.round(normalizeNumberValue(preset.audioExpSmoothWindow, DEFAULT_AUDIO_EXP_SMOOTH_WINDOW, 0, 21))
+      );
+      elements.audioPoseJumpThresholdInput.value = String(
+        normalizeNumberValue(preset.audioPoseJumpThreshold, DEFAULT_AUDIO_POSE_JUMP_THRESHOLD, 0, 60)
+      );
+      elements.audioTranslationJumpThresholdInput.value = String(
+        normalizeNumberValue(preset.audioTranslationJumpThreshold, DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD, 0, 1)
+      );
+      elements.audioLipSyncMinRatioInput.value = String(
+        normalizeNumberValue(preset.audioLipSyncMinRatio, DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO, 0, 1)
+      );
+      elements.audioLipSyncMaxRatioInput.value = String(
+        normalizeNumberValue(preset.audioLipSyncMaxRatio, DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO, 0, 1)
+      );
+      elements.audioLipSyncSmoothWindowInput.value = String(
+        Math.round(normalizeNumberValue(preset.audioLipSyncSmoothWindow, DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW, 0, 21))
+      );
+      elements.audioLipSyncStrengthInput.value = String(
+        normalizeNumberValue(preset.audioLipSyncStrength, DEFAULT_AUDIO_LIP_SYNC_STRENGTH, 0, 4)
+      );
+      elements.audioLipSyncPowerInput.value = String(
+        normalizeNumberValue(preset.audioLipSyncPower, DEFAULT_AUDIO_LIP_SYNC_POWER, 0.001, 4)
+      );
+      elements.audioLipSyncAttackInput.value = String(
+        normalizeNumberValue(preset.audioLipSyncAttack, DEFAULT_AUDIO_LIP_SYNC_ATTACK, 0, 1)
+      );
+      elements.audioLipSyncReleaseInput.value = String(
+        normalizeNumberValue(preset.audioLipSyncRelease, DEFAULT_AUDIO_LIP_SYNC_RELEASE, 0, 1)
+      );
+      elements.audioLipSyncOffsetMsInput.value = String(
+        Math.round(normalizeNumberValue(preset.audioLipSyncOffsetMs, DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS, -1000, 1000))
+      );
+      elements.audioMouthFloorStrengthInput.value = String(
+        normalizeNumberValue(preset.audioMouthFloorStrength, DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH, 0, 4)
+      );
+      elements.audioMouthPeakClampInput.value = String(
+        normalizeNumberValue(preset.audioMouthPeakClamp, DEFAULT_AUDIO_MOUTH_PEAK_CLAMP, 0, 4)
+      );
     }
 
     async function fetchJson(path, sessionId) {
@@ -941,6 +1216,7 @@
       state.lastHealth = healthPayload;
       state.sessionId = String(healthPayload.avatarSessionId || state.sessionId || createClientSessionId()).trim();
       applyTuningDefaults(healthPayload);
+      await refreshSourceTemplatePacks();
       renderStatus(healthPayload);
 
       const streamPath = String(healthPayload.avatarVideoHttpUrl || DEFAULT_VIDEO_PATH);
@@ -975,9 +1251,16 @@
       const tuningConfig = readTuningConfig();
       const formData = new FormData();
       formData.append("audio", audioFile);
+      const selectedTemplatePackId = getSelectedSourceTemplatePackId();
       const sourceImageFile = elements.sourceImageInput.files && elements.sourceImageInput.files[0];
       if (sourceImageFile) {
-        formData.append("source_image", sourceImageFile, sourceImageFile.name);
+        const sourceFieldName = /^video\//i.test(String(sourceImageFile.type || "")) || /\.(mp4|avi|mov|mkv|webm|flv|m4v|wmv)$/i.test(sourceImageFile.name)
+          ? "source_video"
+          : "source_image";
+        formData.append(sourceFieldName, sourceImageFile, sourceImageFile.name);
+      }
+      if (selectedTemplatePackId) {
+        formData.append("source_template_pack", selectedTemplatePackId);
       }
       if (tuningConfig.sourceFrame) {
         formData.append("source_frame", tuningConfig.sourceFrame);
@@ -1012,7 +1295,11 @@
       formData.append("audio_lip_sync_smooth_window", String(tuningConfig.audioLipSyncSmoothWindow));
       formData.append("audio_lip_sync_strength", String(tuningConfig.audioLipSyncStrength));
       formData.append("audio_lip_sync_power", String(tuningConfig.audioLipSyncPower));
+      formData.append("audio_lip_sync_attack", String(tuningConfig.audioLipSyncAttack));
+      formData.append("audio_lip_sync_release", String(tuningConfig.audioLipSyncRelease));
       formData.append("audio_lip_sync_offset_ms", String(tuningConfig.audioLipSyncOffsetMs));
+      formData.append("audio_mouth_floor_strength", String(tuningConfig.audioMouthFloorStrength));
+      formData.append("audio_mouth_peak_clamp", String(tuningConfig.audioMouthPeakClamp));
       const response = await fetch(buildAbsoluteUrl(DEFAULT_ENQUEUE_PATH), {
         method: "POST",
         headers: buildHeaders(state.sessionId),
@@ -1057,6 +1344,18 @@
       refreshAvatarStatus().catch((error) => setLog(`Refresh failed: ${String(error)}`));
     });
 
+    elements.refreshTemplatePacksButton.addEventListener("click", () => {
+      refreshSourceTemplatePacks().catch((error) => setLog(`Template refresh failed: ${String(error)}`));
+    });
+
+    elements.buildTemplatePackButton.addEventListener("click", () => {
+      buildSourceTemplatePackFromSelection().catch((error) => setLog(`Template build failed: ${String(error)}`));
+    });
+
+    elements.applyAudioPresetButton.addEventListener("click", () => {
+      applySelectedAudioPreset();
+    });
+
     elements.sendAudioButton.addEventListener("click", () => {
       sendAudio().catch((error) => setLog(`Send audio failed: ${String(error)}`));
     });
@@ -1071,6 +1370,18 @@
 
     elements.muteCheckbox.addEventListener("change", () => {
       applyVideoMutedState();
+    });
+
+    elements.sourceImageInput.addEventListener("change", () => {
+      if (elements.sourceImageInput.files && elements.sourceImageInput.files[0]) {
+        elements.sourceTemplatePackSelect.value = "";
+      }
+    });
+
+    elements.sourceTemplatePackSelect.addEventListener("change", () => {
+      if (getSelectedSourceTemplatePackId()) {
+        elements.sourceImageInput.value = "";
+      }
     });
 
     elements.avatarVideo.addEventListener("error", () => {

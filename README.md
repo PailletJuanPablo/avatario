@@ -115,6 +115,28 @@ The response returns:
 
 Detailed runtime behavior for session isolation is documented in [docs/AVATAR_SESSION_ARCHITECTURE.md](docs/AVATAR_SESSION_ARCHITECTURE.md).
 
+## E2E session isolation
+
+To validate the real session-scoped avatar flow end to end, run:
+
+```powershell
+E:\animation\.venv-liveportrait\Scripts\python.exe E:\animation\scripts\e2e_avatar_sessions.py --base-url http://127.0.0.1:8010
+```
+
+Optional environment variables:
+
+- `E2E_API_TOKEN`: bearer token when the API is protected
+- `E2E_AUDIO_FILE`: audio fixture to enqueue instead of `voice.mp3`
+- `E2E_BASE_URL`: API base URL when not using the default
+
+What the script validates:
+
+- two independent avatar sessions can coexist
+- both idle avatar streams emit real binary video data
+- a speaking job enqueued for session A does not leak into session B
+- session B cannot access session A job status
+- session A returns to idle after its speaking job completes
+
 ## WebSocket contract
 
 Queue-aware avatar status stream:

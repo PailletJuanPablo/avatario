@@ -41,7 +41,11 @@ class MotionPklTuningConfig:
     lip_sync_smooth_window: int = 5
     lip_sync_strength: float = 1.15
     lip_sync_power: float = 0.85
+    lip_sync_attack: float = 1.0
+    lip_sync_release: float = 1.0
     lip_sync_offset_ms: int = 0
+    mouth_floor_strength: float = 0.26
+    mouth_peak_clamp: float = 0.0
 
 
 def get_default_motion_pkl_tuning_config() -> MotionPklTuningConfig:
@@ -104,6 +108,11 @@ def build_lip_ratio_sequence_from_audio(
     safe_power = max(1e-3, float(safe_config.lip_sync_power))
     envelope = np.power(np.clip(envelope, 0.0, 1.0), safe_power)
     envelope = np.clip(envelope * safe_strength, 0.0, 1.0)
+    envelope = _apply_attack_release_filter(
+        envelope,
+        attack=float(safe_config.lip_sync_attack),
+        release=float(safe_config.lip_sync_release),
+    )
 
     min_ratio = float(np.clip(safe_config.lip_sync_min_ratio, 0.0, 1.0))
     max_ratio = float(np.clip(safe_config.lip_sync_max_ratio, min_ratio, 1.0))
@@ -172,6 +181,9 @@ def tune_motion_pkl_payload(payload: dict, config: MotionPklTuningConfig | None 
         raise ValueError("Invalid motion payload: missing non-empty motion list.")
 
     exp, scale, t, pitch, yaw, roll = _extract_motion_arrays(motion)
+    original_pitch = pitch.copy()
+    original_yaw = yaw.copy()
+    original_roll = roll.copy()
     mouth_indices = _sanitize_indices(safe_config.mouth_indices, 21)
     mouth_axes = _sanitize_indices(safe_config.mouth_axes, 3)
     non_mouth_indices = tuple(index for index in range(21) if index not in mouth_indices)
@@ -213,10 +225,30 @@ def tune_motion_pkl_payload(payload: dict, config: MotionPklTuningConfig | None 
     if safe_config.mouth_jump_threshold > 0 and mouth_indices:
         exp = _clamp_expression_subset(exp, safe_config.mouth_jump_threshold, mouth_indices)
 
-    return _rebuild_payload(payload, motion, exp, scale, t, pitch, yaw, roll)
+    pose_changed = _pose_arrays_changed(
+        original_pitch,
+        original_yaw,
+        original_roll,
+        pitch,
+        yaw,
+        roll,
+    )
+    return _rebuild_payload(
+        payload,
+        motion,
+        exp,
+        scale,
+        t,
+        pitch,
+        yaw,
+        roll,
+        recompute_rotation=pose_changed,
+    )
 
 
-def _extract_motion_arrays(motion: list[dict]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _extract_motion_arrays(
+    motion: list[dict],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     exp = np.concatenate([_reshape_frame_array(frame, "exp", (1, 21, 3)) for frame in motion], axis=0)
     scale = np.concatenate([_reshape_frame_array(frame, "scale", (1, 1)) for frame in motion], axis=0)
     t = np.concatenate([_reshape_frame_array(frame, "t", (1, 3)) for frame in motion], axis=0)
@@ -358,11 +390,11 @@ def _apply_audio_envelope_to_mouth(
     mouth_delta = mouth_subset[:, :, mouth_axes] - baseline_subset[:, mouth_axes][None, :, :]
 
     safe_strength = max(0.0, float(config.lip_sync_strength))
-    frame_gain = 1.0 + (audio_activity - 0.35) * safe_strength
-    frame_gain = np.clip(frame_gain, 0.8, 1.0 + safe_strength * 0.6).astype(np.float32)
+    frame_gain = np.power(np.clip(audio_activity, 0.0, 1.0), max(1e-3, 1.0 / max(safe_strength, 1e-3)))
+    frame_gain = np.clip(frame_gain * safe_strength, 0.0, 1.0 + safe_strength * 0.6).astype(np.float32)
 
     reference_delta = np.percentile(np.abs(mouth_delta), 90, axis=0)
-    floor_scale = max(0.0, safe_strength - 0.4) * 0.35
+    floor_scale = max(0.0, float(config.mouth_floor_strength))
     target_floor = audio_activity[:, None, None] * reference_delta[None, :, :] * floor_scale
 
     delta_sign = np.sign(mouth_delta)
@@ -371,9 +403,47 @@ def _apply_audio_envelope_to_mouth(
     delta_sign = np.where(delta_sign == 0, dominant_sign, delta_sign)
 
     synced_delta = np.maximum(np.abs(mouth_delta) * frame_gain[:, None, None], target_floor)
+    peak_clamp = max(0.0, float(config.mouth_peak_clamp))
+    if peak_clamp > 0:
+        peak_limit = np.maximum(reference_delta[None, :, :] * peak_clamp, 1e-4)
+        synced_delta = np.minimum(synced_delta, peak_limit.astype(np.float32))
     mouth_subset[:, :, mouth_axes] = baseline_subset[:, mouth_axes][None, :, :] + (delta_sign * synced_delta)
     synced[:, mouth_indices, :] = mouth_subset
     return synced
+
+
+def _apply_attack_release_filter(values: np.ndarray, attack: float, release: float) -> np.ndarray:
+    filtered = values.astype(np.float32).copy()
+    if filtered.shape[0] <= 1:
+        return filtered
+
+    attack_alpha = float(np.clip(attack, 0.0, 1.0))
+    release_alpha = float(np.clip(release, 0.0, 1.0))
+    if attack_alpha >= 1.0 and release_alpha >= 1.0:
+        return filtered
+
+    previous_value = float(filtered[0])
+    for index in range(1, filtered.shape[0]):
+        target_value = float(filtered[index])
+        alpha = attack_alpha if target_value >= previous_value else release_alpha
+        filtered[index] = previous_value + alpha * (target_value - previous_value)
+        previous_value = float(filtered[index])
+    return filtered
+
+
+def _pose_arrays_changed(
+    original_pitch: np.ndarray,
+    original_yaw: np.ndarray,
+    original_roll: np.ndarray,
+    pitch: np.ndarray,
+    yaw: np.ndarray,
+    roll: np.ndarray,
+) -> bool:
+    return not (
+        np.allclose(original_pitch, pitch)
+        and np.allclose(original_yaw, yaw)
+        and np.allclose(original_roll, roll)
+    )
 
 
 def _rebuild_payload(
@@ -385,6 +455,7 @@ def _rebuild_payload(
     pitch: np.ndarray,
     yaw: np.ndarray,
     roll: np.ndarray,
+    recompute_rotation: bool = False,
 ) -> dict:
     tuned_payload = dict(payload)
     tuned_motion: list[dict] = []
@@ -398,15 +469,16 @@ def _rebuild_payload(
         tuned_frame["yaw"] = yaw[index:index + 1].astype(np.float32)
         tuned_frame["roll"] = roll[index:index + 1].astype(np.float32)
 
-        rotation = _get_rotation_matrix(
-            tuned_frame["pitch"].reshape(-1),
-            tuned_frame["yaw"].reshape(-1),
-            tuned_frame["roll"].reshape(-1),
-        ).reshape(1, 3, 3).astype(np.float32)
-        if "R" in tuned_frame:
-            tuned_frame["R"] = rotation
-        if "R_d" in tuned_frame:
-            tuned_frame["R_d"] = rotation
+        if recompute_rotation and ("R" in tuned_frame or "R_d" in tuned_frame):
+            rotation = _get_rotation_matrix(
+                tuned_frame["pitch"].reshape(-1),
+                tuned_frame["yaw"].reshape(-1),
+                tuned_frame["roll"].reshape(-1),
+            ).reshape(1, 3, 3).astype(np.float32)
+            if "R" in tuned_frame:
+                tuned_frame["R"] = rotation
+            if "R_d" in tuned_frame:
+                tuned_frame["R_d"] = rotation
         tuned_motion.append(tuned_frame)
 
     tuned_payload["motion"] = tuned_motion

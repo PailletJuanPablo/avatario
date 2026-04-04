@@ -723,6 +723,38 @@
     <section class="card tuning-card">
       <div class="tuning-head">
         <div class="tuning-copy">
+          <h2 class="panel-title">Source Templates</h2>
+          <p class="tuning-hint">Build one cached source template pack once, then reuse it with different audios so only the driving audio is regenerated.</p>
+        </div>
+      </div>
+      <div class="tuning-grid">
+        <label class="tuning-field">
+          <span class="compact-label">Template Pack</span>
+          <select id="sourceTemplatePackSelect">
+            <option value="">None</option>
+          </select>
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">New Template Name</span>
+          <input id="sourceTemplatePackNameInput" type="text" placeholder="Auto from source">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Audio Preset</span>
+          <select id="audioTuningPresetSelect">
+            <option value="">None</option>
+          </select>
+        </label>
+      </div>
+      <div class="tuning-toggle-grid">
+        <button id="btnRefreshSourceTemplates" type="button">Refresh Templates</button>
+        <button id="btnBuildSourceTemplate" type="button">Build Template Pack</button>
+        <button id="btnApplyAudioPreset" type="button">Apply Audio Preset</button>
+      </div>
+    </section>
+
+    <section class="card tuning-card">
+      <div class="tuning-head">
+        <div class="tuning-copy">
           <h2 class="panel-title">Advanced Tuning</h2>
           <p class="tuning-hint">These controls are applied to the next audio-driven generation request. `driving multiplier` changes render amplitude, while `cfg scale` and `JoyVASA steps` change the audio-to-motion generation itself before render.</p>
         </div>
@@ -863,6 +895,22 @@
           <input id="audioLipSyncPowerInput" type="number" min="0.001" max="4" step="0.05" inputmode="decimal">
         </label>
         <label class="tuning-field">
+          <span class="compact-label">Lip Sync Attack</span>
+          <input id="audioLipSyncAttackInput" type="number" min="0" max="1" step="0.01" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Lip Sync Release</span>
+          <input id="audioLipSyncReleaseInput" type="number" min="0" max="1" step="0.01" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Mouth Floor Strength</span>
+          <input id="audioMouthFloorStrengthInput" type="number" min="0" max="4" step="0.01" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
+          <span class="compact-label">Mouth Peak Clamp</span>
+          <input id="audioMouthPeakClampInput" type="number" min="0" max="4" step="0.01" inputmode="decimal">
+        </label>
+        <label class="tuning-field">
           <span class="compact-label">Lip Sync Offset MS</span>
           <input id="audioLipSyncOffsetMsInput" type="number" min="-1000" max="1000" step="10" inputmode="numeric">
         </label>
@@ -998,6 +1046,7 @@
     const API_RUNTIME_LOGS_PATH = "/api/runtime/logs";
     const API_RUNTIME_RESTART_PATH = "/api/runtime/restart";
     const API_WARMUP_PATH = "/api/warmup";
+    const API_SOURCE_TEMPLATE_PACKS_PATH = "/api/source-templates";
     const API_TOKEN_QUERY_KEY = "token";
     const AVATAR_SESSION_ID_QUERY_KEY = "sessionId";
     const AUTHORIZATION_HEADER_NAME = "Authorization";
@@ -1070,10 +1119,15 @@
     const DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW = 5;
     const DEFAULT_AUDIO_LIP_SYNC_STRENGTH = 1.15;
     const DEFAULT_AUDIO_LIP_SYNC_POWER = 0.85;
+    const DEFAULT_AUDIO_LIP_SYNC_ATTACK = 1.0;
+    const DEFAULT_AUDIO_LIP_SYNC_RELEASE = 1.0;
     const DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS = 0;
+    const DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH = 0.26;
+    const DEFAULT_AUDIO_MOUTH_PEAK_CLAMP = 0.0;
     const DEFAULT_DRIVING_MULTIPLIER = 1;
     const DEFAULT_CFG_SCALE = 1.2;
     const DEFAULT_JOYVASA_INFERENCE_STEPS = 15;
+    const SOURCE_TEMPLATE_PACK_NONE_VALUE = "";
     const MOTION_STRIDE_LIMITS = Object.freeze({
       MIN: 1,
       MAX: 6
@@ -1211,6 +1265,12 @@
       generationFrameCountInput: document.getElementById("generationFrameCountInput"),
       sourceImagePickerValue: document.getElementById("sourceImagePickerValue"),
       sourceImageInput: document.getElementById("sourceImageInput"),
+      sourceTemplatePackSelect: document.getElementById("sourceTemplatePackSelect"),
+      sourceTemplatePackNameInput: document.getElementById("sourceTemplatePackNameInput"),
+      btnRefreshSourceTemplates: document.getElementById("btnRefreshSourceTemplates"),
+      btnBuildSourceTemplate: document.getElementById("btnBuildSourceTemplate"),
+      audioTuningPresetSelect: document.getElementById("audioTuningPresetSelect"),
+      btnApplyAudioPreset: document.getElementById("btnApplyAudioPreset"),
       sourceFrameInput: document.getElementById("sourceFrameInput"),
       modeSelect: document.getElementById("modeSelect"),
       motionStrideInput: document.getElementById("motionStrideInput"),
@@ -1239,7 +1299,11 @@
       audioLipSyncSmoothWindowInput: document.getElementById("audioLipSyncSmoothWindowInput"),
       audioLipSyncStrengthInput: document.getElementById("audioLipSyncStrengthInput"),
       audioLipSyncPowerInput: document.getElementById("audioLipSyncPowerInput"),
+      audioLipSyncAttackInput: document.getElementById("audioLipSyncAttackInput"),
+      audioLipSyncReleaseInput: document.getElementById("audioLipSyncReleaseInput"),
       audioLipSyncOffsetMsInput: document.getElementById("audioLipSyncOffsetMsInput"),
+      audioMouthFloorStrengthInput: document.getElementById("audioMouthFloorStrengthInput"),
+      audioMouthPeakClampInput: document.getElementById("audioMouthPeakClampInput"),
       btnGenerate: document.getElementById("btnGenerate"),
       btnResetTuning: document.getElementById("btnResetTuning"),
       btnWarmup: document.getElementById("btnWarmup"),
@@ -1315,7 +1379,11 @@
         audioLipSyncSmoothWindow: DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW,
         audioLipSyncStrength: DEFAULT_AUDIO_LIP_SYNC_STRENGTH,
         audioLipSyncPower: DEFAULT_AUDIO_LIP_SYNC_POWER,
-        audioLipSyncOffsetMs: DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS
+        audioLipSyncAttack: DEFAULT_AUDIO_LIP_SYNC_ATTACK,
+        audioLipSyncRelease: DEFAULT_AUDIO_LIP_SYNC_RELEASE,
+        audioLipSyncOffsetMs: DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS,
+        audioMouthFloorStrength: DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH,
+        audioMouthPeakClamp: DEFAULT_AUDIO_MOUTH_PEAK_CLAMP
       };
     }
 
@@ -1361,11 +1429,15 @@
         fixedSourceFrame: "",
         fixedSourceError: "",
         allowCustomSourceFrame: true,
+        sourceTemplatePacksUrl: API_SOURCE_TEMPLATE_PACKS_PATH,
+        createSourceTemplatePackUrl: API_SOURCE_TEMPLATE_PACKS_PATH,
         runningJobId: "",
         runningJobState: "",
         headQueuedJobId: "",
         jobQueueDepth: 0,
-        jobWorkerAlive: false
+        jobWorkerAlive: false,
+        audioTuningPresets: {},
+        sourceTemplatePacks: []
       };
     }
 
@@ -1397,6 +1469,7 @@
 
     let tuningDefaults = createDefaultTuningState();
     let tuningControlsInitialized = false;
+    let audioTuningPresets = {};
     let currentJobId = "";
     let currentJobState = "";
     let statusSocket = null;
@@ -1432,6 +1505,7 @@
       result: "",
       concat: ""
     };
+    let sourceTemplatePackRecords = [];
 
     function withCacheBust(path) {
       const separator = String(path).includes("?") ? "&" : "?";
@@ -1530,6 +1604,13 @@
         setCompactPickerValue(elements.sourceImagePickerValue, sourceMediaFile.name);
         return;
       }
+      const selectedTemplatePack = getSelectedSourceTemplatePackRecord();
+      if (selectedTemplatePack) {
+        const templatePackName = String(selectedTemplatePack.name || selectedTemplatePack.id || "Template");
+        elements.sourceBadge.textContent = templatePackName;
+        setCompactPickerValue(elements.sourceImagePickerValue, `Template: ${templatePackName}`);
+        return;
+      }
       elements.sourceBadge.textContent = UI_TEXT.SOURCE_BADGE_RUNTIME;
       setCompactPickerValue(elements.sourceImagePickerValue, resolveDefaultSourcePickerLabel());
     }
@@ -1542,6 +1623,74 @@
     function renderAudioSelectionState(audioFile) {
       const nextLabel = audioFile && audioFile.name ? audioFile.name : UI_TEXT.AUDIO_PICKER_EMPTY;
       setCompactPickerValue(elements.audioPickerValue, nextLabel);
+    }
+
+    function formatAudioPresetLabel(presetId) {
+      return String(presetId || "")
+        .trim()
+        .split(/[_-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+    }
+
+    function getSelectedSourceTemplatePackId() {
+      return String(elements.sourceTemplatePackSelect.value || "").trim();
+    }
+
+    function getSelectedAudioPresetId() {
+      return String(elements.audioTuningPresetSelect.value || "").trim();
+    }
+
+    function getSourceTemplatePackRecordById(templatePackId) {
+      const normalizedTemplatePackId = String(templatePackId || "").trim();
+      if (!normalizedTemplatePackId) {
+        return null;
+      }
+      return sourceTemplatePackRecords.find((item) => String(item.id || "") === normalizedTemplatePackId) || null;
+    }
+
+    function getSelectedSourceTemplatePackRecord() {
+      return getSourceTemplatePackRecordById(getSelectedSourceTemplatePackId());
+    }
+
+    function populateAudioPresetOptions() {
+      const previousPresetId = getSelectedAudioPresetId();
+      const presetEntries = Object.entries(audioTuningPresets || {});
+      elements.audioTuningPresetSelect.innerHTML = "";
+      const noneOption = document.createElement("option");
+      noneOption.value = "";
+      noneOption.textContent = "None";
+      elements.audioTuningPresetSelect.appendChild(noneOption);
+      presetEntries.forEach(([presetId]) => {
+        const option = document.createElement("option");
+        option.value = presetId;
+        option.textContent = formatAudioPresetLabel(presetId);
+        elements.audioTuningPresetSelect.appendChild(option);
+      });
+      elements.audioTuningPresetSelect.value = presetEntries.some(([presetId]) => presetId === previousPresetId)
+        ? previousPresetId
+        : "";
+    }
+
+    function populateSourceTemplatePackOptions(selectedTemplatePackId = "") {
+      const previousTemplatePackId = selectedTemplatePackId || getSelectedSourceTemplatePackId();
+      elements.sourceTemplatePackSelect.innerHTML = "";
+      const noneOption = document.createElement("option");
+      noneOption.value = SOURCE_TEMPLATE_PACK_NONE_VALUE;
+      noneOption.textContent = "None";
+      elements.sourceTemplatePackSelect.appendChild(noneOption);
+      sourceTemplatePackRecords.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = String(item.id || "");
+        option.textContent = String(item.name || item.id || "");
+        elements.sourceTemplatePackSelect.appendChild(option);
+      });
+      elements.sourceTemplatePackSelect.value = sourceTemplatePackRecords.some(
+        (item) => String(item.id || "") === previousTemplatePackId
+      )
+        ? previousTemplatePackId
+        : SOURCE_TEMPLATE_PACK_NONE_VALUE;
     }
 
     /**
@@ -1617,6 +1766,11 @@
       renderSourceSelectionState(sourceMediaFile);
       if (sourceMediaFile) {
         setSourcePreviewFromFile(sourceMediaFile);
+        return;
+      }
+      const selectedTemplatePack = getSelectedSourceTemplatePackRecord();
+      if (selectedTemplatePack && selectedTemplatePack.previewUrl) {
+        setSourcePreviewFromUrl(selectedTemplatePack.previewUrl, "image");
         return;
       }
       const sourceFrame = (elements.sourceFrameInput.value || DEFAULT_SOURCE_FRAME).trim() || DEFAULT_SOURCE_FRAME;
@@ -2165,6 +2319,18 @@
           0.001,
           4
         ),
+        audioLipSyncAttack: normalizeNumberInputValue(
+          healthPayload.defaultAudioLipSyncAttack,
+          DEFAULT_AUDIO_LIP_SYNC_ATTACK,
+          0,
+          1
+        ),
+        audioLipSyncRelease: normalizeNumberInputValue(
+          healthPayload.defaultAudioLipSyncRelease,
+          DEFAULT_AUDIO_LIP_SYNC_RELEASE,
+          0,
+          1
+        ),
         audioLipSyncOffsetMs: Math.round(
           normalizeNumberInputValue(
             healthPayload.defaultAudioLipSyncOffsetMs,
@@ -2172,6 +2338,18 @@
             -1000,
             1000
           )
+        ),
+        audioMouthFloorStrength: normalizeNumberInputValue(
+          healthPayload.defaultAudioMouthFloorStrength,
+          DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH,
+          0,
+          4
+        ),
+        audioMouthPeakClamp: normalizeNumberInputValue(
+          healthPayload.defaultAudioMouthPeakClamp,
+          DEFAULT_AUDIO_MOUTH_PEAK_CLAMP,
+          0,
+          4
         )
       };
     }
@@ -2287,10 +2465,27 @@
       elements.audioLipSyncPowerInput.value = String(
         normalizeNumberInputValue(safeConfig.audioLipSyncPower, DEFAULT_AUDIO_LIP_SYNC_POWER, 0.001, 4)
       );
+      elements.audioLipSyncAttackInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioLipSyncAttack, DEFAULT_AUDIO_LIP_SYNC_ATTACK, 0, 1)
+      );
+      elements.audioLipSyncReleaseInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioLipSyncRelease, DEFAULT_AUDIO_LIP_SYNC_RELEASE, 0, 1)
+      );
       elements.audioLipSyncOffsetMsInput.value = String(
         Math.round(
           normalizeNumberInputValue(safeConfig.audioLipSyncOffsetMs, DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS, -1000, 1000)
         )
+      );
+      elements.audioMouthFloorStrengthInput.value = String(
+        normalizeNumberInputValue(
+          safeConfig.audioMouthFloorStrength,
+          DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH,
+          0,
+          4
+        )
+      );
+      elements.audioMouthPeakClampInput.value = String(
+        normalizeNumberInputValue(safeConfig.audioMouthPeakClamp, DEFAULT_AUDIO_MOUTH_PEAK_CLAMP, 0, 4)
       );
       if (clearFrameOverride) {
         elements.generationFrameCountInput.value = "";
@@ -2452,6 +2647,18 @@
           0.001,
           4
         ),
+        audioLipSyncAttack: normalizeNumberInputValue(
+          elements.audioLipSyncAttackInput.value,
+          tuningDefaults.audioLipSyncAttack,
+          0,
+          1
+        ),
+        audioLipSyncRelease: normalizeNumberInputValue(
+          elements.audioLipSyncReleaseInput.value,
+          tuningDefaults.audioLipSyncRelease,
+          0,
+          1
+        ),
         audioLipSyncOffsetMs: Math.round(
           normalizeNumberInputValue(
             elements.audioLipSyncOffsetMsInput.value,
@@ -2459,8 +2666,105 @@
             -1000,
             1000
           )
+        ),
+        audioMouthFloorStrength: normalizeNumberInputValue(
+          elements.audioMouthFloorStrengthInput.value,
+          tuningDefaults.audioMouthFloorStrength,
+          0,
+          4
+        ),
+        audioMouthPeakClamp: normalizeNumberInputValue(
+          elements.audioMouthPeakClampInput.value,
+          tuningDefaults.audioMouthPeakClamp,
+          0,
+          4
         )
       };
+    }
+
+    async function refreshSourceTemplatePackOptions(selectedTemplatePackId = "") {
+      const sourceTemplatePacksPath = String(
+        runtimeState.sourceTemplatePacksUrl || API_SOURCE_TEMPLATE_PACKS_PATH
+      );
+      const response = await fetchApi(sourceTemplatePacksPath, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      sourceTemplatePackRecords = Array.isArray(payload.items) ? payload.items : [];
+      runtimeState.sourceTemplatePacks = sourceTemplatePackRecords;
+      populateSourceTemplatePackOptions(selectedTemplatePackId);
+      updateSelectedSourcePreview();
+    }
+
+    async function buildSourceTemplatePackFromCurrentSelection() {
+      const sourceMediaFile = getSelectedSourceMediaFile();
+      const sourceFrame = String(elements.sourceFrameInput.value || runtimeState.fixedSourceFrame || DEFAULT_SOURCE_FRAME).trim();
+      const formData = new FormData();
+      if (sourceMediaFile) {
+        const sourceFieldName = isVideoPreviewValue(sourceMediaFile.name, sourceMediaFile.type)
+          ? "source_video"
+          : "source_image";
+        formData.append(sourceFieldName, sourceMediaFile, sourceMediaFile.name);
+      } else if (sourceFrame) {
+        formData.append("source_frame", sourceFrame);
+      } else {
+        throw new Error("Select one source media file or set a source frame before building a template pack.");
+      }
+
+      const templateName = String(elements.sourceTemplatePackNameInput.value || "").trim();
+      if (templateName) {
+        formData.append("template_name", templateName);
+      }
+
+      const createTemplatePath = String(
+        runtimeState.createSourceTemplatePackUrl || API_SOURCE_TEMPLATE_PACKS_PATH
+      );
+      elements.btnBuildSourceTemplate.disabled = true;
+      setStatusBadge("building template pack", false);
+      try {
+        const response = await fetchApi(createTemplatePath, {
+          method: "POST",
+          body: formData
+        });
+        if (!response.ok) {
+          const bodyText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${bodyText}`);
+        }
+        const payload = await response.json();
+        const builtTemplatePackId = String(payload.item && payload.item.id ? payload.item.id : "");
+        await refreshSourceTemplatePackOptions(builtTemplatePackId);
+        if (builtTemplatePackId) {
+          elements.sourceTemplatePackSelect.value = builtTemplatePackId;
+          elements.sourceImageInput.value = "";
+          renderSourceSelectionState(null);
+          updateSelectedSourcePreview();
+        }
+        setStatusBadge(`template ready (${builtTemplatePackId || "built"})`, true);
+      } finally {
+        elements.btnBuildSourceTemplate.disabled = runtimeState.runtimeRestarting;
+      }
+    }
+
+    function applySelectedAudioPreset() {
+      const presetId = getSelectedAudioPresetId();
+      if (!presetId) {
+        return;
+      }
+      const presetValues = audioTuningPresets[presetId];
+      if (!presetValues || typeof presetValues !== "object") {
+        return;
+      }
+      applyTuningConfigToControls(
+        {
+          ...getSelectedTuningConfig(),
+          ...presetValues,
+          stitching: Boolean(presetValues.stitchingEnabled),
+          relativeMotion: Boolean(presetValues.relativeMotionEnabled)
+        },
+        false
+      );
+      updateGenerationFrameCountInputState();
     }
 
     function buildTuningLabel(tuningConfig) {
@@ -3495,7 +3799,11 @@
       } else if (useUnifiedAvatarTransport) {
         elements.drivingBadge.textContent = "embedded in avatar stream";
       }
-      if (payload.sourceFrame) {
+      if (payload.sourceTemplatePack && payload.sourceTemplatePack.name) {
+        const templatePackName = String(payload.sourceTemplatePack.name || payload.sourceTemplatePack.id || "Template");
+        elements.sourceBadge.textContent = templatePackName;
+        setCompactPickerValue(elements.sourceImagePickerValue, `Template: ${templatePackName}`);
+      } else if (payload.sourceFrame) {
         renderSourceSelectionState(getSelectedSourceMediaFile());
       }
       if (payload.sourceFrameUrl) {
@@ -3961,6 +4269,10 @@
       const formData = new FormData();
       formData.append("audio", file, file.name);
       formData.append("source_frame", sourceFrame);
+      const selectedSourceTemplatePackId = getSelectedSourceTemplatePackId();
+      if (selectedSourceTemplatePackId) {
+        formData.append("source_template_pack", selectedSourceTemplatePackId);
+      }
       if (sourceMediaFile) {
         const sourceFieldName = isVideoPreviewValue(sourceMediaFile.name, sourceMediaFile.type)
           ? "source_video"
@@ -3997,7 +4309,11 @@
       formData.append("audio_lip_sync_smooth_window", String(tuningConfig.audioLipSyncSmoothWindow));
       formData.append("audio_lip_sync_strength", String(tuningConfig.audioLipSyncStrength));
       formData.append("audio_lip_sync_power", String(tuningConfig.audioLipSyncPower));
+      formData.append("audio_lip_sync_attack", String(tuningConfig.audioLipSyncAttack));
+      formData.append("audio_lip_sync_release", String(tuningConfig.audioLipSyncRelease));
       formData.append("audio_lip_sync_offset_ms", String(tuningConfig.audioLipSyncOffsetMs));
+      formData.append("audio_mouth_floor_strength", String(tuningConfig.audioMouthFloorStrength));
+      formData.append("audio_mouth_peak_clamp", String(tuningConfig.audioMouthPeakClamp));
 
       elements.btnGenerate.disabled = true;
       setStatusBadge("submitting job", false);
@@ -4226,12 +4542,21 @@
           fixedSourceFrame: String(data.fixedSourceFrame || ""),
           fixedSourceError: String(data.fixedSourceError || ""),
           allowCustomSourceFrame: Boolean(data.allowCustomSourceFrame),
+          sourceTemplatePacksUrl: String(data.sourceTemplatePacksUrl || API_SOURCE_TEMPLATE_PACKS_PATH),
+          createSourceTemplatePackUrl: String(data.createSourceTemplatePackUrl || API_SOURCE_TEMPLATE_PACKS_PATH),
           runningJobId: String(data.runningJobId || ""),
           runningJobState: String(data.runningJobState || ""),
           headQueuedJobId: String(data.headQueuedJobId || ""),
           jobQueueDepth: Number(data.jobQueueDepth || 0),
-          jobWorkerAlive: Boolean(data.jobWorkerAlive)
+          jobWorkerAlive: Boolean(data.jobWorkerAlive),
+          audioTuningPresets: data.audioTuningPresets && typeof data.audioTuningPresets === "object"
+            ? data.audioTuningPresets
+            : {},
+          sourceTemplatePacks: []
         };
+        audioTuningPresets = runtimeState.audioTuningPresets;
+        populateAudioPresetOptions();
+        await refreshSourceTemplatePackOptions();
         avatarState.mode = String(data.avatarMode || avatarState.mode || AVATAR_MODE.IDLE);
         avatarState.sessionId = resolvedAvatarSessionId;
         avatarState.sequence = Number(data.avatarSequence || avatarState.sequence || 0);
@@ -4257,12 +4582,17 @@
           elements.sourceFrameInput.value = runtimeState.fixedSourceFrame;
           elements.sourceImageInput.disabled = true;
           elements.sourceFrameInput.disabled = true;
+          elements.sourceTemplatePackSelect.disabled = true;
+          elements.btnBuildSourceTemplate.disabled = true;
           renderSourceSelectionState(null);
           setSourcePreviewFromPath(runtimeState.fixedSourceFrame);
         } else {
           elements.sourceImageInput.disabled = false;
           elements.sourceFrameInput.disabled = false;
-      renderSourceSelectionState(getSelectedSourceMediaFile());
+          elements.sourceTemplatePackSelect.disabled = false;
+          elements.btnBuildSourceTemplate.disabled = runtimeState.runtimeRestarting;
+          renderSourceSelectionState(getSelectedSourceMediaFile());
+          updateSelectedSourcePreview();
         }
         if (isUnifiedAvatarTransportActive()) {
           ensureUnifiedAvatarStreamConnected();
@@ -4285,8 +4615,12 @@
         runtimeState = createEmptyRuntimeState();
         runtimeState.runtimeRestarting = restartPending;
         avatarState = createEmptyAvatarState();
+        audioTuningPresets = {};
+        sourceTemplatePackRecords = [];
         elements.sourceImageInput.disabled = false;
         elements.sourceFrameInput.disabled = false;
+        elements.sourceTemplatePackSelect.disabled = false;
+        elements.btnBuildSourceTemplate.disabled = false;
         updateGenerationFrameCountInputState();
         if (showStatusBadge) {
           setStatusBadge(`api unavailable (${String(error)})`, false);
@@ -4338,7 +4672,29 @@
     elements.audioFileInput.addEventListener("change", () => {
       updateSelectedAudioBenchmark().catch(() => {});
     });
-    elements.sourceImageInput.addEventListener("change", updateSelectedSourcePreview);
+    elements.sourceImageInput.addEventListener("change", () => {
+      if (getSelectedSourceMediaFile()) {
+        elements.sourceTemplatePackSelect.value = SOURCE_TEMPLATE_PACK_NONE_VALUE;
+      }
+      updateSelectedSourcePreview();
+    });
+    elements.sourceTemplatePackSelect.addEventListener("change", () => {
+      if (getSelectedSourceTemplatePackId()) {
+        elements.sourceImageInput.value = "";
+      }
+      updateSelectedSourcePreview();
+    });
+    elements.btnRefreshSourceTemplates.addEventListener("click", () => {
+      refreshSourceTemplatePackOptions().catch((error) => {
+        setStatusBadge(`template refresh error (${String(error)})`, false);
+      });
+    });
+    elements.btnBuildSourceTemplate.addEventListener("click", () => {
+      buildSourceTemplatePackFromCurrentSelection().catch((error) => {
+        setStatusBadge(`template build error (${String(error)})`, false);
+      });
+    });
+    elements.btnApplyAudioPreset.addEventListener("click", applySelectedAudioPreset);
     elements.sourceFrameInput.addEventListener("change", () => {
       updateSelectedSourcePreview();
     });
@@ -4405,8 +4761,16 @@
     elements.audioLipSyncStrengthInput.max = "4";
     elements.audioLipSyncPowerInput.min = "0.001";
     elements.audioLipSyncPowerInput.max = "4";
+    elements.audioLipSyncAttackInput.min = "0";
+    elements.audioLipSyncAttackInput.max = "1";
+    elements.audioLipSyncReleaseInput.min = "0";
+    elements.audioLipSyncReleaseInput.max = "1";
     elements.audioLipSyncOffsetMsInput.min = "-1000";
     elements.audioLipSyncOffsetMsInput.max = "1000";
+    elements.audioMouthFloorStrengthInput.min = "0";
+    elements.audioMouthFloorStrengthInput.max = "4";
+    elements.audioMouthPeakClampInput.min = "0";
+    elements.audioMouthPeakClampInput.max = "4";
     applyTuningConfigToControls(tuningDefaults, true);
     renderAudioSelectionState(null);
     updateSelectedSourcePreview();

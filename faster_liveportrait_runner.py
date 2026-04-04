@@ -154,7 +154,11 @@ DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_MAX_RATIO"
 DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_SMOOTH_WINDOW"
 DEFAULT_AUDIO_LIP_SYNC_STRENGTH_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_STRENGTH"
 DEFAULT_AUDIO_LIP_SYNC_POWER_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_POWER"
+DEFAULT_AUDIO_LIP_SYNC_ATTACK_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_ATTACK"
+DEFAULT_AUDIO_LIP_SYNC_RELEASE_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_RELEASE"
 DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_OFFSET_MS"
+DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH_ENV_KEY = "ANIMATION_AUDIO_MOUTH_FLOOR_STRENGTH"
+DEFAULT_AUDIO_MOUTH_PEAK_CLAMP_ENV_KEY = "ANIMATION_AUDIO_MOUTH_PEAK_CLAMP"
 DEFAULT_AUDIO_EYE_TAMED_PRESET = read_env_bool(DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY, True)
 DEFAULT_AUDIO_EYE_SOFT_FACTOR = read_env_float(DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY, 0.45, 0.0, 1.0)
 DEFAULT_AUDIO_EYE_HARD_FACTOR = read_env_float(DEFAULT_AUDIO_EYE_HARD_FACTOR_ENV_KEY, 0.18, 0.0, 1.0)
@@ -178,7 +182,11 @@ DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO = read_env_float(DEFAULT_AUDIO_LIP_SYNC_MAX_RAT
 DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW = read_env_int(DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW_ENV_KEY, 5, 0, 21)
 DEFAULT_AUDIO_LIP_SYNC_STRENGTH = read_env_float(DEFAULT_AUDIO_LIP_SYNC_STRENGTH_ENV_KEY, 1.15, 0.0, 4.0)
 DEFAULT_AUDIO_LIP_SYNC_POWER = read_env_float(DEFAULT_AUDIO_LIP_SYNC_POWER_ENV_KEY, 0.85, 0.001, 4.0)
+DEFAULT_AUDIO_LIP_SYNC_ATTACK = read_env_float(DEFAULT_AUDIO_LIP_SYNC_ATTACK_ENV_KEY, 1.0, 0.0, 1.0)
+DEFAULT_AUDIO_LIP_SYNC_RELEASE = read_env_float(DEFAULT_AUDIO_LIP_SYNC_RELEASE_ENV_KEY, 1.0, 0.0, 1.0)
 DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS = read_env_int(DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS_ENV_KEY, 0, -1000, 1000)
+DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH = read_env_float(DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH_ENV_KEY, 0.26, 0.0, 4.0)
+DEFAULT_AUDIO_MOUTH_PEAK_CLAMP = read_env_float(DEFAULT_AUDIO_MOUTH_PEAK_CLAMP_ENV_KEY, 0.0, 0.0, 4.0)
 DEFAULT_DRIVING_MULTIPLIER = read_env_float("ANIMATION_DRIVING_MULTIPLIER", 1.0, 0.0, 2.0)
 DEFAULT_CFG_SCALE = read_env_float("ANIMATION_CFG_SCALE", 1.2, 0.0, 10.0)
 DEFAULT_JOYVASA_INFERENCE_STEPS = read_env_int("ANIMATION_JOYVASA_INFERENCE_STEPS", 15, 1, 100)
@@ -263,7 +271,11 @@ class RunnerConfig:
     audio_lip_sync_smooth_window: int
     audio_lip_sync_strength: float
     audio_lip_sync_power: float
+    audio_lip_sync_attack: float
+    audio_lip_sync_release: float
     audio_lip_sync_offset_ms: int
+    audio_mouth_floor_strength: float
+    audio_mouth_peak_clamp: float
     driving_multiplier: float
     cfg_scale: float
     joyvasa_inference_steps: int
@@ -275,6 +287,8 @@ class RunnerConfig:
     frame_step: int
     skip_driving_video_build: bool
     rebuild_driving_template: bool
+    build_source_template_pack: bool
+    source_template_pack_output: Path | None
     skip_trt_engine_build: bool
     video_encoder: str
     paste_back: bool
@@ -438,10 +452,34 @@ def parse_args() -> RunnerConfig:
         help="Envelope exponent shaping low- versus high-energy syllables.",
     )
     parser.add_argument(
+        "--audio-lip-sync-attack",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_ATTACK,
+        help="Attack coefficient [0..1] for the audio lip envelope follower.",
+    )
+    parser.add_argument(
+        "--audio-lip-sync-release",
+        type=float,
+        default=DEFAULT_AUDIO_LIP_SYNC_RELEASE,
+        help="Release coefficient [0..1] for the audio lip envelope follower.",
+    )
+    parser.add_argument(
         "--audio-lip-sync-offset-ms",
         type=int,
         default=DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS,
         help="Time offset in milliseconds applied when sampling the audio envelope.",
+    )
+    parser.add_argument(
+        "--audio-mouth-floor-strength",
+        type=float,
+        default=DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH,
+        help="Minimum mouth floor factor driven by the audio envelope.",
+    )
+    parser.add_argument(
+        "--audio-mouth-peak-clamp",
+        type=float,
+        default=DEFAULT_AUDIO_MOUTH_PEAK_CLAMP,
+        help="Optional clamp multiplier applied to peak audio mouth deltas. Zero disables it.",
     )
     parser.add_argument(
         "--driving-multiplier",
@@ -536,6 +574,8 @@ def parse_args() -> RunnerConfig:
     )
     parser.add_argument("--skip-driving-video-build", action="store_true")
     parser.add_argument("--rebuild-driving-template", action="store_true")
+    parser.add_argument("--build-source-template-pack", action="store_true")
+    parser.add_argument("--source-template-pack-output", default="")
     parser.add_argument("--skip-trt-engine-build", action="store_true")
     parser.add_argument("--video-encoder", choices=VIDEO_ENCODER_CHOICES, default=DEFAULT_VIDEO_ENCODER)
     parser.add_argument("--no-paste-back", action="store_true")
@@ -579,13 +619,22 @@ def parse_args() -> RunnerConfig:
     audio_lip_sync_smooth_window = max(0, int(args.audio_lip_sync_smooth_window))
     audio_lip_sync_strength = float(np.clip(float(args.audio_lip_sync_strength), 0.0, 4.0))
     audio_lip_sync_power = float(np.clip(float(args.audio_lip_sync_power), 0.001, 4.0))
+    audio_lip_sync_attack = float(np.clip(float(args.audio_lip_sync_attack), 0.0, 1.0))
+    audio_lip_sync_release = float(np.clip(float(args.audio_lip_sync_release), 0.0, 1.0))
     audio_lip_sync_offset_ms = int(np.clip(int(args.audio_lip_sync_offset_ms), -1000, 1000))
+    audio_mouth_floor_strength = float(np.clip(float(args.audio_mouth_floor_strength), 0.0, 4.0))
+    audio_mouth_peak_clamp = float(np.clip(float(args.audio_mouth_peak_clamp), 0.0, 4.0))
     driving_multiplier = float(np.clip(float(args.driving_multiplier), 0.0, 2.0))
     cfg_scale = float(np.clip(float(args.cfg_scale), 0.0, 10.0))
     joyvasa_inference_steps = int(np.clip(int(args.joyvasa_inference_steps), 1, 100))
 
     project_root = Path(__file__).resolve().parent
     driving_audio = (project_root / args.driving_audio).resolve() if args.driving_audio else None
+    source_template_pack_output = (
+        (project_root / args.source_template_pack_output).resolve()
+        if str(args.source_template_pack_output or "").strip()
+        else None
+    )
     docker_gpu_device = str(args.docker_gpu_device).strip()
     if docker_gpu_device.lower() == "auto":
         docker_gpu_device = detect_preferred_gpu_device()
@@ -631,7 +680,11 @@ def parse_args() -> RunnerConfig:
         audio_lip_sync_smooth_window=audio_lip_sync_smooth_window,
         audio_lip_sync_strength=audio_lip_sync_strength,
         audio_lip_sync_power=audio_lip_sync_power,
+        audio_lip_sync_attack=audio_lip_sync_attack,
+        audio_lip_sync_release=audio_lip_sync_release,
         audio_lip_sync_offset_ms=audio_lip_sync_offset_ms,
+        audio_mouth_floor_strength=audio_mouth_floor_strength,
+        audio_mouth_peak_clamp=audio_mouth_peak_clamp,
         driving_multiplier=driving_multiplier,
         cfg_scale=cfg_scale,
         joyvasa_inference_steps=joyvasa_inference_steps,
@@ -643,6 +696,8 @@ def parse_args() -> RunnerConfig:
         frame_step=frame_step,
         skip_driving_video_build=args.skip_driving_video_build,
         rebuild_driving_template=args.rebuild_driving_template,
+        build_source_template_pack=bool(args.build_source_template_pack),
+        source_template_pack_output=source_template_pack_output,
         skip_trt_engine_build=args.skip_trt_engine_build,
         video_encoder=str(args.video_encoder).strip().lower(),
         paste_back=not args.no_paste_back,
@@ -716,12 +771,32 @@ def read_source_video_fps(source_path: Path) -> float:
     return float(fps_value)
 
 
+def read_source_template_pack_fps(template_pack_path: Path) -> float | None:
+    """
+    Read cached source FPS from one source template pack when available.
+    """
+    if not template_pack_path.exists() or template_pack_path.suffix.lower() != ".pkl":
+        return None
+    try:
+        with template_pack_path.open("rb") as handle:
+            payload = pickle.load(handle)
+    except Exception:
+        return None
+    fps_value = payload.get("source_fps") if isinstance(payload, dict) else None
+    if not isinstance(fps_value, (int, float)) or float(fps_value) <= 0:
+        return None
+    return float(fps_value)
+
+
 def resolve_source_fps(config: RunnerConfig) -> float:
     """
     Resolve effective source FPS from source video when available, else from metadata.
     """
     if config.source_frame.suffix.lower() in SOURCE_VIDEO_EXTENSIONS:
         return read_source_video_fps(config.source_frame)
+    template_pack_fps = read_source_template_pack_fps(config.source_frame)
+    if template_pack_fps is not None:
+        return template_pack_fps
     return read_fps(config.meta_path)
 
 
@@ -1390,7 +1465,11 @@ def build_audio_template_generation_profile(
         "audioLipSyncSmoothWindow": int(config.audio_lip_sync_smooth_window),
         "audioLipSyncStrength": round(float(config.audio_lip_sync_strength), 6),
         "audioLipSyncPower": round(float(config.audio_lip_sync_power), 6),
+        "audioLipSyncAttack": round(float(config.audio_lip_sync_attack), 6),
+        "audioLipSyncRelease": round(float(config.audio_lip_sync_release), 6),
         "audioLipSyncOffsetMs": int(config.audio_lip_sync_offset_ms),
+        "audioMouthFloorStrength": round(float(config.audio_mouth_floor_strength), 6),
+        "audioMouthPeakClamp": round(float(config.audio_mouth_peak_clamp), 6),
         "cfgScale": round(float(config.cfg_scale), 6),
         "joyvasaInferenceSteps": int(config.joyvasa_inference_steps),
     }
@@ -1404,6 +1483,7 @@ def should_prebuild_audio_template(config: RunnerConfig) -> bool:
         config.generation_frame_count is not None
         or config.audio_eye_tamed_preset
         or config.audio_motion_tuning_enabled
+        or config.audio_lip_sync_assist
     )
 
 
@@ -1524,6 +1604,47 @@ def resolve_cfg_path(config: RunnerConfig) -> Path:
     return config.faster_repo_dir / "configs" / cfg_name
 
 
+def build_source_template_pack_local(config: RunnerConfig) -> None:
+    """
+    Build one reusable source template pack with the local FasterLivePortrait runtime.
+    """
+    if config.source_template_pack_output is None:
+        raise RuntimeError("source_template_pack_output is required when build_source_template_pack is enabled")
+
+    cfg_path = resolve_cfg_path(config)
+    assert_path_exists(cfg_path, "FasterLivePortrait config")
+    command = [
+        str(config.python_executable),
+        "run.py",
+        "--src_image",
+        str(config.source_frame),
+        "--cfg",
+        str(cfg_path.relative_to(config.faster_repo_dir)),
+        "--source_cache_dir",
+        str(config.source_cache_dir),
+        "--build_source_template_pack",
+        "--source_template_pack_output",
+        str(config.source_template_pack_output),
+        "--animation_region",
+        str(config.animation_region),
+    ]
+    if config.paste_back:
+        command.append("--paste_back")
+    if not config.stitching_enabled:
+        command.append("--no_stitching")
+    if not config.relative_motion_enabled:
+        command.append("--no-relative_motion")
+    run_command(command, cwd=config.faster_repo_dir)
+
+
+def build_source_template_pack(config: RunnerConfig) -> None:
+    """
+    Build one reusable source template pack using the active project runtime.
+    """
+    build_source_template_pack_local(config)
+    print(f"[ok] source template pack -> {config.source_template_pack_output}")
+
+
 def build_driving_template_from_audio_local(
     config: RunnerConfig,
     driving_audio: Path,
@@ -1593,8 +1714,16 @@ def build_audio_to_pkl_extra_args(config: RunnerConfig) -> list[str]:
         f"{float(config.audio_lip_sync_strength):.6f}",
         "--lip-sync-power",
         f"{float(config.audio_lip_sync_power):.6f}",
+        "--lip-sync-attack",
+        f"{float(config.audio_lip_sync_attack):.6f}",
+        "--lip-sync-release",
+        f"{float(config.audio_lip_sync_release):.6f}",
         "--lip-sync-offset-ms",
         str(int(config.audio_lip_sync_offset_ms)),
+        "--mouth-floor-strength",
+        f"{float(config.audio_mouth_floor_strength):.6f}",
+        "--mouth-peak-clamp",
+        f"{float(config.audio_mouth_peak_clamp):.6f}",
     ]
     if config.generation_frame_count is not None:
         command.extend(
@@ -2882,6 +3011,17 @@ def main() -> None:
     prepare_stream_dir(config)
     phase_started_at = time.time()
 
+    if config.build_source_template_pack:
+        assert_path_exists(config.source_frame, "Source frame")
+        assert_path_exists(config.faster_repo_dir, "FasterLivePortrait repo")
+        assert_path_exists(config.faster_repo_dir / "run.py", "FasterLivePortrait run.py")
+        assert_path_exists(config.python_executable, "Python executable")
+        if config.source_template_pack_output is None:
+            raise RuntimeError("source_template_pack_output is required when build_source_template_pack is enabled")
+        config.source_template_pack_output.parent.mkdir(parents=True, exist_ok=True)
+        build_source_template_pack(config)
+        return
+
     assert_path_exists(config.source_frame, "Source frame")
     if config.driving_audio is None:
         assert_path_exists(config.frames_dir, "Frames directory")
@@ -2890,7 +3030,7 @@ def main() -> None:
     if not (config.backend == BACKEND_TRT and config.trt_runtime == TRT_RUNTIME_DOCKER):
         assert_path_exists(config.python_executable, "Python executable")
 
-    if config.source_frame.suffix.lower() not in SOURCE_VIDEO_EXTENSIONS:
+    if config.source_frame.suffix.lower() not in SOURCE_VIDEO_EXTENSIONS and read_source_template_pack_fps(config.source_frame) is None:
         assert_path_exists(config.meta_path, "Source metadata")
     source_fps = resolve_source_fps(config)
     driving_video, driving_template, _ = resolve_driving_paths(config)

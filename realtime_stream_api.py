@@ -309,7 +309,11 @@ DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_MAX_RATIO"
 DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_SMOOTH_WINDOW"
 DEFAULT_AUDIO_LIP_SYNC_STRENGTH_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_STRENGTH"
 DEFAULT_AUDIO_LIP_SYNC_POWER_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_POWER"
+DEFAULT_AUDIO_LIP_SYNC_ATTACK_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_ATTACK"
+DEFAULT_AUDIO_LIP_SYNC_RELEASE_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_RELEASE"
 DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_OFFSET_MS"
+DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH_ENV_KEY = "ANIMATION_AUDIO_MOUTH_FLOOR_STRENGTH"
+DEFAULT_AUDIO_MOUTH_PEAK_CLAMP_ENV_KEY = "ANIMATION_AUDIO_MOUTH_PEAK_CLAMP"
 DEFAULT_AUDIO_EYE_TAMED_PRESET = (
     os.getenv(DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY, "1").strip().lower() not in {"0", "false", "no"}
 )
@@ -369,7 +373,11 @@ DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO = read_env_float(DEFAULT_AUDIO_LIP_SYNC_MAX_RAT
 DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW = read_env_int(DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW_ENV_KEY, 5, 0, 21)
 DEFAULT_AUDIO_LIP_SYNC_STRENGTH = read_env_float(DEFAULT_AUDIO_LIP_SYNC_STRENGTH_ENV_KEY, 1.15, 0.0, 4.0)
 DEFAULT_AUDIO_LIP_SYNC_POWER = read_env_float(DEFAULT_AUDIO_LIP_SYNC_POWER_ENV_KEY, 0.85, 0.001, 4.0)
+DEFAULT_AUDIO_LIP_SYNC_ATTACK = read_env_float(DEFAULT_AUDIO_LIP_SYNC_ATTACK_ENV_KEY, 1.0, 0.0, 1.0)
+DEFAULT_AUDIO_LIP_SYNC_RELEASE = read_env_float(DEFAULT_AUDIO_LIP_SYNC_RELEASE_ENV_KEY, 1.0, 0.0, 1.0)
 DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS = read_env_int(DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS_ENV_KEY, 0, -1000, 1000)
+DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH = read_env_float(DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH_ENV_KEY, 0.26, 0.0, 4.0)
+DEFAULT_AUDIO_MOUTH_PEAK_CLAMP = read_env_float(DEFAULT_AUDIO_MOUTH_PEAK_CLAMP_ENV_KEY, 0.0, 0.0, 4.0)
 DEFAULT_DRIVING_MULTIPLIER = read_env_float(
     "ANIMATION_DRIVING_MULTIPLIER",
     1.0,
@@ -557,6 +565,11 @@ RUN_REPORT_FILE_NAME = "run_report.json"
 MAX_LOG_LINES = 400
 JOBS_ROOT_REL = Path("output_fasterliveportrait/jobs")
 JOBS_ROOT = PROJECT_ROOT / JOBS_ROOT_REL
+SOURCE_TEMPLATE_PACKS_REL = Path("output_fasterliveportrait/source_template_packs")
+SOURCE_TEMPLATE_PACKS_ROOT = PROJECT_ROOT / SOURCE_TEMPLATE_PACKS_REL
+SOURCE_TEMPLATE_PACK_META_SUFFIX = ".json"
+SOURCE_TEMPLATE_PACK_PREVIEW_SUFFIX = ".preview.png"
+SOURCE_TEMPLATE_PACK_CLOSE_MOUTH_PRESET = "close_mouth_in_silence"
 RUNTIME_LOG_TARGET_CONTAINER = "container"
 RUNTIME_LOG_TARGET_WORKER = "worker"
 RUNTIME_LOG_TARGETS = {RUNTIME_LOG_TARGET_CONTAINER, RUNTIME_LOG_TARGET_WORKER}
@@ -1038,6 +1051,136 @@ def build_public_file_url(file_path: Path) -> str:
     except ValueError:
         return ""
     return f"/{normalize_rel_path(str(relative_project_path))}"
+
+
+def build_audio_tuning_preset_values(preset_name: str) -> dict[str, Any]:
+    """
+    Resolve one named audio tuning preset.
+    """
+    normalized_preset_name = str(preset_name or "").strip().lower()
+    if normalized_preset_name != SOURCE_TEMPLATE_PACK_CLOSE_MOUTH_PRESET:
+        return {}
+    return {
+        "audioMotionTuningEnabled": True,
+        "audioLipSyncAssist": True,
+        "audioReanchorFirstN": 1,
+        "audioMouthOpenFactor": 1.0,
+        "audioPoseSmoothWindow": 3,
+        "audioExpSmoothWindow": 1,
+        "audioPoseJumpThreshold": 8.0,
+        "audioTranslationJumpThreshold": 0.03,
+        "audioLipSyncMinRatio": 0.0,
+        "audioLipSyncMaxRatio": 0.38,
+        "audioLipSyncSmoothWindow": 3,
+        "audioLipSyncStrength": 1.35,
+        "audioLipSyncPower": 0.70,
+        "audioLipSyncAttack": 1.0,
+        "audioLipSyncRelease": 0.55,
+        "audioLipSyncOffsetMs": 0,
+        "audioMouthFloorStrength": 0.0,
+        "audioMouthPeakClamp": 0.0,
+        "drivingMultiplier": 1.0,
+        "cfgScale": 4.0,
+        "animationRegion": "all",
+        "stitchingEnabled": True,
+        "relativeMotionEnabled": True,
+    }
+
+
+def build_audio_tuning_presets_payload() -> dict[str, dict[str, Any]]:
+    """
+    Return the public preset catalog for clients.
+    """
+    return {
+        SOURCE_TEMPLATE_PACK_CLOSE_MOUTH_PRESET: build_audio_tuning_preset_values(
+            SOURCE_TEMPLATE_PACK_CLOSE_MOUTH_PRESET
+        )
+    }
+
+
+def resolve_source_template_pack_meta_path(template_pack_path: Path) -> Path:
+    return Path(f"{template_pack_path}{SOURCE_TEMPLATE_PACK_META_SUFFIX}")
+
+
+def resolve_source_template_pack_preview_path(template_pack_path: Path) -> Path:
+    return template_pack_path.with_suffix(SOURCE_TEMPLATE_PACK_PREVIEW_SUFFIX)
+
+
+def read_source_template_pack_metadata(template_pack_path: Path) -> dict[str, Any]:
+    meta_path = resolve_source_template_pack_meta_path(template_pack_path)
+    payload = read_json(meta_path)
+    if isinstance(payload, dict):
+        return payload
+    return {}
+
+
+def is_source_template_pack_path(path_value: Path | str | None) -> bool:
+    safe_path = Path(str(path_value or "")).resolve() if str(path_value or "").strip() else None
+    if safe_path is None or safe_path.suffix.lower() != ".pkl":
+        return False
+    return resolve_source_template_pack_meta_path(safe_path).exists()
+
+
+def build_source_template_pack_record(template_pack_path: Path) -> dict[str, Any]:
+    metadata = read_source_template_pack_metadata(template_pack_path)
+    preview_path = resolve_source_template_pack_preview_path(template_pack_path)
+    template_name = template_pack_path.name
+    source_type = "video" if bool(metadata.get("is_source_video", False)) else "image"
+    return {
+        "id": template_name,
+        "name": template_name,
+        "fileName": template_name,
+        "path": normalize_rel_path(str(template_pack_path.relative_to(PROJECT_ROOT))),
+        "templatePackPath": str(template_pack_path),
+        "createdAt": metadata.get("created_at", ""),
+        "frameTotal": int(metadata.get("frame_total", 0) or 0),
+        "sourceType": source_type,
+        "sourceFps": metadata.get("source_fps"),
+        "sourcePath": metadata.get("source_path", ""),
+        "previewUrl": build_public_file_url(preview_path) if preview_path.exists() else "",
+    }
+
+
+def list_source_template_pack_records() -> list[dict[str, Any]]:
+    SOURCE_TEMPLATE_PACKS_ROOT.mkdir(parents=True, exist_ok=True)
+    template_paths = sorted(
+        SOURCE_TEMPLATE_PACKS_ROOT.glob("*.pkl"),
+        key=lambda item: item.stat().st_mtime_ns,
+        reverse=True,
+    )
+    return [build_source_template_pack_record(path.resolve()) for path in template_paths]
+
+
+def sanitize_source_template_pack_name(template_name: str) -> str:
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(template_name or "").strip())
+    safe_name = safe_name.strip("._")
+    return safe_name or "source_template"
+
+
+def resolve_source_template_pack_path(template_identifier: str) -> Path:
+    SOURCE_TEMPLATE_PACKS_ROOT.mkdir(parents=True, exist_ok=True)
+    normalized_identifier = str(template_identifier or "").strip()
+    if not normalized_identifier:
+        raise HTTPException(status_code=400, detail="source_template_pack is empty.")
+
+    candidate_path = Path(normalized_identifier)
+    candidate_paths: list[Path] = []
+    if candidate_path.is_absolute():
+        candidate_paths.append(candidate_path.resolve())
+    else:
+        candidate_paths.append((SOURCE_TEMPLATE_PACKS_ROOT / candidate_path.name).resolve())
+        if candidate_path.suffix.lower() != ".pkl":
+            candidate_paths.append((SOURCE_TEMPLATE_PACKS_ROOT / f"{candidate_path.name}.pkl").resolve())
+
+    for resolved_path in candidate_paths:
+        if resolved_path.exists() and resolved_path.is_file():
+            try:
+                resolved_path.relative_to(SOURCE_TEMPLATE_PACKS_ROOT)
+            except ValueError:
+                continue
+            if is_source_template_pack_path(resolved_path):
+                return resolved_path
+    raise HTTPException(status_code=404, detail=f"Source template pack not found: {normalized_identifier}")
 
 
 def extract_bearer_token(header_value: str) -> str:
@@ -1755,6 +1898,8 @@ class JobRecord:
     mode: str
     source_frame_arg: str
     source_frame_abs: Path
+    source_template_pack_id: str
+    source_template_pack_abs: Path | None
     output_rel: Path
     output_abs: Path
     stream_rel: Path
@@ -1785,7 +1930,11 @@ class JobRecord:
     audio_lip_sync_smooth_window: int
     audio_lip_sync_strength: float
     audio_lip_sync_power: float
+    audio_lip_sync_attack: float
+    audio_lip_sync_release: float
     audio_lip_sync_offset_ms: int
+    audio_mouth_floor_strength: float
+    audio_mouth_peak_clamp: float
     driving_multiplier: float
     cfg_scale: float
     joyvasa_inference_steps: int
@@ -3710,8 +3859,16 @@ def build_runner_command(job: JobRecord) -> list[str]:
         f"{float(job.audio_lip_sync_strength):.6f}",
         "--audio-lip-sync-power",
         f"{float(job.audio_lip_sync_power):.6f}",
+        "--audio-lip-sync-attack",
+        f"{float(job.audio_lip_sync_attack):.6f}",
+        "--audio-lip-sync-release",
+        f"{float(job.audio_lip_sync_release):.6f}",
         "--audio-lip-sync-offset-ms",
         str(int(job.audio_lip_sync_offset_ms)),
+        "--audio-mouth-floor-strength",
+        f"{float(job.audio_mouth_floor_strength):.6f}",
+        "--audio-mouth-peak-clamp",
+        f"{float(job.audio_mouth_peak_clamp):.6f}",
         "--driving-multiplier",
         f"{float(job.driving_multiplier):.6f}",
         "--cfg-scale",
@@ -5121,6 +5278,13 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
     public_preview_composition = build_public_preview_composition_payload(job, stream_status)
     if public_preview_composition is not None:
         public_stream_status[PREVIEW_COMPOSITION_STATUS_KEY] = public_preview_composition
+    source_preview_url = build_public_file_url(job.source_frame_abs)
+    source_media_type = "video" if is_source_video_path(job.source_frame_abs) else "image"
+    source_template_payload: dict[str, Any] | None = None
+    if job.source_template_pack_abs is not None:
+        source_template_payload = build_source_template_pack_record(job.source_template_pack_abs)
+        source_preview_url = str(source_template_payload.get("previewUrl", "") or source_preview_url)
+        source_media_type = "image"
     payload: dict[str, Any] = {
         "jobId": job.job_id,
         "avatarSessionId": job.avatar_session_id,
@@ -5153,7 +5317,11 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "audioLipSyncSmoothWindow": job.audio_lip_sync_smooth_window,
         "audioLipSyncStrength": job.audio_lip_sync_strength,
         "audioLipSyncPower": job.audio_lip_sync_power,
+        "audioLipSyncAttack": job.audio_lip_sync_attack,
+        "audioLipSyncRelease": job.audio_lip_sync_release,
         "audioLipSyncOffsetMs": job.audio_lip_sync_offset_ms,
+        "audioMouthFloorStrength": job.audio_mouth_floor_strength,
+        "audioMouthPeakClamp": job.audio_mouth_peak_clamp,
         "drivingMultiplier": job.driving_multiplier,
         "cfgScale": job.cfg_scale,
         "joyvasaInferenceSteps": job.joyvasa_inference_steps,
@@ -5163,8 +5331,9 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "pasteBackEnabled": job.paste_back_enabled,
         "deferPasteBackEnabled": job.defer_paste_back_enabled,
         "sourceFrame": job.source_frame_arg,
-        "sourceFrameUrl": build_public_file_url(job.source_frame_abs),
-        "sourceMediaType": "video" if is_source_video_path(job.source_frame_abs) else "image",
+        "sourceFrameUrl": source_preview_url,
+        "sourceMediaType": source_media_type,
+        "sourceTemplatePackId": job.source_template_pack_id,
         "status": public_stream_status,
         "previewComposition": public_preview_composition,
         "streamUrl": f"/api/jobs/{job.job_id}/stream.mjpg",
@@ -5180,6 +5349,8 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "avatarPlayStartedAtMs": job.avatar_play_started_at_ms,
         "avatarPlayFinishedAtMs": job.avatar_play_finished_at_ms,
     }
+    if source_template_payload is not None:
+        payload["sourceTemplatePack"] = source_template_payload
     if report is not None:
         payload["report"] = report
     return payload
@@ -5200,6 +5371,7 @@ async def save_upload_file(upload: UploadFile, target_path: Path) -> None:
 
 async def resolve_requested_source_frame(
     source_frame: str,
+    source_template_pack: str,
     source_image: UploadFile | None,
     source_video: UploadFile | None,
     output_abs: Path,
@@ -5210,18 +5382,25 @@ async def resolve_requested_source_frame(
     """
     Resolve source frame from optional uploaded image or local path input.
     """
-    try:
-        fixed_source = resolve_configured_fixed_source_frame()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    if fixed_source is not None:
-        return fixed_source
     has_source_image_upload = bool(source_image is not None and source_image.filename)
     has_source_video_upload = bool(source_video is not None and source_video.filename)
     if has_source_image_upload and has_source_video_upload:
         raise HTTPException(status_code=400, detail="Provide either source_image or source_video, not both.")
     normalized_source_frame = str(source_frame or "").strip() or DEFAULT_SOURCE_FRAME
+    normalized_source_template_pack = str(source_template_pack or "").strip()
+
+    if normalized_source_template_pack:
+        source_template_pack_abs = resolve_source_template_pack_path(normalized_source_template_pack)
+        source_template_pack_rel = normalize_rel_path(str(source_template_pack_abs.relative_to(PROJECT_ROOT)))
+        return source_template_pack_abs, source_template_pack_rel
+
     if not has_source_image_upload and not has_source_video_upload:
+        try:
+            fixed_source = resolve_configured_fixed_source_frame()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        if fixed_source is not None and normalized_source_frame == DEFAULT_SOURCE_FRAME:
+            return fixed_source
         if normalized_source_frame == DEFAULT_SOURCE_FRAME:
             idle_anchor_source = resolve_avatar_idle_anchor_source_frame(audio_duration_sec, avatar_session_id)
             if idle_anchor_source is not None:
@@ -5263,6 +5442,8 @@ async def create_and_enqueue_audio_job(
     source_image: UploadFile | None,
     source_video: UploadFile | None,
     source_frame: str,
+    source_template_pack: str,
+    audio_tuning_preset: str,
     mode: str,
     motion_stride: int,
     generation_frame_count: int | None,
@@ -5284,7 +5465,11 @@ async def create_and_enqueue_audio_job(
     audio_lip_sync_smooth_window: int,
     audio_lip_sync_strength: float,
     audio_lip_sync_power: float,
+    audio_lip_sync_attack: float,
+    audio_lip_sync_release: float,
     audio_lip_sync_offset_ms: int,
+    audio_mouth_floor_strength: float,
+    audio_mouth_peak_clamp: float,
     driving_multiplier: float,
     cfg_scale: float,
     joyvasa_inference_steps: int,
@@ -5376,7 +5561,23 @@ async def create_and_enqueue_audio_job(
     if not math.isfinite(normalized_audio_lip_sync_power):
         raise HTTPException(status_code=400, detail="Invalid audio_lip_sync_power.")
     normalized_audio_lip_sync_power = min(4.0, max(0.001, normalized_audio_lip_sync_power))
+    normalized_audio_lip_sync_attack = float(audio_lip_sync_attack)
+    if not math.isfinite(normalized_audio_lip_sync_attack):
+        raise HTTPException(status_code=400, detail="Invalid audio_lip_sync_attack.")
+    normalized_audio_lip_sync_attack = min(1.0, max(0.0, normalized_audio_lip_sync_attack))
+    normalized_audio_lip_sync_release = float(audio_lip_sync_release)
+    if not math.isfinite(normalized_audio_lip_sync_release):
+        raise HTTPException(status_code=400, detail="Invalid audio_lip_sync_release.")
+    normalized_audio_lip_sync_release = min(1.0, max(0.0, normalized_audio_lip_sync_release))
     normalized_audio_lip_sync_offset_ms = min(1000, max(-1000, int(audio_lip_sync_offset_ms)))
+    normalized_audio_mouth_floor_strength = float(audio_mouth_floor_strength)
+    if not math.isfinite(normalized_audio_mouth_floor_strength):
+        raise HTTPException(status_code=400, detail="Invalid audio_mouth_floor_strength.")
+    normalized_audio_mouth_floor_strength = min(4.0, max(0.0, normalized_audio_mouth_floor_strength))
+    normalized_audio_mouth_peak_clamp = float(audio_mouth_peak_clamp)
+    if not math.isfinite(normalized_audio_mouth_peak_clamp):
+        raise HTTPException(status_code=400, detail="Invalid audio_mouth_peak_clamp.")
+    normalized_audio_mouth_peak_clamp = min(4.0, max(0.0, normalized_audio_mouth_peak_clamp))
     normalized_driving_multiplier = float(driving_multiplier)
     if not math.isfinite(normalized_driving_multiplier):
         raise HTTPException(status_code=400, detail="Invalid driving_multiplier.")
@@ -5393,6 +5594,34 @@ async def create_and_enqueue_audio_job(
             status_code=400,
             detail=f"Invalid animation_region. Allowed values: {sorted(ANIMATION_REGION_CHOICES)}",
         )
+    normalized_audio_tuning_preset = str(audio_tuning_preset or "").strip().lower()
+    preset_values = build_audio_tuning_preset_values(normalized_audio_tuning_preset)
+    if normalized_audio_tuning_preset and not preset_values:
+        raise HTTPException(status_code=400, detail=f"Unsupported audio_tuning_preset: {audio_tuning_preset}")
+    if preset_values:
+        normalized_audio_reanchor_first_n = int(preset_values["audioReanchorFirstN"])
+        normalized_audio_mouth_open_factor = float(preset_values["audioMouthOpenFactor"])
+        normalized_audio_pose_smooth_window = int(preset_values["audioPoseSmoothWindow"])
+        normalized_audio_exp_smooth_window = int(preset_values["audioExpSmoothWindow"])
+        normalized_audio_pose_jump_threshold = float(preset_values["audioPoseJumpThreshold"])
+        normalized_audio_translation_jump_threshold = float(preset_values["audioTranslationJumpThreshold"])
+        normalized_audio_lip_sync_min_ratio = float(preset_values["audioLipSyncMinRatio"])
+        normalized_audio_lip_sync_max_ratio = float(preset_values["audioLipSyncMaxRatio"])
+        normalized_audio_lip_sync_smooth_window = int(preset_values["audioLipSyncSmoothWindow"])
+        normalized_audio_lip_sync_strength = float(preset_values["audioLipSyncStrength"])
+        normalized_audio_lip_sync_power = float(preset_values["audioLipSyncPower"])
+        normalized_audio_lip_sync_attack = float(preset_values["audioLipSyncAttack"])
+        normalized_audio_lip_sync_release = float(preset_values["audioLipSyncRelease"])
+        normalized_audio_lip_sync_offset_ms = int(preset_values["audioLipSyncOffsetMs"])
+        normalized_audio_mouth_floor_strength = float(preset_values["audioMouthFloorStrength"])
+        normalized_audio_mouth_peak_clamp = float(preset_values["audioMouthPeakClamp"])
+        normalized_driving_multiplier = float(preset_values["drivingMultiplier"])
+        normalized_cfg_scale = float(preset_values["cfgScale"])
+        normalized_animation_region = str(preset_values["animationRegion"])
+        stitching = bool(preset_values["stitchingEnabled"])
+        relative_motion = bool(preset_values["relativeMotionEnabled"])
+        audio_motion_tuning_enabled = bool(preset_values["audioMotionTuningEnabled"])
+        audio_lip_sync_assist = bool(preset_values["audioLipSyncAssist"])
 
     job_id = make_job_id()
     output_rel = JOBS_ROOT_REL / job_id
@@ -5411,6 +5640,7 @@ async def create_and_enqueue_audio_job(
     audio_duration_sec = probe_media_duration_sec(input_abs)
     source_frame_abs, source_frame_arg = await resolve_requested_source_frame(
         source_frame=source_frame,
+        source_template_pack=source_template_pack,
         source_image=source_image,
         source_video=source_video,
         output_abs=output_abs,
@@ -5418,6 +5648,8 @@ async def create_and_enqueue_audio_job(
         audio_duration_sec=audio_duration_sec,
         avatar_session_id=avatar_session_id,
     )
+    source_template_pack_abs = source_frame_abs if is_source_template_pack_path(source_frame_abs) else None
+    source_template_pack_id = source_template_pack_abs.name if source_template_pack_abs is not None else ""
 
     job = JobRecord(
         job_id=job_id,
@@ -5426,6 +5658,8 @@ async def create_and_enqueue_audio_job(
         mode=mode,
         source_frame_arg=source_frame_arg,
         source_frame_abs=source_frame_abs,
+        source_template_pack_id=source_template_pack_id,
+        source_template_pack_abs=source_template_pack_abs,
         output_rel=output_rel,
         output_abs=output_abs,
         stream_rel=stream_rel,
@@ -5456,7 +5690,11 @@ async def create_and_enqueue_audio_job(
         audio_lip_sync_smooth_window=normalized_audio_lip_sync_smooth_window,
         audio_lip_sync_strength=normalized_audio_lip_sync_strength,
         audio_lip_sync_power=normalized_audio_lip_sync_power,
+        audio_lip_sync_attack=normalized_audio_lip_sync_attack,
+        audio_lip_sync_release=normalized_audio_lip_sync_release,
         audio_lip_sync_offset_ms=normalized_audio_lip_sync_offset_ms,
+        audio_mouth_floor_strength=normalized_audio_mouth_floor_strength,
+        audio_mouth_peak_clamp=normalized_audio_mouth_peak_clamp,
         driving_multiplier=normalized_driving_multiplier,
         cfg_scale=normalized_cfg_scale,
         joyvasa_inference_steps=normalized_joyvasa_inference_steps,
@@ -5578,10 +5816,17 @@ def create_app() -> FastAPI:
             "defaultAudioLipSyncSmoothWindow": DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW,
             "defaultAudioLipSyncStrength": DEFAULT_AUDIO_LIP_SYNC_STRENGTH,
             "defaultAudioLipSyncPower": DEFAULT_AUDIO_LIP_SYNC_POWER,
+            "defaultAudioLipSyncAttack": DEFAULT_AUDIO_LIP_SYNC_ATTACK,
+            "defaultAudioLipSyncRelease": DEFAULT_AUDIO_LIP_SYNC_RELEASE,
             "defaultAudioLipSyncOffsetMs": DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS,
+            "defaultAudioMouthFloorStrength": DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH,
+            "defaultAudioMouthPeakClamp": DEFAULT_AUDIO_MOUTH_PEAK_CLAMP,
             "defaultDrivingMultiplier": DEFAULT_DRIVING_MULTIPLIER,
             "defaultCfgScale": DEFAULT_CFG_SCALE,
             "defaultJoyvasaInferenceSteps": DEFAULT_JOYVASA_INFERENCE_STEPS,
+            "audioTuningPresets": build_audio_tuning_presets_payload(),
+            "sourceTemplatePacksUrl": "/api/source-templates",
+            "createSourceTemplatePackUrl": "/api/source-templates",
             "defaultVideoEncoder": DEFAULT_VIDEO_ENCODER,
             "authEnabled": API_TOKEN_ENABLED,
             "authHeaderName": "Authorization",
@@ -5627,6 +5872,115 @@ def create_app() -> FastAPI:
             "activeWebrtcSessions": avatar_payload["activeWebrtcSessions"],
             "containerLogPath": str(CONTAINER_LOG_REL),
             "workerLogPath": str(PERSISTENT_WORKER_LOG_REL),
+        }
+
+    @app.get("/api/source-templates")
+    async def list_source_templates() -> dict[str, Any]:
+        return {
+            "items": list_source_template_pack_records(),
+            "presetIds": [SOURCE_TEMPLATE_PACK_CLOSE_MOUTH_PRESET],
+        }
+
+    @app.post("/api/source-templates")
+    async def create_source_template_pack_endpoint(
+        source_image: UploadFile | None = File(None),
+        source_video: UploadFile | None = File(None),
+        source_frame: str = Form(""),
+        template_name: str = Form(""),
+    ) -> dict[str, Any]:
+        has_source_image_upload = bool(source_image is not None and source_image.filename)
+        has_source_video_upload = bool(source_video is not None and source_video.filename)
+        if has_source_image_upload and has_source_video_upload:
+            raise HTTPException(status_code=400, detail="Provide either source_image or source_video, not both.")
+
+        build_request_id = uuid.uuid4().hex
+        build_root = (SOURCE_TEMPLATE_PACKS_ROOT / "_build_inputs" / build_request_id).resolve()
+        build_root.mkdir(parents=True, exist_ok=True)
+
+        if has_source_video_upload:
+            extension = Path(str(source_video.filename)).suffix.lower()
+            if extension not in ALLOWED_SOURCE_VIDEO_EXTENSIONS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Unsupported source video extension '{extension}'. "
+                        f"Allowed: {sorted(ALLOWED_SOURCE_VIDEO_EXTENSIONS)}"
+                    ),
+                )
+            source_abs = (build_root / f"source{extension}").resolve()
+            await save_upload_file(source_video, source_abs)
+        elif has_source_image_upload:
+            extension = Path(str(source_image.filename)).suffix.lower()
+            if extension not in ALLOWED_SOURCE_IMAGE_EXTENSIONS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Unsupported source image extension '{extension}'. "
+                        f"Allowed: {sorted(ALLOWED_SOURCE_IMAGE_EXTENSIONS)}"
+                    ),
+                )
+            source_abs = (build_root / f"source{extension}").resolve()
+            await save_upload_file(source_image, source_abs)
+        else:
+            source_abs, _ = resolve_source_frame_candidate(str(source_frame or "").strip() or DEFAULT_SOURCE_FRAME)
+
+        safe_template_name = sanitize_source_template_pack_name(
+            template_name or Path(source_abs).stem or "source_template"
+        )
+        template_pack_path = (SOURCE_TEMPLATE_PACKS_ROOT / f"{safe_template_name}.pkl").resolve()
+        if template_pack_path.exists():
+            template_pack_path = (
+                SOURCE_TEMPLATE_PACKS_ROOT
+                / f"{safe_template_name}-{time.strftime('%Y%m%d-%H%M%S')}.pkl"
+            ).resolve()
+
+        command = [
+            str(RUNNER_PYTHON),
+            str(RUNNER_SCRIPT),
+            "--backend",
+            DEFAULT_BACKEND,
+            "--trt-runtime",
+            DEFAULT_TRT_RUNTIME,
+            "--trt-precision",
+            DEFAULT_TRT_PRECISION,
+            "--source-frame",
+            str(source_abs),
+            "--source-template-pack-output",
+            str(template_pack_path),
+            "--build-source-template-pack",
+            "--animation-region",
+            DEFAULT_ANIMATION_REGION,
+        ]
+        if not DEFAULT_PASTE_BACK_ENABLED:
+            command.append("--no-paste-back")
+        if not DEFAULT_STITCHING_ENABLED:
+            command.append("--no-stitching")
+        if not DEFAULT_RELATIVE_MOTION_ENABLED:
+            command.append("--no-relative-motion")
+
+        completed = await asyncio.to_thread(
+            subprocess.run,
+            command,
+            cwd=str(PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Failed to build source template pack. "
+                    f"stdout={completed.stdout[-1200:]} stderr={completed.stderr[-1200:]}"
+                ),
+            )
+
+        if not template_pack_path.exists():
+            raise HTTPException(status_code=500, detail="Source template pack build completed without output file.")
+
+        return {
+            "item": build_source_template_pack_record(template_pack_path),
+            "stdout": completed.stdout.strip(),
         }
 
     @app.get("/api/avatar/status")
@@ -5727,6 +6081,8 @@ def create_app() -> FastAPI:
         source_image: UploadFile | None = File(None),
         source_video: UploadFile | None = File(None),
         source_frame: str = Form(DEFAULT_SOURCE_FRAME),
+        source_template_pack: str = Form(""),
+        audio_tuning_preset: str = Form(""),
         mode: str = Form(DEFAULT_MODE),
         motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
         generation_frame_count: int | None = Form(None),
@@ -5748,7 +6104,11 @@ def create_app() -> FastAPI:
         audio_lip_sync_smooth_window: int = Form(DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW),
         audio_lip_sync_strength: float = Form(DEFAULT_AUDIO_LIP_SYNC_STRENGTH),
         audio_lip_sync_power: float = Form(DEFAULT_AUDIO_LIP_SYNC_POWER),
+        audio_lip_sync_attack: float = Form(DEFAULT_AUDIO_LIP_SYNC_ATTACK),
+        audio_lip_sync_release: float = Form(DEFAULT_AUDIO_LIP_SYNC_RELEASE),
         audio_lip_sync_offset_ms: int = Form(DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS),
+        audio_mouth_floor_strength: float = Form(DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH),
+        audio_mouth_peak_clamp: float = Form(DEFAULT_AUDIO_MOUTH_PEAK_CLAMP),
         driving_multiplier: float = Form(DEFAULT_DRIVING_MULTIPLIER),
         cfg_scale: float = Form(DEFAULT_CFG_SCALE),
         joyvasa_inference_steps: int = Form(DEFAULT_JOYVASA_INFERENCE_STEPS),
@@ -5764,6 +6124,8 @@ def create_app() -> FastAPI:
             source_image=source_image,
             source_video=source_video,
             source_frame=source_frame,
+            source_template_pack=source_template_pack,
+            audio_tuning_preset=audio_tuning_preset,
             mode=mode,
             motion_stride=motion_stride,
             generation_frame_count=generation_frame_count,
@@ -5785,7 +6147,11 @@ def create_app() -> FastAPI:
             audio_lip_sync_smooth_window=audio_lip_sync_smooth_window,
             audio_lip_sync_strength=audio_lip_sync_strength,
             audio_lip_sync_power=audio_lip_sync_power,
+            audio_lip_sync_attack=audio_lip_sync_attack,
+            audio_lip_sync_release=audio_lip_sync_release,
             audio_lip_sync_offset_ms=audio_lip_sync_offset_ms,
+            audio_mouth_floor_strength=audio_mouth_floor_strength,
+            audio_mouth_peak_clamp=audio_mouth_peak_clamp,
             driving_multiplier=driving_multiplier,
             cfg_scale=cfg_scale,
             joyvasa_inference_steps=joyvasa_inference_steps,
@@ -5803,6 +6169,8 @@ def create_app() -> FastAPI:
         source_image: UploadFile | None = File(None),
         source_video: UploadFile | None = File(None),
         source_frame: str = Form(DEFAULT_SOURCE_FRAME),
+        source_template_pack: str = Form(""),
+        audio_tuning_preset: str = Form(""),
         mode: str = Form(DEFAULT_MODE),
         motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
         generation_frame_count: int | None = Form(None),
@@ -5824,7 +6192,11 @@ def create_app() -> FastAPI:
         audio_lip_sync_smooth_window: int = Form(DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW),
         audio_lip_sync_strength: float = Form(DEFAULT_AUDIO_LIP_SYNC_STRENGTH),
         audio_lip_sync_power: float = Form(DEFAULT_AUDIO_LIP_SYNC_POWER),
+        audio_lip_sync_attack: float = Form(DEFAULT_AUDIO_LIP_SYNC_ATTACK),
+        audio_lip_sync_release: float = Form(DEFAULT_AUDIO_LIP_SYNC_RELEASE),
         audio_lip_sync_offset_ms: int = Form(DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS),
+        audio_mouth_floor_strength: float = Form(DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH),
+        audio_mouth_peak_clamp: float = Form(DEFAULT_AUDIO_MOUTH_PEAK_CLAMP),
         driving_multiplier: float = Form(DEFAULT_DRIVING_MULTIPLIER),
         cfg_scale: float = Form(DEFAULT_CFG_SCALE),
         joyvasa_inference_steps: int = Form(DEFAULT_JOYVASA_INFERENCE_STEPS),
@@ -5840,6 +6212,8 @@ def create_app() -> FastAPI:
             source_image=source_image,
             source_video=source_video,
             source_frame=source_frame,
+            source_template_pack=source_template_pack,
+            audio_tuning_preset=audio_tuning_preset,
             mode=mode,
             motion_stride=motion_stride,
             generation_frame_count=generation_frame_count,
@@ -5861,7 +6235,11 @@ def create_app() -> FastAPI:
             audio_lip_sync_smooth_window=audio_lip_sync_smooth_window,
             audio_lip_sync_strength=audio_lip_sync_strength,
             audio_lip_sync_power=audio_lip_sync_power,
+            audio_lip_sync_attack=audio_lip_sync_attack,
+            audio_lip_sync_release=audio_lip_sync_release,
             audio_lip_sync_offset_ms=audio_lip_sync_offset_ms,
+            audio_mouth_floor_strength=audio_mouth_floor_strength,
+            audio_mouth_peak_clamp=audio_mouth_peak_clamp,
             driving_multiplier=driving_multiplier,
             cfg_scale=cfg_scale,
             joyvasa_inference_steps=joyvasa_inference_steps,
