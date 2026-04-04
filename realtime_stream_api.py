@@ -14,6 +14,7 @@ import hmac
 import json
 import math
 import os
+import pickle
 import re
 import shutil
 import signal
@@ -71,6 +72,58 @@ def resolve_media_tool_binary(tool_name: str) -> str:
         if real_binary_path.exists():
             return str(real_binary_path.resolve())
     return str(binary_path.resolve())
+
+
+def format_command_for_log(command: list[str]) -> str:
+    """
+    Render one subprocess command for human-readable logs.
+    """
+    return subprocess.list2cmdline([str(token) for token in command])
+
+
+def emit_runtime_log(label: str, message: str) -> None:
+    """
+    Emit one flushed runtime log line.
+    """
+    print(f"[{label}] {message}", flush=True)
+
+
+def pump_subprocess_output(
+    stream: Any,
+    log_handle: Any,
+    label: str,
+) -> None:
+    """
+    Mirror one subprocess combined stdout stream into file storage and terminal output.
+    """
+    if stream is None:
+        return
+    try:
+        for line in iter(stream.readline, ""):
+            if not line:
+                break
+            if log_handle is not None:
+                log_handle.write(line)
+                log_handle.flush()
+            text = str(line).rstrip("\r\n")
+            if text:
+                emit_runtime_log(label, text)
+    finally:
+        with contextlib.suppress(Exception):
+            stream.close()
+
+
+def read_text_file_tail(path_value: Path, maximum_chars: int = 2000) -> str:
+    """
+    Read a short tail slice from one text file for error reporting.
+    """
+    try:
+        text_value = path_value.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    if maximum_chars <= 0:
+        return text_value
+    return text_value[-maximum_chars:]
 
 
 def terminate_process_tree(process: asyncio.subprocess.Process | None) -> None:
@@ -570,6 +623,8 @@ SOURCE_TEMPLATE_PACKS_ROOT = PROJECT_ROOT / SOURCE_TEMPLATE_PACKS_REL
 SOURCE_TEMPLATE_PACK_META_SUFFIX = ".json"
 SOURCE_TEMPLATE_PACK_PREVIEW_SUFFIX = ".preview.png"
 SOURCE_TEMPLATE_PACK_CLOSE_MOUTH_PRESET = "close_mouth_in_silence"
+SOURCE_TEMPLATE_PACK_BUILD_LOGS_DIR = SOURCE_TEMPLATE_PACKS_ROOT / "_build_logs"
+SOURCE_TEMPLATE_PACK_BUILD_WAIT_TIMEOUT_SEC = 60.0 * 60.0
 RUNTIME_LOG_TARGET_CONTAINER = "container"
 RUNTIME_LOG_TARGET_WORKER = "worker"
 RUNTIME_LOG_TARGETS = {RUNTIME_LOG_TARGET_CONTAINER, RUNTIME_LOG_TARGET_WORKER}
@@ -781,6 +836,33 @@ def is_source_video_path(path_value: Path | str | None) -> bool:
     if path_value is None:
         return False
     return Path(str(path_value)).suffix.lower() in ALLOWED_SOURCE_VIDEO_EXTENSIONS
+
+
+def is_video_backed_source_path(path_value: Path | str | None) -> bool:
+    """
+    Determine whether a source path is backed by video frames, including template packs.
+    """
+    if path_value is None:
+        return False
+    if is_source_video_path(path_value):
+        return True
+    if not is_source_template_pack_path(path_value):
+        return False
+    metadata = read_source_template_pack_metadata(Path(str(path_value)).resolve())
+    return bool(metadata.get("is_source_video", False))
+
+
+def resolve_source_input_kind(path_value: Path | str | None) -> str:
+    """
+    Resolve public source input kind for logs and payloads.
+    """
+    if path_value is None:
+        return "unknown"
+    if is_source_template_pack_path(path_value):
+        return "template_pack"
+    if is_source_video_path(path_value):
+        return "video"
+    return "image"
 
 
 def resolve_source_frame_candidate(source_frame: str) -> tuple[Path, str]:
@@ -1139,6 +1221,28 @@ def build_source_template_pack_record(template_pack_path: Path) -> dict[str, Any
         "sourcePath": metadata.get("source_path", ""),
         "previewUrl": build_public_file_url(preview_path) if preview_path.exists() else "",
     }
+
+
+def validate_source_template_pack_payload(template_pack_path: Path) -> tuple[bool, str]:
+    """
+    Validate one built source template pack structure before exposing it to clients.
+    """
+    try:
+        with template_pack_path.open("rb") as handle:
+            payload = pickle.load(handle)
+    except Exception as exc:
+        return False, f"unable to load template pack payload: {exc}"
+    if not isinstance(payload, dict):
+        return False, "template pack payload is not a dictionary"
+    src_imgs = payload.get("src_imgs")
+    src_infos = payload.get("src_infos")
+    if not isinstance(src_imgs, list) or not src_imgs:
+        return False, "template pack payload is missing src_imgs"
+    if not isinstance(src_infos, list) or not src_infos:
+        return False, "template pack payload is missing src_infos"
+    if len(src_imgs) != len(src_infos):
+        return False, "template pack payload frame counts do not match"
+    return True, ""
 
 
 def list_source_template_pack_records() -> list[dict[str, Any]]:
@@ -1965,6 +2069,22 @@ class JobRecord:
     @property
     def result_concat_abs(self) -> Path:
         return self.output_abs / "result_concat.mp4"
+
+
+@dataclass
+class SourceTemplateBuildTask:
+    task_id: str
+    created_at_ms: int
+    source_abs: Path
+    template_pack_path: Path
+    template_name: str
+    log_abs: Path
+    started_at_ms: int | None = None
+    finished_at_ms: int | None = None
+    exit_code: int | None = None
+    error: str = ""
+    result: dict[str, Any] | None = None
+    done_event: threading.Event = field(default_factory=threading.Event, repr=False)
 
 
 @dataclass
@@ -3041,6 +3161,11 @@ JOB_QUEUE_CONDITION = threading.Condition()
 JOB_QUEUE: deque[str] = deque()
 JOB_WORKER_LOCK = threading.Lock()
 JOB_WORKER_THREAD: threading.Thread | None = None
+SOURCE_TEMPLATE_BUILD_TASKS_LOCK = threading.Lock()
+SOURCE_TEMPLATE_BUILD_TASKS: dict[str, SourceTemplateBuildTask] = {}
+QUEUE_ACTIVE_TASK_LOCK = threading.Lock()
+QUEUE_ACTIVE_TASK_ID = ""
+QUEUE_ACTIVE_TASK_KIND = ""
 WEBRTC_SESSIONS_LOCK = threading.Lock()
 WEBRTC_SESSIONS: dict[str, AvatarWebRtcSession] = {}
 WARMUP_LOCK = threading.Lock()
@@ -3093,6 +3218,61 @@ def enqueue_job(job_id: str) -> None:
         JOB_QUEUE_CONDITION.notify()
 
 
+def register_source_template_build_task(task: SourceTemplateBuildTask) -> None:
+    """
+    Register one queued template-build task.
+    """
+    with SOURCE_TEMPLATE_BUILD_TASKS_LOCK:
+        SOURCE_TEMPLATE_BUILD_TASKS[task.task_id] = task
+
+
+def pop_source_template_build_task(task_id: str) -> SourceTemplateBuildTask | None:
+    """
+    Remove one completed template-build task from memory.
+    """
+    with SOURCE_TEMPLATE_BUILD_TASKS_LOCK:
+        return SOURCE_TEMPLATE_BUILD_TASKS.pop(task_id, None)
+
+
+def get_source_template_build_task(task_id: str) -> SourceTemplateBuildTask | None:
+    """
+    Fetch one template-build task by identifier.
+    """
+    with SOURCE_TEMPLATE_BUILD_TASKS_LOCK:
+        return SOURCE_TEMPLATE_BUILD_TASKS.get(task_id)
+
+
+def set_active_queue_task(task_id: str, task_kind: str) -> None:
+    """
+    Track the queue task currently consuming the single worker slot.
+    """
+    global QUEUE_ACTIVE_TASK_ID
+    global QUEUE_ACTIVE_TASK_KIND
+    with QUEUE_ACTIVE_TASK_LOCK:
+        QUEUE_ACTIVE_TASK_ID = str(task_id or "")
+        QUEUE_ACTIVE_TASK_KIND = str(task_kind or "")
+
+
+def clear_active_queue_task(task_id: str, task_kind: str) -> None:
+    """
+    Clear one active queue task marker when the expected task finishes.
+    """
+    global QUEUE_ACTIVE_TASK_ID
+    global QUEUE_ACTIVE_TASK_KIND
+    with QUEUE_ACTIVE_TASK_LOCK:
+        if QUEUE_ACTIVE_TASK_ID == str(task_id or "") and QUEUE_ACTIVE_TASK_KIND == str(task_kind or ""):
+            QUEUE_ACTIVE_TASK_ID = ""
+            QUEUE_ACTIVE_TASK_KIND = ""
+
+
+def get_active_queue_task_snapshot() -> tuple[str, str]:
+    """
+    Return active queue task identifier and kind.
+    """
+    with QUEUE_ACTIVE_TASK_LOCK:
+        return QUEUE_ACTIVE_TASK_ID, QUEUE_ACTIVE_TASK_KIND
+
+
 def queue_position(job_id: str) -> int:
     """
     Return 1-based queue position, or 0 when job is not queued.
@@ -3138,6 +3318,92 @@ def get_job(job_id: str, avatar_session_id: str | None = None) -> JobRecord:
     return job
 
 
+def launch_logged_subprocess(
+    command: list[str],
+    cwd: Path,
+    log_abs: Path,
+    label: str,
+) -> tuple[subprocess.Popen, Any, threading.Thread]:
+    """
+    Launch one subprocess whose combined output is mirrored to terminal and log file.
+    """
+    log_abs.parent.mkdir(parents=True, exist_ok=True)
+    log_handle = log_abs.open("a", encoding="utf-8", errors="replace", buffering=1)
+    command_text = format_command_for_log(command)
+    launch_message = f"launch cwd={cwd} command={command_text}"
+    emit_runtime_log(label, launch_message)
+    log_handle.write(f"{launch_message}\n")
+    log_handle.flush()
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+    except Exception:
+        finalize_logged_subprocess(log_handle, None)
+        raise
+    pump_thread = threading.Thread(
+        target=pump_subprocess_output,
+        args=(process.stdout, log_handle, label),
+        daemon=True,
+    )
+    pump_thread.start()
+    return process, log_handle, pump_thread
+
+
+def finalize_logged_subprocess(log_handle: Any, pump_thread: threading.Thread | None) -> None:
+    """
+    Flush and close logging resources attached to one launched subprocess.
+    """
+    if pump_thread is not None:
+        pump_thread.join(timeout=5.0)
+    if log_handle is not None:
+        try:
+            log_handle.flush()
+        except OSError:
+            pass
+        try:
+            log_handle.close()
+        except OSError:
+            pass
+
+
+def build_source_template_pack_command(source_abs: Path, template_pack_path: Path) -> list[str]:
+    """
+    Build runner command for one queued source template pack build.
+    """
+    command = [
+        str(RUNNER_PYTHON),
+        str(RUNNER_SCRIPT),
+        "--backend",
+        DEFAULT_BACKEND,
+        "--trt-runtime",
+        DEFAULT_TRT_RUNTIME,
+        "--trt-precision",
+        DEFAULT_TRT_PRECISION,
+        "--source-frame",
+        str(source_abs),
+        "--source-template-pack-output",
+        str(template_pack_path),
+        "--build-source-template-pack",
+        "--animation-region",
+        DEFAULT_ANIMATION_REGION,
+    ]
+    if not DEFAULT_PASTE_BACK_ENABLED:
+        command.append("--no-paste-back")
+    if not DEFAULT_STITCHING_ENABLED:
+        command.append("--no-stitching")
+    if not DEFAULT_RELATIVE_MOTION_ENABLED:
+        command.append("--no-relative-motion")
+    return command
+
+
 def finish_job(job: JobRecord, exit_code: int) -> None:
     """
     Mark job completed and close resources.
@@ -3146,12 +3412,7 @@ def finish_job(job: JobRecord, exit_code: int) -> None:
         job.process = None
         job.exit_code = int(exit_code)
         job.finished_at_ms = now_ms()
-        if job.log_handle is not None:
-            try:
-                job.log_handle.close()
-            except OSError:
-                pass
-            job.log_handle = None
+        job.log_handle = None
     prune_expired_job_stream_caches()
 
 
@@ -3160,13 +3421,11 @@ def run_job(job: JobRecord) -> None:
     Execute one queued job in the background worker.
     """
     command = build_runner_command(job)
-    job.log_abs.parent.mkdir(parents=True, exist_ok=True)
-    log_handle = job.log_abs.open("ab")
-    process = subprocess.Popen(
-        command,
-        cwd=str(PROJECT_ROOT),
-        stdout=log_handle,
-        stderr=subprocess.STDOUT,
+    process, log_handle, pump_thread = launch_logged_subprocess(
+        command=command,
+        cwd=PROJECT_ROOT,
+        log_abs=job.log_abs,
+        label=f"job {job.job_id}",
     )
     with JOBS_LOCK:
         job.started_at_ms = now_ms()
@@ -3176,7 +3435,77 @@ def run_job(job: JobRecord) -> None:
         exit_code = process.wait()
     except Exception:
         exit_code = -1
+    finalize_logged_subprocess(log_handle, pump_thread)
+    emit_runtime_log(
+        f"job {job.job_id}",
+        f"completed exit_code={exit_code} source_kind={resolve_source_input_kind(job.source_frame_abs)}",
+    )
     finish_job(job, exit_code)
+
+
+def run_source_template_build_task(task: SourceTemplateBuildTask) -> None:
+    """
+    Execute one queued source template build using the same single-worker queue.
+    """
+    command = build_source_template_pack_command(task.source_abs, task.template_pack_path)
+    task.started_at_ms = now_ms()
+    emit_runtime_log(
+        f"template {task.task_id}",
+        (
+            "starting source template build "
+            f"template={task.template_name} source={task.source_abs} source_kind={resolve_source_input_kind(task.source_abs)}"
+        ),
+    )
+    try:
+        process, log_handle, pump_thread = launch_logged_subprocess(
+            command=command,
+            cwd=PROJECT_ROOT,
+            log_abs=task.log_abs,
+            label=f"template {task.task_id}",
+        )
+        try:
+            exit_code = process.wait()
+        except Exception:
+            exit_code = -1
+        finalize_logged_subprocess(log_handle, pump_thread)
+        task.exit_code = int(exit_code)
+        task.finished_at_ms = now_ms()
+        if exit_code != 0:
+            task.error = (
+                "Source template build failed. "
+                f"log={task.log_abs} tail={read_text_file_tail(task.log_abs, 1600)}"
+            )
+            emit_runtime_log(f"template {task.task_id}", f"failed exit_code={exit_code}")
+            return
+        if not task.template_pack_path.exists() or not is_source_template_pack_path(task.template_pack_path):
+            task.error = (
+                "Source template build finished without one valid template pack. "
+                f"expected={task.template_pack_path}"
+            )
+            emit_runtime_log(f"template {task.task_id}", task.error)
+            return
+        payload_valid, payload_error = validate_source_template_pack_payload(task.template_pack_path)
+        if not payload_valid:
+            task.error = (
+                "Source template build produced one invalid template payload. "
+                f"template={task.template_pack_path} error={payload_error}"
+            )
+            emit_runtime_log(f"template {task.task_id}", task.error)
+            return
+        task.result = {
+            "item": build_source_template_pack_record(task.template_pack_path),
+            "logPath": str(task.log_abs),
+        }
+        emit_runtime_log(
+            f"template {task.task_id}",
+            f"completed template={task.template_pack_path.name} log={task.log_abs}",
+        )
+    except Exception as exc:
+        task.finished_at_ms = now_ms()
+        task.error = f"Source template build crashed: {exc}"
+        emit_runtime_log(f"template {task.task_id}", task.error)
+    finally:
+        task.done_event.set()
 
 
 def job_worker_loop() -> None:
@@ -3187,14 +3516,30 @@ def job_worker_loop() -> None:
         with JOB_QUEUE_CONDITION:
             while not JOB_QUEUE:
                 JOB_QUEUE_CONDITION.wait()
-            job_id = JOB_QUEUE.popleft()
+            queue_item_id = JOB_QUEUE.popleft()
+        template_task = get_source_template_build_task(queue_item_id)
+        if template_task is not None:
+            set_active_queue_task(template_task.task_id, "template_build")
+            try:
+                run_source_template_build_task(template_task)
+            finally:
+                clear_active_queue_task(template_task.task_id, "template_build")
+            continue
         with JOBS_LOCK:
-            job = JOBS.get(job_id)
+            job = JOBS.get(queue_item_id)
         if job is None:
             continue
         if job.exit_code is not None:
             continue
-        run_job(job)
+        set_active_queue_task(job.job_id, "avatar_job")
+        try:
+            try:
+                run_job(job)
+            except Exception as exc:
+                emit_runtime_log("queue", f"avatar job crashed during launch job_id={job.job_id} error={exc}")
+                finish_job(job, -1)
+        finally:
+            clear_active_queue_task(job.job_id, "avatar_job")
 
 
 def ensure_job_worker_started() -> None:
@@ -3369,7 +3714,7 @@ def get_avatar_state_snapshot(avatar_session_id: str) -> dict[str, Any]:
         "currentJobAudioDurationSec": current_job.audio_duration_sec if current_job is not None else 0.0,
         "currentJobSourceFrameUrl": build_public_file_url(current_job.source_frame_abs) if current_job is not None else "",
         "currentJobSourceMediaType": (
-            "video" if current_job is not None and is_source_video_path(current_job.source_frame_abs) else "image"
+            "video" if current_job is not None and is_video_backed_source_path(current_job.source_frame_abs) else "image"
         ),
         "currentJobPreviewComposition": (
             build_public_preview_composition_payload(current_job, current_job_stream_status)
@@ -3803,7 +4148,7 @@ def should_defer_preview_paste_back(
     """
     Defer paste-back only for preview jobs that still require stitched full-frame output.
     """
-    if is_source_video_path(source_media_path):
+    if is_video_backed_source_path(source_media_path):
         return False
     return bool(str(mode or "").strip().lower() == "preview" and paste_back_enabled and stitching_enabled)
 
@@ -5279,12 +5624,13 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
     if public_preview_composition is not None:
         public_stream_status[PREVIEW_COMPOSITION_STATUS_KEY] = public_preview_composition
     source_preview_url = build_public_file_url(job.source_frame_abs)
-    source_media_type = "video" if is_source_video_path(job.source_frame_abs) else "image"
+    source_media_type = "video" if is_video_backed_source_path(job.source_frame_abs) else "image"
+    source_input_kind = resolve_source_input_kind(job.source_frame_abs)
     source_template_payload: dict[str, Any] | None = None
     if job.source_template_pack_abs is not None:
         source_template_payload = build_source_template_pack_record(job.source_template_pack_abs)
         source_preview_url = str(source_template_payload.get("previewUrl", "") or source_preview_url)
-        source_media_type = "image"
+        source_media_type = "video" if str(source_template_payload.get("sourceType", "")) == "video" else "image"
     payload: dict[str, Any] = {
         "jobId": job.job_id,
         "avatarSessionId": job.avatar_session_id,
@@ -5333,6 +5679,7 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "sourceFrame": job.source_frame_arg,
         "sourceFrameUrl": source_preview_url,
         "sourceMediaType": source_media_type,
+        "sourceInputKind": source_input_kind,
         "sourceTemplatePackId": job.source_template_pack_id,
         "status": public_stream_status,
         "previewComposition": public_preview_composition,
@@ -5390,8 +5737,20 @@ async def resolve_requested_source_frame(
     normalized_source_template_pack = str(source_template_pack or "").strip()
 
     if normalized_source_template_pack:
+        if has_source_image_upload or has_source_video_upload:
+            emit_runtime_log(
+                "source",
+                f"source_template_pack takes precedence over uploaded source media template={normalized_source_template_pack}",
+            )
         source_template_pack_abs = resolve_source_template_pack_path(normalized_source_template_pack)
         source_template_pack_rel = normalize_rel_path(str(source_template_pack_abs.relative_to(PROJECT_ROOT)))
+        emit_runtime_log(
+            "source",
+            (
+                f"resolved source template pack template={source_template_pack_abs.name} "
+                f"video_backed={is_video_backed_source_path(source_template_pack_abs)}"
+            ),
+        )
         return source_template_pack_abs, source_template_pack_rel
 
     if not has_source_image_upload and not has_source_video_upload:
@@ -5400,12 +5759,16 @@ async def resolve_requested_source_frame(
         except RuntimeError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         if fixed_source is not None and normalized_source_frame == DEFAULT_SOURCE_FRAME:
+            emit_runtime_log("source", f"using fixed source frame source={fixed_source[1]}")
             return fixed_source
         if normalized_source_frame == DEFAULT_SOURCE_FRAME:
             idle_anchor_source = resolve_avatar_idle_anchor_source_frame(audio_duration_sec, avatar_session_id)
             if idle_anchor_source is not None:
+                emit_runtime_log("source", f"using idle anchor source source={idle_anchor_source[1]}")
                 return idle_anchor_source
-        return resolve_source_frame_candidate(normalized_source_frame)
+        resolved_source = resolve_source_frame_candidate(normalized_source_frame)
+        emit_runtime_log("source", f"using requested source frame source={resolved_source[1]}")
+        return resolved_source
 
     if has_source_video_upload:
         extension = Path(str(source_video.filename)).suffix.lower()
@@ -5421,6 +5784,7 @@ async def resolve_requested_source_frame(
         source_video_abs = (PROJECT_ROOT / source_video_rel).resolve()
         output_abs.mkdir(parents=True, exist_ok=True)
         await save_upload_file(source_video, source_video_abs)
+        emit_runtime_log("source", f"saved uploaded source video path={source_video_abs}")
         return source_video_abs, normalize_rel_path(str(source_video_rel))
 
     extension = Path(str(source_image.filename)).suffix.lower()
@@ -5433,6 +5797,7 @@ async def resolve_requested_source_frame(
     source_image_abs = (PROJECT_ROOT / source_image_rel).resolve()
     output_abs.mkdir(parents=True, exist_ok=True)
     await save_upload_file(source_image, source_image_abs)
+    emit_runtime_log("source", f"saved uploaded source image path={source_image_abs}")
     return source_image_abs, normalize_rel_path(str(source_image_rel))
 
 
@@ -5650,6 +6015,14 @@ async def create_and_enqueue_audio_job(
     )
     source_template_pack_abs = source_frame_abs if is_source_template_pack_path(source_frame_abs) else None
     source_template_pack_id = source_template_pack_abs.name if source_template_pack_abs is not None else ""
+    emit_runtime_log(
+        "queue",
+        (
+            f"enqueue avatar job source_kind={resolve_source_input_kind(source_frame_abs)} "
+            f"template_pack={source_template_pack_id or '-'} "
+            f"audio={normalize_rel_path(str(input_rel))}"
+        ),
+    )
 
     job = JobRecord(
         job_id=job_id,
@@ -5713,6 +6086,10 @@ async def create_and_enqueue_audio_job(
     )
     register_job(job)
     enqueue_job(job.job_id)
+    emit_runtime_log(
+        "queue",
+        f"avatar job enqueued job_id={job.job_id} queue_position={queue_position(job.job_id)}",
+    )
     return build_job_payload(job)
 
 
@@ -5761,6 +6138,7 @@ def create_app() -> FastAPI:
         worker_alive = bool(JOB_WORKER_THREAD is not None and JOB_WORKER_THREAD.is_alive())
         running_job = get_running_job_record()
         head_queued_job_id = get_head_queued_job_id()
+        active_queue_task_id, active_queue_task_kind = get_active_queue_task_snapshot()
         warmup_source_frame_arg = ""
         fixed_source_frame_arg = ""
         fixed_source_error = ""
@@ -5853,6 +6231,8 @@ def create_app() -> FastAPI:
             "headQueuedJobId": head_queued_job_id,
             "jobWorkerAlive": worker_alive,
             "jobQueueDepth": queue_depth,
+            "activeQueueTaskId": active_queue_task_id,
+            "activeQueueTaskKind": active_queue_task_kind,
             "avatarSessionId": response_avatar_session_id,
             "avatarMode": avatar_payload["mode"],
             "avatarSequence": avatar_payload["sequence"],
@@ -5888,6 +6268,8 @@ def create_app() -> FastAPI:
         source_frame: str = Form(""),
         template_name: str = Form(""),
     ) -> dict[str, Any]:
+        ensure_runtime_accepting_requests()
+        ensure_job_worker_started()
         has_source_image_upload = bool(source_image is not None and source_image.filename)
         has_source_video_upload = bool(source_video is not None and source_video.filename)
         if has_source_image_upload and has_source_video_upload:
@@ -5934,54 +6316,52 @@ def create_app() -> FastAPI:
                 / f"{safe_template_name}-{time.strftime('%Y%m%d-%H%M%S')}.pkl"
             ).resolve()
 
-        command = [
-            str(RUNNER_PYTHON),
-            str(RUNNER_SCRIPT),
-            "--backend",
-            DEFAULT_BACKEND,
-            "--trt-runtime",
-            DEFAULT_TRT_RUNTIME,
-            "--trt-precision",
-            DEFAULT_TRT_PRECISION,
-            "--source-frame",
-            str(source_abs),
-            "--source-template-pack-output",
-            str(template_pack_path),
-            "--build-source-template-pack",
-            "--animation-region",
-            DEFAULT_ANIMATION_REGION,
-        ]
-        if not DEFAULT_PASTE_BACK_ENABLED:
-            command.append("--no-paste-back")
-        if not DEFAULT_STITCHING_ENABLED:
-            command.append("--no-stitching")
-        if not DEFAULT_RELATIVE_MOTION_ENABLED:
-            command.append("--no-relative-motion")
-
-        completed = await asyncio.to_thread(
-            subprocess.run,
-            command,
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            check=False,
+        build_task_id = f"template_build_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        build_log_abs = (SOURCE_TEMPLATE_PACK_BUILD_LOGS_DIR / f"{build_task_id}.log").resolve()
+        build_task = SourceTemplateBuildTask(
+            task_id=build_task_id,
+            created_at_ms=now_ms(),
+            source_abs=source_abs,
+            template_pack_path=template_pack_path,
+            template_name=safe_template_name,
+            log_abs=build_log_abs,
         )
-        if completed.returncode != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "Failed to build source template pack. "
-                    f"stdout={completed.stdout[-1200:]} stderr={completed.stderr[-1200:]}"
-                ),
-            )
-
-        if not template_pack_path.exists():
-            raise HTTPException(status_code=500, detail="Source template pack build completed without output file.")
-
-        return {
-            "item": build_source_template_pack_record(template_pack_path),
-            "stdout": completed.stdout.strip(),
-        }
+        register_source_template_build_task(build_task)
+        enqueue_job(build_task.task_id)
+        emit_runtime_log(
+            "queue",
+            (
+                f"template build enqueued task_id={build_task.task_id} "
+                f"template={template_pack_path.name} queue_position={queue_position(build_task.task_id)}"
+            ),
+        )
+        completed_in_time = await asyncio.to_thread(
+            build_task.done_event.wait,
+            SOURCE_TEMPLATE_PACK_BUILD_WAIT_TIMEOUT_SEC,
+        )
+        try:
+            if not completed_in_time:
+                raise HTTPException(
+                    status_code=504,
+                    detail=(
+                        "Source template build timed out while waiting in or through the shared queue. "
+                        f"log={build_log_abs}"
+                    ),
+                )
+            if build_task.error:
+                raise HTTPException(status_code=500, detail=build_task.error)
+            if build_task.result is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Source template build completed without one public result payload. "
+                        f"log={build_log_abs}"
+                    ),
+                )
+            return build_task.result
+        finally:
+            if build_task.done_event.is_set():
+                pop_source_template_build_task(build_task.task_id)
 
     @app.get("/api/avatar/status")
     async def avatar_status(request: Request) -> JSONResponse:

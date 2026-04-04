@@ -4268,12 +4268,13 @@
 
       const formData = new FormData();
       formData.append("audio", file, file.name);
-      formData.append("source_frame", sourceFrame);
       const selectedSourceTemplatePackId = getSelectedSourceTemplatePackId();
       if (selectedSourceTemplatePackId) {
         formData.append("source_template_pack", selectedSourceTemplatePackId);
+      } else {
+        formData.append("source_frame", sourceFrame);
       }
-      if (sourceMediaFile) {
+      if (!selectedSourceTemplatePackId && sourceMediaFile) {
         const sourceFieldName = isVideoPreviewValue(sourceMediaFile.name, sourceMediaFile.type)
           ? "source_video"
           : "source_image";

@@ -1091,7 +1091,7 @@
       await refreshSourceTemplatePacks(builtTemplatePackId);
       elements.sourceTemplatePackSelect.value = builtTemplatePackId;
       elements.sourceImageInput.value = "";
-      setLog("Template pack created.", payload);
+      setLog("Template pack created through shared queue.", payload);
     }
 
     function applySelectedAudioPreset() {
@@ -1253,7 +1253,7 @@
       formData.append("audio", audioFile);
       const selectedTemplatePackId = getSelectedSourceTemplatePackId();
       const sourceImageFile = elements.sourceImageInput.files && elements.sourceImageInput.files[0];
-      if (sourceImageFile) {
+      if (!selectedTemplatePackId && sourceImageFile) {
         const sourceFieldName = /^video\//i.test(String(sourceImageFile.type || "")) || /\.(mp4|avi|mov|mkv|webm|flv|m4v|wmv)$/i.test(sourceImageFile.name)
           ? "source_video"
           : "source_image";
@@ -1262,7 +1262,7 @@
       if (selectedTemplatePackId) {
         formData.append("source_template_pack", selectedTemplatePackId);
       }
-      if (tuningConfig.sourceFrame) {
+      if (!selectedTemplatePackId && tuningConfig.sourceFrame) {
         formData.append("source_frame", tuningConfig.sourceFrame);
       }
       formData.append("mode", tuningConfig.mode);

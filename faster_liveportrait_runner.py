@@ -24,6 +24,7 @@ from runtime_env import apply_runtime_library_environment, build_process_env
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 apply_runtime_library_environment(PROJECT_ROOT)
+PERSISTENT_WORKER_WRAPPER_SCRIPT = PROJECT_ROOT / "faster_liveportrait_persistent_worker.py"
 
 import cv2
 import numpy as np
@@ -720,7 +721,7 @@ def is_deferred_paste_back_enabled(config: RunnerConfig) -> bool:
     """
     Enable deferred paste-back only when the final contract still requires paste-back output.
     """
-    if config.source_frame.suffix.lower() in SOURCE_VIDEO_EXTENSIONS:
+    if is_video_backed_source_path(config.source_frame):
         return False
     return bool(config.defer_paste_back and config.paste_back and config.stitching_enabled)
 
@@ -771,9 +772,9 @@ def read_source_video_fps(source_path: Path) -> float:
     return float(fps_value)
 
 
-def read_source_template_pack_fps(template_pack_path: Path) -> float | None:
+def read_source_template_pack_payload(template_pack_path: Path) -> dict | None:
     """
-    Read cached source FPS from one source template pack when available.
+    Read one source template pack payload when available.
     """
     if not template_pack_path.exists() or template_pack_path.suffix.lower() != ".pkl":
         return None
@@ -782,10 +783,52 @@ def read_source_template_pack_fps(template_pack_path: Path) -> float | None:
             payload = pickle.load(handle)
     except Exception:
         return None
+    return payload if isinstance(payload, dict) else None
+
+
+def read_source_template_pack_fps(template_pack_path: Path) -> float | None:
+    """
+    Read cached source FPS from one source template pack when available.
+    """
+    payload = read_source_template_pack_payload(template_pack_path)
+    if payload is None:
+        return None
     fps_value = payload.get("source_fps") if isinstance(payload, dict) else None
     if not isinstance(fps_value, (int, float)) or float(fps_value) <= 0:
         return None
     return float(fps_value)
+
+
+def is_source_template_pack_video_backed(template_pack_path: Path) -> bool:
+    """
+    Determine whether one source template pack was built from a video source.
+    """
+    payload = read_source_template_pack_payload(template_pack_path)
+    if payload is None:
+        return False
+    return bool(payload.get("is_source_video", False))
+
+
+def is_video_backed_source_path(source_path: Path) -> bool:
+    """
+    Determine whether one source path should behave like a video-backed source.
+    """
+    safe_source_path = Path(source_path)
+    if safe_source_path.suffix.lower() in SOURCE_VIDEO_EXTENSIONS:
+        return True
+    return is_source_template_pack_video_backed(safe_source_path)
+
+
+def resolve_source_input_kind(config: RunnerConfig) -> str:
+    """
+    Resolve one source input kind label for logs and reports.
+    """
+    safe_source_path = Path(config.source_frame)
+    if safe_source_path.suffix.lower() == ".pkl":
+        return "template_pack"
+    if safe_source_path.suffix.lower() in SOURCE_VIDEO_EXTENSIONS:
+        return "video"
+    return "image"
 
 
 def resolve_source_fps(config: RunnerConfig) -> float:
@@ -1485,6 +1528,22 @@ def should_prebuild_audio_template(config: RunnerConfig) -> bool:
         or config.audio_motion_tuning_enabled
         or config.audio_lip_sync_assist
     )
+
+
+def describe_audio_template_build_reasons(config: RunnerConfig) -> list[str]:
+    """
+    Return explicit reasons why one audio request must prebuild a motion template.
+    """
+    reasons: list[str] = []
+    if config.generation_frame_count is not None:
+        reasons.append("generation_frame_count")
+    if config.audio_eye_tamed_preset:
+        reasons.append("audio_eye_tamed_preset")
+    if config.audio_motion_tuning_enabled:
+        reasons.append("audio_motion_tuning_enabled")
+    if config.audio_lip_sync_assist:
+        reasons.append("audio_lip_sync_assist")
+    return reasons
 
 
 def build_audio_template_cache_key(
@@ -2405,18 +2464,25 @@ def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
     assert_path_exists(cfg_path, "FasterLivePortrait config")
     worker_script = config.faster_repo_dir / "run_persistent_worker.py"
     assert_path_exists(worker_script, "Persistent worker script")
+    assert_path_exists(PERSISTENT_WORKER_WRAPPER_SCRIPT, "Persistent worker wrapper script")
 
     queue_rel = to_project_relative(queue_root, config.project_root, "Persistent worker queue")
     faster_repo_rel = to_project_relative(config.faster_repo_dir, config.project_root, "FasterLivePortrait repo")
     source_cache_rel = to_project_relative(config.source_cache_dir, config.project_root, "Source cache directory")
     source_frame_workspace_path = to_container_workspace_path(config.source_frame, config.project_root, "Source frame")
     cfg_rel = cfg_path.relative_to(config.faster_repo_dir).as_posix()
+    wrapper_rel = to_project_relative(
+        PERSISTENT_WORKER_WRAPPER_SCRIPT,
+        config.project_root,
+        "Persistent worker wrapper script",
+    )
 
     worker_command = (
         f"mkdir -p /workspace/{queue_rel}/requests /workspace/{queue_rel}/responses; "
-        f"cd /workspace/{faster_repo_rel}; "
+        f"cd /workspace; "
         f"export LD_LIBRARY_PATH={DEFAULT_TRT_DOCKER_LD_PATH}:$LD_LIBRARY_PATH; "
-        f"nohup {DEFAULT_TRT_DOCKER_PYTHON} run_persistent_worker.py "
+        f"nohup {DEFAULT_TRT_DOCKER_PYTHON} /workspace/{wrapper_rel} "
+        f"--worker-script {shlex.quote(f'/workspace/{faster_repo_rel}/run_persistent_worker.py')} "
         f"--cfg {shlex.quote(cfg_rel)} "
         f"--queue_dir {shlex.quote(f'/workspace/{queue_rel}')} "
         f"--source_cache_dir {shlex.quote(f'/workspace/{source_cache_rel}')} "
@@ -2466,10 +2532,13 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
     assert_path_exists(cfg_path, "FasterLivePortrait config")
     worker_script = config.faster_repo_dir / "run_persistent_worker.py"
     assert_path_exists(worker_script, "Persistent worker script")
+    assert_path_exists(PERSISTENT_WORKER_WRAPPER_SCRIPT, "Persistent worker wrapper script")
     assert_path_exists(config.python_executable, "Python executable")
 
     worker_command = [
         str(config.python_executable),
+        str(PERSISTENT_WORKER_WRAPPER_SCRIPT),
+        "--worker-script",
         str(worker_script),
         "--cfg",
         str(cfg_path),
@@ -2521,6 +2590,7 @@ def wait_for_persistent_worker_result(
     request_path: Path,
     response_path: Path,
     request_payload: dict,
+    heartbeat_path: Path,
     worker_log_path: Path,
 ) -> dict:
     """
@@ -2537,6 +2607,11 @@ def wait_for_persistent_worker_result(
         response_payload = read_json_file(response_path)
         if response_payload is not None:
             break
+        if not heartbeat_is_fresh(heartbeat_path, require_live_pid=True):
+            raise RuntimeError(
+                "Persistent worker heartbeat became stale while waiting for a response. "
+                f"request={request_id} heartbeat={heartbeat_path} worker_log={worker_log_path}"
+            )
         time.sleep(PERSISTENT_WORKER_POLL_SLEEP_SEC)
 
     if response_payload is None:
@@ -2718,7 +2793,7 @@ def run_faster_pipeline_local_trt_persistent_worker(
     """
     ensure_persistent_trt_worker_local(config)
 
-    _, requests_dir, responses_dir, _, worker_log_path = resolve_worker_queue_paths(config)
+    _, requests_dir, responses_dir, heartbeat_path, worker_log_path = resolve_worker_queue_paths(config)
     request_id = uuid.uuid4().hex
     request_path = requests_dir / f"{request_id}{PERSISTENT_WORKER_REQUEST_SUFFIX}"
     response_path = responses_dir / f"{request_id}{PERSISTENT_WORKER_RESPONSE_SUFFIX}"
@@ -2746,6 +2821,7 @@ def run_faster_pipeline_local_trt_persistent_worker(
         request_path=request_path,
         response_path=response_path,
         request_payload=request_payload,
+        heartbeat_path=heartbeat_path,
         worker_log_path=worker_log_path,
     )
 
@@ -2823,7 +2899,7 @@ def run_faster_pipeline_docker_trt_persistent_worker(
     """
     ensure_persistent_trt_worker_docker(config)
 
-    queue_root, requests_dir, responses_dir, _, worker_log_path = resolve_worker_queue_paths(config)
+    queue_root, requests_dir, responses_dir, heartbeat_path, worker_log_path = resolve_worker_queue_paths(config)
     request_id = uuid.uuid4().hex
     request_path = requests_dir / f"{request_id}{PERSISTENT_WORKER_REQUEST_SUFFIX}"
     response_path = responses_dir / f"{request_id}{PERSISTENT_WORKER_RESPONSE_SUFFIX}"
@@ -2859,6 +2935,7 @@ def run_faster_pipeline_docker_trt_persistent_worker(
         request_path=request_path,
         response_path=response_path,
         request_payload=request_payload,
+        heartbeat_path=heartbeat_path,
         worker_log_path=worker_log_path,
     )
 
@@ -2962,7 +3039,8 @@ def write_report(
         "motionTargetFps": float(FIXED_AUDIO_MOTION_TARGET_FPS),
         "inputs": {
             "sourceFrame": str(config.source_frame),
-            "sourceMediaType": "video" if config.source_frame.suffix.lower() in SOURCE_VIDEO_EXTENSIONS else "image",
+            "sourceMediaType": "video" if is_video_backed_source_path(config.source_frame) else "image",
+            "sourceInputKind": resolve_source_input_kind(config),
             "framesDir": str(config.frames_dir),
             "metaPath": str(config.meta_path),
             "drivingInput": str(driving_input),
@@ -3007,9 +3085,18 @@ def main() -> None:
     """
     started_at = time.time()
     config = parse_args()
+    source_kind = resolve_source_input_kind(config)
     config.output_dir.mkdir(parents=True, exist_ok=True)
     prepare_stream_dir(config)
     phase_started_at = time.time()
+    print(
+        (
+            "[info] runner start "
+            f"source={config.source_frame} source_kind={source_kind} "
+            f"backend={config.backend} trt_runtime={config.trt_runtime} mode={config.mode}"
+        ),
+        flush=True,
+    )
 
     if config.build_source_template_pack:
         assert_path_exists(config.source_frame, "Source frame")
@@ -3019,6 +3106,14 @@ def main() -> None:
         if config.source_template_pack_output is None:
             raise RuntimeError("source_template_pack_output is required when build_source_template_pack is enabled")
         config.source_template_pack_output.parent.mkdir(parents=True, exist_ok=True)
+        print(
+            (
+                "[info] queued source template build "
+                f"source={config.source_frame} output={config.source_template_pack_output} "
+                f"source_kind={source_kind}"
+            ),
+            flush=True,
+        )
         build_source_template_pack(config)
         return
 
@@ -3033,6 +3128,15 @@ def main() -> None:
     if config.source_frame.suffix.lower() not in SOURCE_VIDEO_EXTENSIONS and read_source_template_pack_fps(config.source_frame) is None:
         assert_path_exists(config.meta_path, "Source metadata")
     source_fps = resolve_source_fps(config)
+    if source_kind == "template_pack":
+        print(
+            (
+                "[info] using source template pack "
+                f"path={config.source_frame} video_backed={is_video_backed_source_path(config.source_frame)} "
+                f"source_fps={source_fps}"
+            ),
+            flush=True,
+        )
     driving_video, driving_template, _ = resolve_driving_paths(config)
     audio_template = resolve_audio_template_path(config)
     audio_template_meta = resolve_audio_template_meta_path(config)
@@ -3066,6 +3170,13 @@ def main() -> None:
         normalize_audio_for_joyvasa(driving_audio, audio_template_input_wav)
         assert_path_exists(audio_template_input_wav, "Normalized driving audio")
         if should_prebuild_audio_template(config):
+            print(
+                (
+                    "[info] audio request requires motion template prebuild "
+                    f"reasons={','.join(describe_audio_template_build_reasons(config)) or 'none'}"
+                ),
+                flush=True,
+            )
             audio_signature = build_audio_signature(audio_template_input_wav)
             generation_profile = build_audio_template_generation_profile(config)
             template_used = (
