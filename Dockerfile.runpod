@@ -24,6 +24,7 @@ COPY scripts/runpod_bootstrap.sh /app/runpod-bundle/scripts/runpod_bootstrap.sh
 COPY scripts/runpod_validate_runtime.sh /app/runpod-bundle/scripts/runpod_validate_runtime.sh
 COPY faster_liveportrait_runner.py /app/runpod-bundle/faster_liveportrait_runner.py
 COPY faster_liveportrait_audio_to_pkl.py /app/runpod-bundle/faster_liveportrait_audio_to_pkl.py
+COPY faster_liveportrait_persistent_worker.py /app/runpod-bundle/faster_liveportrait_persistent_worker.py
 COPY motion_pkl_tuning.py /app/runpod-bundle/motion_pkl_tuning.py
 COPY index.html /app/runpod-bundle/index.html
 COPY job_stream_shared_memory.py /app/runpod-bundle/job_stream_shared_memory.py
