@@ -29,6 +29,8 @@ PERSISTENT_WORKER_WRAPPER_SCRIPT = PROJECT_ROOT / "faster_liveportrait_persisten
 import cv2
 import numpy as np
 
+from job_stream_shared_memory import JobStreamSharedMemoryWriter
+
 
 def read_env_bool(env_key: str, default_value: bool) -> bool:
     """
@@ -119,6 +121,12 @@ AUDIO_TEMPLATE_META_NAME = "audio_template_meta.json"
 DEFAULT_AUDIO_TEMPLATE_CACHE_DIR = "output_fasterliveportrait/audio_template_cache"
 DEFAULT_SOURCE_CACHE_DIR = "output_fasterliveportrait/source_preprocess_cache"
 DEFAULT_PERSISTENT_WORKER_QUEUE_DIR = "output_fasterliveportrait/worker_queue"
+RUNNER_PREPARE_PROGRESS_START = 0.02
+RUNNER_PREPARE_PROGRESS_NORMALIZE_AUDIO = 0.06
+RUNNER_PREPARE_PROGRESS_GLOBAL_AUDIO_CACHE = 0.1
+RUNNER_PREPARE_PROGRESS_BUILD_AUDIO_TEMPLATE = 0.14
+RUNNER_PREPARE_PROGRESS_PREPARE_RUNTIME = 0.2
+RUNNER_PREPARE_PROGRESS_START_RENDER = 0.24
 FIXED_AUDIO_MOTION_STRIDE = 2
 GENERATION_FRAME_COUNT_MIN = 1
 GENERATION_FRAME_COUNT_MAX = 1200
@@ -160,12 +168,12 @@ DEFAULT_AUDIO_LIP_SYNC_RELEASE_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_RELEASE"
 DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_OFFSET_MS"
 DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH_ENV_KEY = "ANIMATION_AUDIO_MOUTH_FLOOR_STRENGTH"
 DEFAULT_AUDIO_MOUTH_PEAK_CLAMP_ENV_KEY = "ANIMATION_AUDIO_MOUTH_PEAK_CLAMP"
-DEFAULT_AUDIO_EYE_TAMED_PRESET = read_env_bool(DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY, True)
+DEFAULT_AUDIO_EYE_TAMED_PRESET = read_env_bool(DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY, False)
 DEFAULT_AUDIO_EYE_SOFT_FACTOR = read_env_float(DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY, 0.45, 0.0, 1.0)
 DEFAULT_AUDIO_EYE_HARD_FACTOR = read_env_float(DEFAULT_AUDIO_EYE_HARD_FACTOR_ENV_KEY, 0.18, 0.0, 1.0)
 DEFAULT_AUDIO_EYE_HARD_DY_MIN = read_env_float(DEFAULT_AUDIO_EYE_HARD_DY_MIN_ENV_KEY, -0.0045)
 DEFAULT_AUDIO_EYE_HARD_DY_MAX = read_env_float(DEFAULT_AUDIO_EYE_HARD_DY_MAX_ENV_KEY, 0.0035)
-DEFAULT_AUDIO_MOTION_TUNING_ENABLED = read_env_bool(DEFAULT_AUDIO_MOTION_TUNING_ENABLED_ENV_KEY, True)
+DEFAULT_AUDIO_MOTION_TUNING_ENABLED = read_env_bool(DEFAULT_AUDIO_MOTION_TUNING_ENABLED_ENV_KEY, False)
 DEFAULT_AUDIO_REANCHOR_FIRST_N = read_env_int(DEFAULT_AUDIO_REANCHOR_FIRST_N_ENV_KEY, 5, 1, 15)
 DEFAULT_AUDIO_MOUTH_OPEN_FACTOR = read_env_float(DEFAULT_AUDIO_MOUTH_OPEN_FACTOR_ENV_KEY, 1.18, 0.0, 3.0)
 DEFAULT_AUDIO_POSE_SMOOTH_WINDOW = read_env_int(DEFAULT_AUDIO_POSE_SMOOTH_WINDOW_ENV_KEY, 5, 0, 21)
@@ -987,6 +995,59 @@ def prepare_stream_dir(config: RunnerConfig) -> None:
     config.stream_dir.mkdir(parents=True, exist_ok=True)
 
 
+def create_runner_status_writer(config: RunnerConfig) -> JobStreamSharedMemoryWriter | None:
+    """
+    Create one temporary status stream so clients can observe pre-render work.
+    """
+    if not config.stream_enabled or not str(config.stream_shm_prefix or "").strip():
+        return None
+    try:
+        return JobStreamSharedMemoryWriter(prefix=config.stream_shm_prefix, frame_capacity=1)
+    except Exception as exc:
+        print(f"[warn] unable to initialize runner status stream: {exc}")
+        return None
+
+
+def publish_runner_status(
+    writer: JobStreamSharedMemoryWriter | None,
+    message: str,
+    progress: float,
+    extra: dict[str, object] | None = None,
+) -> None:
+    """
+    Publish one coarse-grained status update before the core renderer emits frames.
+    """
+    if writer is None:
+        return
+    payload: dict[str, object] = {
+        "state": "running",
+        "message": str(message or "preparing"),
+        "frameIndex": 0,
+        "frameTotal": 0,
+        "progress": max(0.0, min(0.3, float(progress))),
+        "fps": 0.0,
+        "updatedAtMs": int(time.time() * 1000),
+    }
+    if extra:
+        payload.update(extra)
+    try:
+        writer.write_status_payload(payload)
+    except Exception as exc:
+        print(f"[warn] unable to publish runner status: {exc}")
+
+
+def close_runner_status_writer(writer: JobStreamSharedMemoryWriter | None) -> None:
+    """
+    Close the temporary pre-render status stream before the core renderer recreates it.
+    """
+    if writer is None:
+        return
+    try:
+        writer.close()
+    except Exception:
+        pass
+
+
 def build_runtime_env() -> dict[str, str]:
     """
     Build runtime environment for subprocess execution.
@@ -1520,11 +1581,11 @@ def build_audio_template_generation_profile(
 
 def should_prebuild_audio_template(config: RunnerConfig) -> bool:
     """
-    Route audio requests through PKL generation whenever one template-only control is active.
+    Route audio requests through PKL generation only when the request truly
+    depends on post-processed motion payloads.
     """
     return bool(
         config.generation_frame_count is not None
-        or config.audio_eye_tamed_preset
         or config.audio_motion_tuning_enabled
         or config.audio_lip_sync_assist
     )
@@ -1537,8 +1598,6 @@ def describe_audio_template_build_reasons(config: RunnerConfig) -> list[str]:
     reasons: list[str] = []
     if config.generation_frame_count is not None:
         reasons.append("generation_frame_count")
-    if config.audio_eye_tamed_preset:
-        reasons.append("audio_eye_tamed_preset")
     if config.audio_motion_tuning_enabled:
         reasons.append("audio_motion_tuning_enabled")
     if config.audio_lip_sync_assist:
@@ -1574,6 +1633,71 @@ def resolve_global_audio_cache_paths(
     template_path = cache_root / f"{cache_key}.pkl"
     meta_path = cache_root / f"{cache_key}.{AUDIO_TEMPLATE_META_NAME}"
     return template_path, meta_path
+
+
+def restore_audio_template_from_global_cache(
+    config: RunnerConfig,
+    local_template_path: Path,
+    local_meta_path: Path,
+    audio_signature: dict[str, str | int],
+    generation_profile: dict[str, str | int | float | bool],
+    normalized_audio_path: Path,
+) -> bool:
+    """
+    Restore one job-local audio template from the shared global cache when available.
+    """
+    global_template_path, global_meta_path = resolve_global_audio_cache_paths(config, audio_signature)
+    if not is_audio_template_cache_hit(
+        global_template_path,
+        global_meta_path,
+        audio_signature,
+        generation_profile,
+    ):
+        return False
+    local_template_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(global_template_path, local_template_path)
+    write_audio_template_meta(
+        local_meta_path,
+        build_audio_template_meta_payload(
+            audio_signature=audio_signature,
+            template_path=local_template_path,
+            config=config,
+            normalized_audio_path=normalized_audio_path,
+        ),
+    )
+    print(
+        "[info] restored audio template from global cache: {} -> {}".format(
+            global_template_path,
+            local_template_path,
+        )
+    )
+    return True
+
+
+def persist_audio_template_to_global_cache(
+    config: RunnerConfig,
+    local_template_path: Path,
+    audio_signature: dict[str, str | int],
+    normalized_audio_path: Path,
+) -> None:
+    """
+    Persist one freshly built job-local audio template into the shared global cache.
+    """
+    if not local_template_path.exists():
+        return
+    global_template_path, global_meta_path = resolve_global_audio_cache_paths(config, audio_signature)
+    global_template_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(local_template_path, global_template_path)
+    write_audio_template_meta(
+        global_meta_path,
+        build_audio_template_meta_payload(
+            audio_signature=audio_signature,
+            template_path=global_template_path,
+            config=config,
+            normalized_audio_path=normalized_audio_path,
+        ),
+    )
+    print(f"[info] persisted audio template to global cache: {global_template_path}")
 
 
 def build_audio_template_meta_payload(
@@ -3088,6 +3212,7 @@ def main() -> None:
     source_kind = resolve_source_input_kind(config)
     config.output_dir.mkdir(parents=True, exist_ok=True)
     prepare_stream_dir(config)
+    runner_status_writer = create_runner_status_writer(config)
     phase_started_at = time.time()
     print(
         (
@@ -3096,6 +3221,12 @@ def main() -> None:
             f"backend={config.backend} trt_runtime={config.trt_runtime} mode={config.mode}"
         ),
         flush=True,
+    )
+    publish_runner_status(
+        runner_status_writer,
+        "preparing inputs",
+        RUNNER_PREPARE_PROGRESS_START,
+        {"phase": "prepare_inputs", "sourceInputKind": source_kind},
     )
 
     if config.build_source_template_pack:
@@ -3114,6 +3245,7 @@ def main() -> None:
             ),
             flush=True,
         )
+        close_runner_status_writer(runner_status_writer)
         build_source_template_pack(config)
         return
 
@@ -3166,10 +3298,17 @@ def main() -> None:
     driving_audio = config.driving_audio
     if driving_audio is not None:
         assert_path_exists(driving_audio, "Driving audio")
-        print(f"[info] normalizing driving audio for progressive render: {driving_audio}")
-        normalize_audio_for_joyvasa(driving_audio, audio_template_input_wav)
-        assert_path_exists(audio_template_input_wav, "Normalized driving audio")
-        if should_prebuild_audio_template(config):
+        requires_audio_template_prebuild = should_prebuild_audio_template(config)
+        if requires_audio_template_prebuild:
+            print(f"[info] normalizing driving audio for progressive render: {driving_audio}")
+            publish_runner_status(
+                runner_status_writer,
+                "normalizing driving audio",
+                RUNNER_PREPARE_PROGRESS_NORMALIZE_AUDIO,
+                {"phase": "normalize_audio"},
+            )
+            normalize_audio_for_joyvasa(driving_audio, audio_template_input_wav)
+            assert_path_exists(audio_template_input_wav, "Normalized driving audio")
             print(
                 (
                     "[info] audio request requires motion template prebuild "
@@ -3189,27 +3328,80 @@ def main() -> None:
                 )
             )
             if template_used:
+                publish_runner_status(
+                    runner_status_writer,
+                    "reusing job audio motion template",
+                    RUNNER_PREPARE_PROGRESS_GLOBAL_AUDIO_CACHE,
+                    {"phase": "audio_template_cache"},
+                )
                 print(f"[info] using cached audio template: {audio_template}")
             else:
-                if config.rebuild_driving_template and audio_template.exists():
-                    print("[info] forcing audio template rebuild from normalized audio")
-                build_driving_template_from_audio(config, audio_template_input_wav, audio_template)
-                assert_path_exists(audio_template, "Audio motion template")
-                write_audio_template_meta(
-                    audio_template_meta,
-                    build_audio_template_meta_payload(
-                        audio_signature=audio_signature,
-                        template_path=audio_template,
+                restored_from_global_cache = False
+                if not config.rebuild_driving_template:
+                    publish_runner_status(
+                        runner_status_writer,
+                        "checking shared audio motion cache",
+                        RUNNER_PREPARE_PROGRESS_GLOBAL_AUDIO_CACHE,
+                        {"phase": "audio_template_cache"},
+                    )
+                    restored_from_global_cache = restore_audio_template_from_global_cache(
                         config=config,
+                        local_template_path=audio_template,
+                        local_meta_path=audio_template_meta,
+                        audio_signature=audio_signature,
+                        generation_profile=generation_profile,
                         normalized_audio_path=audio_template_input_wav,
-                    ),
-                )
-                print(f"[ok] audio motion template -> {audio_template}")
+                    )
+                if restored_from_global_cache:
+                    publish_runner_status(
+                        runner_status_writer,
+                        "restored shared audio motion template",
+                        RUNNER_PREPARE_PROGRESS_GLOBAL_AUDIO_CACHE,
+                        {"phase": "audio_template_cache"},
+                    )
+                    print(f"[info] using globally cached audio template: {audio_template}")
+                else:
+                    publish_runner_status(
+                        runner_status_writer,
+                        "building audio motion template",
+                        RUNNER_PREPARE_PROGRESS_BUILD_AUDIO_TEMPLATE,
+                        {"phase": "audio_template_build"},
+                    )
+                    if config.rebuild_driving_template and audio_template.exists():
+                        print("[info] forcing audio template rebuild from normalized audio")
+                    build_driving_template_from_audio(config, audio_template_input_wav, audio_template)
+                    assert_path_exists(audio_template, "Audio motion template")
+                    write_audio_template_meta(
+                        audio_template_meta,
+                        build_audio_template_meta_payload(
+                            audio_signature=audio_signature,
+                            template_path=audio_template,
+                            config=config,
+                            normalized_audio_path=audio_template_input_wav,
+                        ),
+                    )
+                    persist_audio_template_to_global_cache(
+                        config=config,
+                        local_template_path=audio_template,
+                        audio_signature=audio_signature,
+                        normalized_audio_path=audio_template_input_wav,
+                    )
+                    print(f"[ok] audio motion template -> {audio_template}")
             driving_input = audio_template
             driving_fps = read_template_fps(audio_template, source_fps)
         else:
             template_used = False
-            driving_input = audio_template_input_wav
+            publish_runner_status(
+                runner_status_writer,
+                "starting direct audio render",
+                RUNNER_PREPARE_PROGRESS_NORMALIZE_AUDIO,
+                {"phase": "direct_audio_render"},
+            )
+            print(
+                "[info] using direct JoyVASA audio path without motion-template prebuild",
+                flush=True,
+            )
+            driving_input = driving_audio
             driving_fps = float(resolve_motion_stride_target_fps(source_fps, config.audio_motion_stride))
         driving_media = driving_audio
     else:
@@ -3233,11 +3425,25 @@ def main() -> None:
     phase_prepare_inputs_seconds = time.time() - phase_started_at
 
     if config.backend == BACKEND_TRT and not config.skip_trt_engine_build:
+        publish_runner_status(
+            runner_status_writer,
+            "preparing TRT runtime",
+            RUNNER_PREPARE_PROGRESS_PREPARE_RUNTIME,
+            {"phase": "prepare_runtime"},
+        )
         ensure_trt_engines(config)
 
     raw_results_root = config.faster_repo_dir / "results"
     raw_results_root.mkdir(parents=True, exist_ok=True)
     phase_inference_started_at = time.time()
+    publish_runner_status(
+        runner_status_writer,
+        "starting render",
+        RUNNER_PREPARE_PROGRESS_START_RENDER,
+        {"phase": "render_start"},
+    )
+    close_runner_status_writer(runner_status_writer)
+    runner_status_writer = None
     run_output_dir, result_org, result_crop = run_faster_pipeline(config, driving_input, raw_results_root)
     phase_inference_seconds = time.time() - phase_inference_started_at
 

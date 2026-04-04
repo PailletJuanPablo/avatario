@@ -1101,12 +1101,12 @@
     const JOB_STATE_RUNNING = "running";
     const DEFAULT_MOTION_STRIDE = 2;
     const DEFAULT_MODE = "preview";
-    const DEFAULT_AUDIO_EYE_TAMED_PRESET = true;
+    const DEFAULT_AUDIO_EYE_TAMED_PRESET = false;
     const DEFAULT_AUDIO_EYE_SOFT_FACTOR = 0.45;
     const DEFAULT_AUDIO_EYE_HARD_FACTOR = 0.18;
     const DEFAULT_AUDIO_EYE_HARD_DY_MIN = -0.0045;
     const DEFAULT_AUDIO_EYE_HARD_DY_MAX = 0.0035;
-    const DEFAULT_AUDIO_MOTION_TUNING_ENABLED = true;
+    const DEFAULT_AUDIO_MOTION_TUNING_ENABLED = false;
     const DEFAULT_AUDIO_REANCHOR_FIRST_N = 5;
     const DEFAULT_AUDIO_MOUTH_OPEN_FACTOR = 1.18;
     const DEFAULT_AUDIO_POSE_SMOOTH_WINDOW = 5;
@@ -1193,7 +1193,7 @@
     const STREAM_STALL_RECONNECT_THRESHOLD_MS = 1800;
     const STREAM_STALL_RECONNECT_COOLDOWN_MS = 2500;
     const STREAM_HEALTHCHECK_INTERVAL_MS = 1000;
-    const UNIFIED_AVATAR_STREAM_START_MODE = VIDEO_STREAM_START_MODE.BUFFERED;
+    const UNIFIED_AVATAR_STREAM_START_MODE = VIDEO_STREAM_START_MODE.LIVE;
     const UNIFIED_AVATAR_STREAM_STALL_RECONNECT_ENABLED = false;
     const UNIFIED_AVATAR_HTTP_FALLBACK_ENABLED = false;
     const JOB_PANEL_MIN_INTERVAL_MS = 120;
@@ -4146,10 +4146,14 @@
           jobId: avatarState.currentJobId,
           videoWsUrl: avatarState.currentJobVideoWsUrl
         },
-        VIDEO_STREAM_START_MODE.BUFFERED,
+        UNIFIED_AVATAR_STREAM_START_MODE,
         avatarState.bufferedStartProgress
       );
-      setStreamBadge(`buffering clip ${avatarState.currentJobId}`);
+      setStreamBadge(
+        UNIFIED_AVATAR_STREAM_START_MODE === VIDEO_STREAM_START_MODE.BUFFERED
+          ? `buffering clip ${avatarState.currentJobId}`
+          : `connecting clip ${avatarState.currentJobId}`
+      );
     }
 
     function connectVideoStream(jobPayload, startMode = VIDEO_STREAM_START_MODE.LIVE, startProgress = BUFFERED_STREAM_START_PROGRESS_RATIO) {

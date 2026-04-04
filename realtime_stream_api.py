@@ -368,7 +368,7 @@ DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS_ENV_KEY = "ANIMATION_AUDIO_LIP_SYNC_OFFSET_MS"
 DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH_ENV_KEY = "ANIMATION_AUDIO_MOUTH_FLOOR_STRENGTH"
 DEFAULT_AUDIO_MOUTH_PEAK_CLAMP_ENV_KEY = "ANIMATION_AUDIO_MOUTH_PEAK_CLAMP"
 DEFAULT_AUDIO_EYE_TAMED_PRESET = (
-    os.getenv(DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY, "1").strip().lower() not in {"0", "false", "no"}
+    os.getenv(DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY, "0").strip().lower() in {"1", "true", "yes", "on"}
 )
 DEFAULT_AUDIO_EYE_SOFT_FACTOR = read_env_float(
     DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY,
@@ -395,7 +395,7 @@ DEFAULT_AUDIO_EYE_HARD_DY_MAX = read_env_float(
     1.0,
 )
 DEFAULT_AUDIO_MOTION_TUNING_ENABLED = (
-    os.getenv(DEFAULT_AUDIO_MOTION_TUNING_ENABLED_ENV_KEY, "1").strip().lower() not in {"0", "false", "no"}
+    os.getenv(DEFAULT_AUDIO_MOTION_TUNING_ENABLED_ENV_KEY, "0").strip().lower() in {"1", "true", "yes", "on"}
 )
 DEFAULT_AUDIO_REANCHOR_FIRST_N = read_env_int(DEFAULT_AUDIO_REANCHOR_FIRST_N_ENV_KEY, 5, 1, 15)
 DEFAULT_AUDIO_MOUTH_OPEN_FACTOR = read_env_float(
@@ -711,8 +711,20 @@ AVATAR_RETURN_TO_IDLE_FLOW_CONSISTENCY_THRESHOLD = 1.5
 AVATAR_RETURN_TO_IDLE_FLOW_CONSISTENCY_SCALE = 0.05
 AVATAR_RETURN_TO_IDLE_FLOW_MASK_BLUR_KERNEL = 5
 AVATAR_RETURN_TO_IDLE_FLOW_WEIGHT_EPSILON = 1e-6
-AVATAR_READY_BUFFER_MIN_SEC = 1.2
-AVATAR_READY_DYNAMIC_MARGIN_SEC = 0.45
+AVATAR_READY_BUFFER_MIN_SEC_ENV_KEY = "ANIMATION_AVATAR_READY_BUFFER_MIN_SEC"
+AVATAR_READY_BUFFER_MIN_SEC = read_env_float(
+    AVATAR_READY_BUFFER_MIN_SEC_ENV_KEY,
+    0.55,
+    0.05,
+    5.0,
+)
+AVATAR_READY_DYNAMIC_MARGIN_SEC_ENV_KEY = "ANIMATION_AVATAR_READY_DYNAMIC_MARGIN_SEC"
+AVATAR_READY_DYNAMIC_MARGIN_SEC = read_env_float(
+    AVATAR_READY_DYNAMIC_MARGIN_SEC_ENV_KEY,
+    0.12,
+    0.0,
+    2.0,
+)
 AVATAR_READY_BUFFER_MAX_PROGRESS_ENV_KEY = "ANIMATION_AVATAR_READY_BUFFER_MAX_PROGRESS"
 AVATAR_READY_BUFFER_MAX_PROGRESS = read_env_float(
     AVATAR_READY_BUFFER_MAX_PROGRESS_ENV_KEY,
@@ -3879,21 +3891,19 @@ def resolve_avatar_required_ready_frame_count(
         )
 
     estimated_generation_fps = estimate_generation_fps(stream_status, 0.0)
-    if estimated_generation_fps <= 0:
-        required_frame_count = max(1, min(frame_total, baseline_frame_count))
-        if maximum_progress_frame_count > 0:
-            required_frame_count = min(required_frame_count, maximum_progress_frame_count)
-        return required_frame_count
-
-    clip_duration_sec = float(frame_total) / float(playback_fps)
-    generation_deficit_fps = max(0.0, float(playback_fps) - float(estimated_generation_fps))
-    dynamic_frame_count = int(
-        math.ceil(
-            (generation_deficit_fps * clip_duration_sec)
-            + (float(playback_fps) * AVATAR_READY_DYNAMIC_MARGIN_SEC)
+    safety_frame_count = 0
+    if estimated_generation_fps > 0 and playback_fps > 0 and AVATAR_READY_DYNAMIC_MARGIN_SEC > 0:
+        generation_gap_ratio = clamp_float(
+            max(0.0, float(playback_fps) - float(estimated_generation_fps)) / float(playback_fps),
+            0.0,
+            1.0,
         )
-    )
-    required_frame_count = max(1, min(frame_total, max(baseline_frame_count, dynamic_frame_count)))
+        if generation_gap_ratio > 0:
+            safety_frame_count = int(
+                math.ceil(float(playback_fps) * float(AVATAR_READY_DYNAMIC_MARGIN_SEC) * generation_gap_ratio)
+            )
+
+    required_frame_count = max(1, min(frame_total, baseline_frame_count + safety_frame_count))
     if maximum_progress_frame_count > 0:
         required_frame_count = min(required_frame_count, maximum_progress_frame_count)
     return required_frame_count
@@ -6199,6 +6209,9 @@ def create_app() -> FastAPI:
             "defaultAudioLipSyncOffsetMs": DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS,
             "defaultAudioMouthFloorStrength": DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH,
             "defaultAudioMouthPeakClamp": DEFAULT_AUDIO_MOUTH_PEAK_CLAMP,
+            "defaultAvatarReadyBufferMinSec": AVATAR_READY_BUFFER_MIN_SEC,
+            "defaultAvatarReadyDynamicMarginSec": AVATAR_READY_DYNAMIC_MARGIN_SEC,
+            "defaultAvatarBufferedStartProgress": AVATAR_READY_BUFFER_MAX_PROGRESS,
             "defaultDrivingMultiplier": DEFAULT_DRIVING_MULTIPLIER,
             "defaultCfgScale": DEFAULT_CFG_SCALE,
             "defaultJoyvasaInferenceSteps": DEFAULT_JOYVASA_INFERENCE_STEPS,

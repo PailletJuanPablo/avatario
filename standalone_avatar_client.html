@@ -137,7 +137,7 @@
 
     .status-strip {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 14px;
     }
@@ -202,7 +202,7 @@
       }
 
       .status-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
   </style>
@@ -515,6 +515,14 @@
             <span class="label">Current job</span>
             <span id="jobValue" class="value">-</span>
           </div>
+          <div class="metric">
+            <span class="label">Job state</span>
+            <span id="jobStateValue" class="value">-</span>
+          </div>
+          <div class="metric">
+            <span class="label">Progress</span>
+            <span id="progressValue" class="value">-</span>
+          </div>
         </div>
 
         <div class="video-shell">
@@ -552,12 +560,12 @@
     const DEFAULT_DRIVING_MULTIPLIER = 1;
     const DEFAULT_CFG_SCALE = 1.2;
     const DEFAULT_JOYVASA_INFERENCE_STEPS = 15;
-    const DEFAULT_AUDIO_EYE_TAMED_PRESET = true;
+    const DEFAULT_AUDIO_EYE_TAMED_PRESET = false;
     const DEFAULT_AUDIO_EYE_SOFT_FACTOR = 0.45;
     const DEFAULT_AUDIO_EYE_HARD_FACTOR = 0.18;
     const DEFAULT_AUDIO_EYE_HARD_DY_MIN = -0.0045;
     const DEFAULT_AUDIO_EYE_HARD_DY_MAX = 0.0035;
-    const DEFAULT_AUDIO_MOTION_TUNING_ENABLED = true;
+    const DEFAULT_AUDIO_MOTION_TUNING_ENABLED = false;
     const DEFAULT_AUDIO_REANCHOR_FIRST_N = 5;
     const DEFAULT_AUDIO_MOUTH_OPEN_FACTOR = 1.18;
     const DEFAULT_AUDIO_POSE_SMOOTH_WINDOW = 5;
@@ -635,6 +643,8 @@
       modeValue: document.getElementById("modeValue"),
       queueValue: document.getElementById("queueValue"),
       jobValue: document.getElementById("jobValue"),
+      jobStateValue: document.getElementById("jobStateValue"),
+      progressValue: document.getElementById("progressValue"),
       logOutput: document.getElementById("logOutput"),
       statusOutput: document.getElementById("statusOutput")
     };
@@ -651,7 +661,9 @@
       sourceTemplatePacksPath: DEFAULT_SOURCE_TEMPLATE_PACKS_PATH,
       createSourceTemplatePackPath: DEFAULT_SOURCE_TEMPLATE_PACKS_PATH,
       sourceTemplatePacks: [],
-      audioTuningPresets: {}
+      audioTuningPresets: {},
+      lastJobStatus: null,
+      lastEnqueuedJobId: ""
     };
 
     function formatAudioPresetLabel(presetId) {
@@ -1181,13 +1193,72 @@
       return response.json();
     }
 
-    function renderStatus(statusPayload) {
+    function resolveJobProgressRatio(jobPayload) {
+      const streamStatus = jobPayload && jobPayload.status && typeof jobPayload.status === "object"
+        ? jobPayload.status
+        : {};
+      const explicitProgress = Number(streamStatus.progress);
+      if (Number.isFinite(explicitProgress)) {
+        return Math.min(1, Math.max(0, explicitProgress));
+      }
+      const frameIndex = Number(streamStatus.frameIndex);
+      const frameTotal = Number(streamStatus.frameTotal);
+      if (Number.isFinite(frameIndex) && Number.isFinite(frameTotal) && frameTotal > 0) {
+        return Math.min(1, Math.max(0, frameIndex / frameTotal));
+      }
+      return 0;
+    }
+
+    function buildJobProgressLabel(jobPayload) {
+      if (!jobPayload || typeof jobPayload !== "object") {
+        return "-";
+      }
+      const streamStatus = jobPayload.status && typeof jobPayload.status === "object" ? jobPayload.status : {};
+      const progressRatio = resolveJobProgressRatio(jobPayload);
+      const percent = Math.round(progressRatio * 100);
+      const frameIndex = Number(streamStatus.frameIndex || 0);
+      const frameTotal = Number(streamStatus.frameTotal || 0);
+      if (frameIndex > 0 || frameTotal > 0) {
+        return `${percent}% (${frameIndex}/${frameTotal || "?"})`;
+      }
+      const message = String(streamStatus.message || "").trim();
+      return message ? `${percent}% · ${message}` : `${percent}%`;
+    }
+
+    async function refreshCurrentJobStatus(jobId) {
+      const normalizedJobId = String(jobId || "").trim();
+      if (!state.sessionId || !normalizedJobId) {
+        state.lastJobStatus = null;
+        return null;
+      }
+      const payload = await fetchJson(`/api/jobs/${encodeURIComponent(normalizedJobId)}/status`, state.sessionId);
+      state.lastJobStatus = payload;
+      return payload;
+    }
+
+    function renderStatus(statusPayload, jobStatusPayload = state.lastJobStatus) {
       const payload = statusPayload || {};
+      const currentJobId = String(
+        payload.currentJobId
+          || payload.avatarCurrentJobId
+          || (jobStatusPayload && jobStatusPayload.jobId)
+          || state.lastEnqueuedJobId
+          || "-"
+      ).trim() || "-";
       elements.sessionValue.textContent = state.sessionId || "-";
       elements.modeValue.textContent = String(payload.mode || payload.avatarMode || "idle");
       elements.queueValue.textContent = String(payload.queueDepth || payload.avatarQueueDepth || 0);
-      elements.jobValue.textContent = String(payload.currentJobId || payload.avatarCurrentJobId || "-") || "-";
-      elements.statusOutput.textContent = JSON.stringify(payload, null, 2);
+      elements.jobValue.textContent = currentJobId;
+      elements.jobStateValue.textContent = String((jobStatusPayload && jobStatusPayload.state) || "-");
+      elements.progressValue.textContent = buildJobProgressLabel(jobStatusPayload);
+      elements.statusOutput.textContent = JSON.stringify(
+        {
+          avatar: payload,
+          job: jobStatusPayload || null
+        },
+        null,
+        2
+      );
     }
 
     function restartStatusPolling() {
@@ -1207,7 +1278,22 @@
       }
       const payload = await fetchJson(DEFAULT_STATUS_PATH, state.sessionId);
       state.lastStatus = payload;
-      renderStatus(payload);
+      const currentJobId = String(payload.currentJobId || payload.avatarCurrentJobId || state.lastEnqueuedJobId || "").trim();
+      let jobStatusPayload = state.lastJobStatus;
+      if (currentJobId) {
+        try {
+          jobStatusPayload = await refreshCurrentJobStatus(currentJobId);
+          if (jobStatusPayload && String(jobStatusPayload.state || "").trim() && !String(payload.currentJobId || payload.avatarCurrentJobId || "").trim()) {
+            state.lastEnqueuedJobId = currentJobId;
+          }
+        } catch (_error) {
+          jobStatusPayload = state.lastJobStatus;
+        }
+      } else {
+        state.lastJobStatus = null;
+        jobStatusPayload = null;
+      }
+      renderStatus(payload, jobStatusPayload);
       return payload;
     }
 
@@ -1310,10 +1396,13 @@
         throw new Error(`POST ${DEFAULT_ENQUEUE_PATH} failed with HTTP ${response.status}: ${bodyText}`);
       }
       const payload = await response.json();
+      state.lastEnqueuedJobId = String(payload.jobId || "").trim();
+      state.lastJobStatus = payload;
       setLog("Audio enqueued.", {
         ...payload,
         requestedTuning: tuningConfig
       });
+      renderStatus(state.lastStatus || {}, payload);
       await refreshAvatarStatus();
     }
 
@@ -1321,6 +1410,8 @@
       state.sessionId = "";
       state.lastHealth = null;
       state.lastStatus = null;
+      state.lastJobStatus = null;
+      state.lastEnqueuedJobId = "";
       if (state.statusPollHandle) {
         window.clearInterval(state.statusPollHandle);
         state.statusPollHandle = 0;
