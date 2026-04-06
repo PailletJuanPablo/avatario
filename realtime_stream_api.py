@@ -1996,7 +1996,9 @@ def build_avatar_stream_command(
     canvas_size: tuple[int, int],
     audio_pipe_fd: int | None = None,
     audio_input_path: Path | None = None,
+    audio_input_url: str | None = None,
     include_silent_audio: bool = False,
+    audio_input_seek_sec: float = 0.0,
     timestamp_offset_sec: float = 0.0,
 ) -> list[str]:
     """
@@ -2030,6 +2032,7 @@ def build_avatar_stream_command(
         "pipe:0",
     ]
     has_audio_pipe = audio_pipe_fd is not None and audio_pipe_fd >= 0
+    has_audio_input_url = bool(str(audio_input_url or "").strip())
     has_audio_input = audio_input_path is not None and audio_input_path.exists()
     if has_audio_pipe:
         command.extend(
@@ -2048,7 +2051,32 @@ def build_avatar_stream_command(
                 "1:a:0",
             ]
         )
+    elif has_audio_input_url:
+        command.extend(
+            [
+                "-f",
+                "s16le",
+                "-ar",
+                VIDEO_STREAM_AUDIO_SAMPLE_RATE,
+                "-ac",
+                VIDEO_STREAM_AUDIO_CHANNELS,
+                "-i",
+                str(audio_input_url).strip(),
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+            ]
+        )
     elif has_audio_input:
+        safe_audio_input_seek_sec = max(0.0, float(audio_input_seek_sec))
+        if safe_audio_input_seek_sec > 0.0:
+            command.extend(
+                [
+                    "-ss",
+                    f"{safe_audio_input_seek_sec:.6f}",
+                ]
+            )
         command.extend(
             [
                 "-i",
@@ -2083,7 +2111,7 @@ def build_avatar_stream_command(
     command.extend(
         build_stream_video_codec_args()
     )
-    if has_audio_pipe or has_audio_input or include_silent_audio:
+    if has_audio_pipe or has_audio_input_url or has_audio_input or include_silent_audio:
         command.extend(
             [
                 "-c:a",
@@ -2098,7 +2126,7 @@ def build_avatar_stream_command(
                 VIDEO_STREAM_AUDIO_FILTER,
             ]
         )
-        if not has_audio_pipe:
+        if not has_audio_pipe and not has_audio_input_url:
             command.append("-shortest")
     command.extend(
         [
@@ -2832,6 +2860,8 @@ async def create_avatar_stream_encoder(
     timestamp_offset_sec: float,
     audio_pipe_fd: int | None,
     audio_input_path: Path | None,
+    audio_input_url: str | None,
+    audio_input_seek_sec: float,
     emit_initialization_segment: bool,
 ) -> AvatarStreamEncoder:
     """
@@ -2843,7 +2873,9 @@ async def create_avatar_stream_encoder(
             canvas_size=canvas_size,
             audio_pipe_fd=audio_pipe_fd,
             audio_input_path=audio_input_path,
-            include_silent_audio=audio_pipe_fd is None and audio_input_path is None,
+            audio_input_url=audio_input_url,
+            include_silent_audio=audio_pipe_fd is None and audio_input_path is None and not audio_input_url,
+            audio_input_seek_sec=audio_input_seek_sec,
             timestamp_offset_sec=timestamp_offset_sec,
         ),
         stdin=asyncio.subprocess.PIPE,
@@ -2972,7 +3004,8 @@ def open_avatar_audio_wave_reader(audio_path: Path, seek_offset_sec: float) -> w
 
 async def pump_continuous_avatar_audio(
     avatar_session_id: str,
-    audio_write_fd: int,
+    audio_write_fd: int | None,
+    audio_stream_writer_future: asyncio.Future[asyncio.StreamWriter] | None,
     stop_event: asyncio.Event,
 ) -> None:
     """
@@ -2980,10 +3013,18 @@ async def pump_continuous_avatar_audio(
     """
     current_job_id = ""
     current_wave_reader: wave.Wave_read | None = None
+    audio_stream_writer: asyncio.StreamWriter | None = None
     next_emit_at = time.perf_counter()
     silence_chunk = bytes(VIDEO_STREAM_AUDIO_CHUNK_BYTES)
     try:
         while not stop_event.is_set():
+            if audio_stream_writer is None and audio_stream_writer_future is not None:
+                if audio_stream_writer_future.done():
+                    with contextlib.suppress(Exception):
+                        audio_stream_writer = audio_stream_writer_future.result()
+                else:
+                    await asyncio.sleep(VIDEO_STREAM_POLL_SLEEP_SEC)
+                    continue
             snapshot = get_avatar_state_snapshot(avatar_session_id)
             desired_job_id = str(snapshot.get("currentJobId") or "") if snapshot.get("mode") == AVATAR_MODE_TALKING else ""
             if desired_job_id != current_job_id:
@@ -3038,8 +3079,14 @@ async def pump_continuous_avatar_audio(
                     audio_chunk = audio_chunk + bytes(VIDEO_STREAM_AUDIO_CHUNK_BYTES - len(audio_chunk))
 
             try:
-                await asyncio.to_thread(os.write, audio_write_fd, audio_chunk)
-            except (BrokenPipeError, OSError):
+                if audio_write_fd is not None and audio_write_fd >= 0:
+                    await asyncio.to_thread(os.write, audio_write_fd, audio_chunk)
+                elif audio_stream_writer is not None:
+                    audio_stream_writer.write(audio_chunk)
+                    await audio_stream_writer.drain()
+                else:
+                    break
+            except (BrokenPipeError, OSError, ConnectionResetError):
                 break
             next_emit_at += float(VIDEO_STREAM_AUDIO_CHUNK_SAMPLES) / float(VIDEO_STREAM_AUDIO_SAMPLE_RATE_INT)
             sleep_duration = next_emit_at - time.perf_counter()
@@ -3056,6 +3103,8 @@ async def stop_continuous_avatar_audio(
     audio_task: asyncio.Task[Any] | None,
     stop_event: asyncio.Event | None,
     audio_write_fd: int | None,
+    audio_stream_writer_future: asyncio.Future[asyncio.StreamWriter] | None,
+    audio_stream_server: asyncio.AbstractServer | None,
 ) -> None:
     """
     Stop one continuous avatar audio pump and release its pipe.
@@ -3069,6 +3118,44 @@ async def stop_continuous_avatar_audio(
     if audio_write_fd is not None and audio_write_fd >= 0:
         with contextlib.suppress(OSError):
             os.close(audio_write_fd)
+    if audio_stream_writer_future is not None and audio_stream_writer_future.done():
+        with contextlib.suppress(Exception):
+            audio_stream_writer = audio_stream_writer_future.result()
+            audio_stream_writer.close()
+            await audio_stream_writer.wait_closed()
+    if audio_stream_server is not None:
+        audio_stream_server.close()
+        with contextlib.suppress(Exception):
+            await audio_stream_server.wait_closed()
+
+
+async def create_avatar_audio_tcp_server() -> tuple[asyncio.AbstractServer, asyncio.Future[asyncio.StreamWriter], str]:
+    """
+    Create one localhost TCP server that FFmpeg can consume as a continuous raw PCM input on Windows.
+    """
+    loop = asyncio.get_running_loop()
+    writer_future: asyncio.Future[asyncio.StreamWriter] = loop.create_future()
+
+    async def handle_client(_reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        if writer_future.done():
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+            return
+        writer_future.set_result(writer)
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+    server = await asyncio.start_server(handle_client, "127.0.0.1", 0)
+    bound_socket = next(iter(server.sockets or []), None)
+    if bound_socket is None:
+        server.close()
+        await server.wait_closed()
+        raise RuntimeError("Failed to bind continuous avatar audio TCP server.")
+    host, port = bound_socket.getsockname()[:2]
+    return server, writer_future, f"tcp://{host}:{int(port)}"
 
 
 async def stream_continuous_avatar_video(
@@ -3084,11 +3171,15 @@ async def stream_continuous_avatar_video(
     idle_looper = IdleVideoLooper(resolve_idle_video_abs())
     canvas_size = resolve_avatar_stream_canvas_size(idle_looper.canvas_size)
     use_continuous_audio_pipe = os.name != "nt"
+    use_continuous_audio_tcp = os.name == "nt"
+    use_continuous_audio_input = use_continuous_audio_pipe or use_continuous_audio_tcp
     timeline_offset_sec = 0.0
     emit_initialization_segment = True
     encoder: AvatarStreamEncoder | None = None
     encoder_output_fps = resolve_avatar_idle_output_fps(idle_looper)
     audio_write_fd: int | None = None
+    audio_stream_writer_future: asyncio.Future[asyncio.StreamWriter] | None = None
+    audio_stream_server: asyncio.AbstractServer | None = None
     audio_task: asyncio.Task[Any] | None = None
     audio_stop_event: asyncio.Event | None = None
     talking_state: AvatarTalkingFrameState | None = None
@@ -3107,22 +3198,36 @@ async def stream_continuous_avatar_video(
         idle_fps=f"{float(encoder_output_fps):.3f}",
         idle_video=str(resolve_idle_video_abs() or ""),
         continuous_audio_pipe=use_continuous_audio_pipe,
+        continuous_audio_tcp=use_continuous_audio_tcp,
     )
 
-    async def start_output_pipeline(target_fps: float) -> None:
+    async def start_output_pipeline(
+        target_fps: float,
+        audio_input_path: Path | None,
+        include_silent_audio: bool,
+        audio_input_seek_sec: float,
+    ) -> None:
         nonlocal encoder
         nonlocal encoder_output_fps
         nonlocal audio_write_fd
+        nonlocal audio_stream_writer_future
+        nonlocal audio_stream_server
         nonlocal audio_task
         nonlocal audio_stop_event
         nonlocal emit_initialization_segment
         nonlocal frame_interval_sec
         nonlocal next_emit_at
         audio_read_fd: int | None = None
+        audio_input_url: str | None = None
         if use_continuous_audio_pipe:
             audio_read_fd, audio_write_fd = os.pipe()
+        elif use_continuous_audio_tcp:
+            audio_write_fd = None
+            audio_stream_server, audio_stream_writer_future, audio_input_url = await create_avatar_audio_tcp_server()
         else:
             audio_write_fd = None
+            audio_stream_writer_future = None
+            audio_stream_server = None
         try:
             encoder_output_fps = max(1.0, float(target_fps))
             emit_avatar_stream_debug_log(
@@ -3131,6 +3236,11 @@ async def stream_continuous_avatar_video(
                 target_fps=f"{encoder_output_fps:.3f}",
                 timeline_offset_sec=f"{timeline_offset_sec:.3f}",
                 continuous_audio_pipe=use_continuous_audio_pipe,
+                continuous_audio_tcp=use_continuous_audio_tcp,
+                audio_input_path=str(audio_input_path.resolve()) if audio_input_path is not None else "",
+                audio_input_url=audio_input_url or "",
+                audio_input_seek_sec=f"{max(0.0, float(audio_input_seek_sec)):.3f}",
+                include_silent_audio=include_silent_audio,
                 emit_initialization_segment=emit_initialization_segment,
             )
             encoder = await create_avatar_stream_encoder(
@@ -3139,7 +3249,9 @@ async def stream_continuous_avatar_video(
                 canvas_size=canvas_size,
                 timestamp_offset_sec=timeline_offset_sec,
                 audio_pipe_fd=audio_read_fd,
-                audio_input_path=None,
+                audio_input_path=audio_input_path,
+                audio_input_url=audio_input_url,
+                audio_input_seek_sec=max(0.0, float(audio_input_seek_sec)),
                 emit_initialization_segment=emit_initialization_segment,
             )
         finally:
@@ -3152,7 +3264,12 @@ async def stream_continuous_avatar_video(
         if audio_write_fd is not None:
             audio_stop_event = asyncio.Event()
             audio_task = asyncio.create_task(
-                pump_continuous_avatar_audio(avatar_session_id, audio_write_fd, audio_stop_event)
+                pump_continuous_avatar_audio(avatar_session_id, audio_write_fd, None, audio_stop_event)
+            )
+        elif audio_stream_writer_future is not None:
+            audio_stop_event = asyncio.Event()
+            audio_task = asyncio.create_task(
+                pump_continuous_avatar_audio(avatar_session_id, None, audio_stream_writer_future, audio_stop_event)
             )
         else:
             audio_stop_event = None
@@ -3164,7 +3281,12 @@ async def stream_continuous_avatar_video(
 
         safe_target_fps = max(1.0, float(target_fps))
         if encoder is None:
-            await start_output_pipeline(safe_target_fps)
+            await start_output_pipeline(
+                safe_target_fps,
+                None,
+                False,
+                0.0,
+            )
             return
         if fps_values_match(encoder_output_fps, safe_target_fps):
             return
@@ -3173,11 +3295,26 @@ async def stream_continuous_avatar_video(
             "ffmpeg_restart",
             previous_fps=f"{float(encoder_output_fps):.3f}",
             target_fps=f"{safe_target_fps:.3f}",
+            reason="fps_change",
         )
         timeline_offset_sec += await stop_avatar_stream_encoder(encoder)
-        await stop_continuous_avatar_audio(audio_task, audio_stop_event, audio_write_fd)
+        await stop_continuous_avatar_audio(
+            audio_task,
+            audio_stop_event,
+            audio_write_fd,
+            audio_stream_writer_future,
+            audio_stream_server,
+        )
         encoder = None
-        await start_output_pipeline(safe_target_fps)
+        audio_write_fd = None
+        audio_stream_writer_future = None
+        audio_stream_server = None
+        await start_output_pipeline(
+            safe_target_fps,
+            None,
+            False,
+            0.0,
+        )
 
     def arm_idle_return_transition(last_frame_image: np.ndarray | None) -> None:
         """
@@ -3239,7 +3376,12 @@ async def stream_continuous_avatar_video(
             playback_fps=f"{float(state.playback_fps):.3f}",
         )
 
-    await start_output_pipeline(encoder_output_fps)
+    await start_output_pipeline(
+        encoder_output_fps,
+        None,
+        False,
+        0.0,
+    )
 
     try:
         while True:
@@ -3341,10 +3483,18 @@ async def stream_continuous_avatar_video(
                     await encoder.process.stdin.drain()
                     encoder.submitted_frame_count += 1
                 except (BrokenPipeError, ConnectionResetError, RuntimeError):
-                    await stop_continuous_avatar_audio(audio_task, audio_stop_event, audio_write_fd)
+                    await stop_continuous_avatar_audio(
+                        audio_task,
+                        audio_stop_event,
+                        audio_write_fd,
+                        audio_stream_writer_future,
+                        audio_stream_server,
+                    )
                     audio_task = None
                     audio_stop_event = None
                     audio_write_fd = None
+                    audio_stream_writer_future = None
+                    audio_stream_server = None
                     timeline_offset_sec += await stop_avatar_stream_encoder(encoder)
                     encoder = None
                     await start_output_pipeline(resolve_avatar_stream_output_fps(idle_looper, talking_state))
@@ -3374,7 +3524,13 @@ async def stream_continuous_avatar_video(
     finally:
         emit_avatar_stream_debug_log(avatar_session_id, "stream_stop")
         idle_looper.close()
-        await stop_continuous_avatar_audio(audio_task, audio_stop_event, audio_write_fd)
+        await stop_continuous_avatar_audio(
+            audio_task,
+            audio_stop_event,
+            audio_write_fd,
+            audio_stream_writer_future,
+            audio_stream_server,
+        )
         await stop_avatar_stream_encoder(encoder)
 
 

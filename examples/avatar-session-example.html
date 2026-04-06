@@ -174,7 +174,7 @@
     </section>
 
     <section>
-      <video id="avatarVideo" autoplay playsinline muted></video>
+      <video id="avatarVideo" autoplay playsinline></video>
 
       <div class="status-grid">
         <div class="status-card">
@@ -216,7 +216,7 @@
   </main>
 
   <script type="module">
-    import { AvatarClient } from "../dist/avatar-client.esm.js?v=20260406-stream-fix-1";
+    import { AvatarClient } from "../dist/avatar-client.esm.js?v=20260406-audio-fix-1";
 
     const apiBaseUrlInput = document.getElementById("apiBaseUrl");
     const apiTokenInput = document.getElementById("apiToken");
@@ -329,7 +329,7 @@
         await sessionClient.connectHttpStream({
           videoElement: avatarVideo,
           autoplay: true,
-          muted: true,
+          muted: false,
           playsInline: true,
         });
         log(`Session created: ${session.sessionId}`);

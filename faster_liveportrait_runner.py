@@ -235,6 +235,7 @@ if DEFAULT_VIDEO_ENCODER not in VIDEO_ENCODER_CHOICES:
     DEFAULT_VIDEO_ENCODER = VIDEO_ENCODER_AUTO
 FFMPEG_ENCODER_SUPPORT_CACHE: dict[str, bool] = {}
 SOURCE_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".m4v", ".wmv"}
+SOURCE_TEMPLATE_PACK_META_SUFFIX = ".json"
 DEFAULT_SOURCE_MAX_DIM = read_env_int("ANIMATION_SOURCE_MAX_DIM", 960, 256, 4096)
 DEFAULT_SOURCE_CROP_DSIZE = read_env_int("ANIMATION_SOURCE_CROP_DSIZE", 384, 256, 512)
 DEFAULT_SOURCE_VIDEO_TARGET_FPS = read_env_float(
@@ -835,11 +836,35 @@ def read_source_template_pack_payload(template_pack_path: Path) -> dict | None:
     return payload if isinstance(payload, dict) else None
 
 
+def resolve_source_template_pack_meta_path(template_pack_path: Path) -> Path:
+    """
+    Resolve the sidecar metadata path stored next to one source template pack.
+    """
+    return Path(f"{template_pack_path}{SOURCE_TEMPLATE_PACK_META_SUFFIX}")
+
+
+def read_source_template_pack_metadata(template_pack_path: Path) -> dict | None:
+    """
+    Read lightweight sidecar metadata for one source template pack.
+    """
+    meta_path = resolve_source_template_pack_meta_path(template_pack_path)
+    if not meta_path.exists() or not meta_path.is_file():
+        return None
+    try:
+        with meta_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def read_source_template_pack_fps(template_pack_path: Path) -> float | None:
     """
     Read cached source FPS from one source template pack when available.
     """
-    payload = read_source_template_pack_payload(template_pack_path)
+    payload = read_source_template_pack_metadata(template_pack_path)
+    if payload is None:
+        payload = read_source_template_pack_payload(template_pack_path)
     if payload is None:
         return None
     fps_value = payload.get("source_fps") if isinstance(payload, dict) else None
@@ -852,7 +877,9 @@ def is_source_template_pack_video_backed(template_pack_path: Path) -> bool:
     """
     Determine whether one source template pack was built from a video source.
     """
-    payload = read_source_template_pack_payload(template_pack_path)
+    payload = read_source_template_pack_metadata(template_pack_path)
+    if payload is None:
+        payload = read_source_template_pack_payload(template_pack_path)
     if payload is None:
         return False
     return bool(payload.get("is_source_video", False))
