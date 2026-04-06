@@ -18,6 +18,7 @@ import pickle
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -608,16 +609,17 @@ VIDEO_STREAM_AUDIO_CODEC = "aac"
 VIDEO_STREAM_AUDIO_BITRATE = "128k"
 VIDEO_STREAM_AUDIO_SAMPLE_RATE = "48000"
 VIDEO_STREAM_AUDIO_CHANNELS = "2"
-VIDEO_STREAM_AUDIO_FILTER = "aresample=async=1:first_pts=0"
+VIDEO_STREAM_AUDIO_FILTER = ""
 VIDEO_STREAM_AUDIO_SAMPLE_WIDTH_BYTES = 2
 VIDEO_STREAM_AUDIO_SAMPLE_RATE_INT = int(VIDEO_STREAM_AUDIO_SAMPLE_RATE)
 VIDEO_STREAM_AUDIO_CHANNELS_INT = int(VIDEO_STREAM_AUDIO_CHANNELS)
-VIDEO_STREAM_AUDIO_CHUNK_SAMPLES = 960
+VIDEO_STREAM_AUDIO_CHUNK_SAMPLES = 480
 VIDEO_STREAM_AUDIO_CHUNK_BYTES = (
     VIDEO_STREAM_AUDIO_CHUNK_SAMPLES
     * VIDEO_STREAM_AUDIO_CHANNELS_INT
     * VIDEO_STREAM_AUDIO_SAMPLE_WIDTH_BYTES
 )
+VIDEO_STREAM_AUDIO_TCP_BUFFER_BYTES = VIDEO_STREAM_AUDIO_CHUNK_BYTES * 2
 VIDEO_STREAM_MUX_DELAY = "0"
 VIDEO_STREAM_MUX_PRELOAD = "0"
 AVATAR_STREAM_MUX_MOVFLAGS = "+frag_keyframe+empty_moov+default_base_moof+omit_tfhd_offset"
@@ -2122,10 +2124,15 @@ def build_avatar_stream_command(
                 VIDEO_STREAM_AUDIO_SAMPLE_RATE,
                 "-ac",
                 VIDEO_STREAM_AUDIO_CHANNELS,
-                "-af",
-                VIDEO_STREAM_AUDIO_FILTER,
             ]
         )
+        if VIDEO_STREAM_AUDIO_FILTER:
+            command.extend(
+                [
+                    "-af",
+                    VIDEO_STREAM_AUDIO_FILTER,
+                ]
+            )
         if not has_audio_pipe and not has_audio_input_url:
             command.append("-shortest")
     command.extend(
@@ -3022,6 +3029,7 @@ async def pump_continuous_avatar_audio(
                 if audio_stream_writer_future.done():
                     with contextlib.suppress(Exception):
                         audio_stream_writer = audio_stream_writer_future.result()
+                        next_emit_at = time.perf_counter()
                 else:
                     await asyncio.sleep(VIDEO_STREAM_POLL_SLEEP_SEC)
                     continue
@@ -3059,6 +3067,7 @@ async def pump_continuous_avatar_audio(
                             playback_fps=f"{float(playback_fps or 0.0):.3f}",
                             start_frame_index=start_frame_index,
                         )
+                next_emit_at = time.perf_counter()
 
             audio_chunk = silence_chunk
             if current_wave_reader is not None:
@@ -3137,6 +3146,20 @@ async def create_avatar_audio_tcp_server() -> tuple[asyncio.AbstractServer, asyn
     writer_future: asyncio.Future[asyncio.StreamWriter] = loop.create_future()
 
     async def handle_client(_reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        transport = writer.transport
+        with contextlib.suppress(Exception):
+            transport.set_write_buffer_limits(
+                high=VIDEO_STREAM_AUDIO_TCP_BUFFER_BYTES,
+                low=VIDEO_STREAM_AUDIO_CHUNK_BYTES,
+            )
+        accepted_socket = writer.get_extra_info("socket")
+        if accepted_socket is not None:
+            with contextlib.suppress(OSError):
+                accepted_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            with contextlib.suppress(OSError):
+                accepted_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, VIDEO_STREAM_AUDIO_TCP_BUFFER_BYTES)
+            with contextlib.suppress(OSError):
+                accepted_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, VIDEO_STREAM_AUDIO_TCP_BUFFER_BYTES)
         if writer_future.done():
             writer.close()
             with contextlib.suppress(Exception):
@@ -3149,6 +3172,11 @@ async def create_avatar_audio_tcp_server() -> tuple[asyncio.AbstractServer, asyn
             pass
 
     server = await asyncio.start_server(handle_client, "127.0.0.1", 0)
+    for bound_socket in server.sockets or []:
+        with contextlib.suppress(OSError):
+            bound_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        with contextlib.suppress(OSError):
+            bound_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, VIDEO_STREAM_AUDIO_TCP_BUFFER_BYTES)
     bound_socket = next(iter(server.sockets or []), None)
     if bound_socket is None:
         server.close()
