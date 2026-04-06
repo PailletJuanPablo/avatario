@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import locale
 import os
 import pickle
 import hashlib
@@ -129,7 +130,7 @@ FIXED_AUDIO_MOTION_STRIDE = 2
 GENERATION_FRAME_COUNT_MIN = 1
 GENERATION_FRAME_COUNT_MAX = 1200
 FIXED_AUDIO_MOTION_TARGET_FPS_ENV_KEY = "ANIMATION_AUDIO_MOTION_TARGET_FPS"
-FIXED_AUDIO_MOTION_TARGET_FPS_DEFAULT = 22.0
+FIXED_AUDIO_MOTION_TARGET_FPS_DEFAULT = 18.0
 try:
     FIXED_AUDIO_MOTION_TARGET_FPS = max(
         1.0,
@@ -234,6 +235,14 @@ if DEFAULT_VIDEO_ENCODER not in VIDEO_ENCODER_CHOICES:
     DEFAULT_VIDEO_ENCODER = VIDEO_ENCODER_AUTO
 FFMPEG_ENCODER_SUPPORT_CACHE: dict[str, bool] = {}
 SOURCE_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".m4v", ".wmv"}
+DEFAULT_SOURCE_MAX_DIM = read_env_int("ANIMATION_SOURCE_MAX_DIM", 960, 256, 4096)
+DEFAULT_SOURCE_CROP_DSIZE = read_env_int("ANIMATION_SOURCE_CROP_DSIZE", 384, 256, 512)
+DEFAULT_SOURCE_VIDEO_TARGET_FPS = read_env_float(
+    "ANIMATION_SOURCE_VIDEO_TARGET_FPS",
+    18.0,
+    4.0,
+    60.0,
+)
 
 
 @dataclass
@@ -297,6 +306,10 @@ class RunnerConfig:
     build_source_template_pack: bool
     source_template_pack_output: Path | None
     skip_trt_engine_build: bool
+    force_trt_engine_rebuild: bool
+    source_max_dim: int
+    source_crop_dsize: int
+    source_video_target_fps: float
     video_encoder: str
     paste_back: bool
     defer_paste_back: bool
@@ -584,10 +597,33 @@ def parse_args() -> RunnerConfig:
     parser.add_argument("--build-source-template-pack", action="store_true")
     parser.add_argument("--source-template-pack-output", default="")
     parser.add_argument("--skip-trt-engine-build", action="store_true")
+    parser.add_argument(
+        "--force-trt-engine-rebuild",
+        action="store_true",
+        help="Rebuild TensorRT engines even when matching .trt files already exist.",
+    )
+    parser.add_argument(
+        "--source-max-dim",
+        type=int,
+        default=DEFAULT_SOURCE_MAX_DIM,
+        help="Maximum width/height used to preprocess new source media before template/runtime caching.",
+    )
+    parser.add_argument(
+        "--source-crop-dsize",
+        type=int,
+        default=DEFAULT_SOURCE_CROP_DSIZE,
+        help="Square crop size used for source-face extraction.",
+    )
+    parser.add_argument(
+        "--source-video-target-fps",
+        type=float,
+        default=DEFAULT_SOURCE_VIDEO_TARGET_FPS,
+        help="Maximum FPS stored for new video-backed source templates.",
+    )
     parser.add_argument("--video-encoder", choices=VIDEO_ENCODER_CHOICES, default=DEFAULT_VIDEO_ENCODER)
     parser.add_argument("--no-paste-back", action="store_true")
     parser.add_argument("--defer-paste-back", action="store_true")
-    parser.add_argument("--animation-region", choices=ANIMATION_REGION_CHOICES, default="all")
+    parser.add_argument("--animation-region", choices=ANIMATION_REGION_CHOICES, default="lip")
     parser.add_argument("--stitching-enabled", dest="stitching_enabled", action="store_true")
     parser.add_argument("--no-stitching", dest="stitching_enabled", action="store_false")
     parser.add_argument("--relative-motion-enabled", dest="relative_motion_enabled", action="store_true")
@@ -634,6 +670,9 @@ def parse_args() -> RunnerConfig:
     driving_multiplier = float(np.clip(float(args.driving_multiplier), 0.0, 2.0))
     cfg_scale = float(np.clip(float(args.cfg_scale), 0.0, 10.0))
     joyvasa_inference_steps = int(np.clip(int(args.joyvasa_inference_steps), 1, 100))
+    source_max_dim = max(256, int(args.source_max_dim))
+    source_crop_dsize = int(np.clip(int(args.source_crop_dsize), 256, 512))
+    source_video_target_fps = float(np.clip(float(args.source_video_target_fps), 4.0, 60.0))
 
     project_root = Path(__file__).resolve().parent
     driving_audio = (project_root / args.driving_audio).resolve() if args.driving_audio else None
@@ -706,6 +745,10 @@ def parse_args() -> RunnerConfig:
         build_source_template_pack=bool(args.build_source_template_pack),
         source_template_pack_output=source_template_pack_output,
         skip_trt_engine_build=args.skip_trt_engine_build,
+        force_trt_engine_rebuild=bool(args.force_trt_engine_rebuild),
+        source_max_dim=source_max_dim,
+        source_crop_dsize=source_crop_dsize,
+        source_video_target_fps=source_video_target_fps,
         video_encoder=str(args.video_encoder).strip().lower(),
         paste_back=not args.no_paste_back,
         defer_paste_back=bool(args.defer_paste_back),
@@ -1787,6 +1830,7 @@ def build_source_template_pack_local(config: RunnerConfig) -> None:
         "--animation_region",
         str(config.animation_region),
     ]
+    command.extend(build_source_quality_cli_args(config))
     if config.paste_back:
         command.append("--paste_back")
     if not config.stitching_enabled:
@@ -2292,9 +2336,12 @@ def ensure_trt_engines(config: RunnerConfig) -> None:
         precision_marker = read_engine_precision_marker(engine_path)
         batch_marker = read_engine_batch_marker(engine_path)
         rebuild_reasons: list[str] = []
-        requires_rebuild = not engine_path.exists()
+        requires_rebuild = bool(config.force_trt_engine_rebuild or not engine_path.exists())
+        if config.force_trt_engine_rebuild:
+            rebuild_reasons.append("forced")
         if requires_rebuild:
-            rebuild_reasons.append("missing_engine")
+            if not engine_path.exists():
+                rebuild_reasons.append("missing_engine")
         if not requires_rebuild:
             if target_precision == TRT_PRECISION_FP16 and precision_marker in {"", TRT_PRECISION_FP16}:
                 requires_rebuild = False
@@ -2507,12 +2554,16 @@ def process_pid_is_alive(pid: object) -> bool:
                 ],
                 check=False,
                 capture_output=True,
-                text=True,
                 timeout=5,
             )
         except Exception:
             return False
-        stdout_text = str(completed.stdout or "").lower()
+        try:
+            output_encoding = locale.getpreferredencoding(False) or "utf-8"
+        except Exception:
+            output_encoding = "utf-8"
+        stdout_bytes = completed.stdout if isinstance(completed.stdout, bytes) else b""
+        stdout_text = stdout_bytes.decode(output_encoding, errors="replace").lower()
         if "no tasks are running" in stdout_text:
             return False
         return str(safe_pid) in stdout_text
@@ -2545,6 +2596,25 @@ def heartbeat_is_fresh(heartbeat_path: Path, require_live_pid: bool = False) -> 
     return process_pid_is_alive(payload.get("pid"))
 
 
+def describe_persistent_worker_heartbeat(heartbeat_path: Path) -> str:
+    """
+    Render one short diagnostic summary for the persistent worker heartbeat file.
+    """
+    payload = read_json_file(heartbeat_path)
+    if payload is None:
+        return f"heartbeat=missing path={heartbeat_path}"
+    updated_at_ms = payload.get("updatedAtMs")
+    pid = payload.get("pid")
+    age_ms = -1
+    if isinstance(updated_at_ms, int):
+        age_ms = int(time.time() * 1000) - updated_at_ms
+    alive = process_pid_is_alive(pid)
+    return (
+        f"heartbeat=present pid={pid} alive={alive} age_ms={age_ms} "
+        f"path={heartbeat_path}"
+    )
+
+
 def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
     """
     Ensure persistent TRT worker is alive inside Docker runtime container.
@@ -2557,6 +2627,7 @@ def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
     responses_dir.mkdir(parents=True, exist_ok=True)
 
     if heartbeat_is_fresh(heartbeat_path):
+        print(f"[info] reusing persistent TRT worker ({describe_persistent_worker_heartbeat(heartbeat_path)})")
         return
 
     ensure_runtime_container(config)
@@ -2569,7 +2640,6 @@ def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
     queue_rel = to_project_relative(queue_root, config.project_root, "Persistent worker queue")
     faster_repo_rel = to_project_relative(config.faster_repo_dir, config.project_root, "FasterLivePortrait repo")
     source_cache_rel = to_project_relative(config.source_cache_dir, config.project_root, "Source cache directory")
-    source_frame_workspace_path = to_container_workspace_path(config.source_frame, config.project_root, "Source frame")
     cfg_rel = cfg_path.relative_to(config.faster_repo_dir).as_posix()
     wrapper_rel = to_project_relative(
         PERSISTENT_WORKER_WRAPPER_SCRIPT,
@@ -2586,13 +2656,21 @@ def ensure_persistent_trt_worker_docker(config: RunnerConfig) -> None:
         f"--cfg {shlex.quote(cfg_rel)} "
         f"--queue_dir {shlex.quote(f'/workspace/{queue_rel}')} "
         f"--source_cache_dir {shlex.quote(f'/workspace/{source_cache_rel}')} "
-        f"--preload_source_image {shlex.quote(source_frame_workspace_path)} "
         f"--render_batch_size {int(config.render_batch_size)} "
         f"--animation_region {shlex.quote(config.animation_region)} "
+        f"--source-max-dim {int(config.source_max_dim)} "
+        f"--source-crop-dsize {int(config.source_crop_dsize)} "
+        f"--source-video-target-fps {float(config.source_video_target_fps):.6f} "
         f"--driving_multiplier {float(config.driving_multiplier):.6f} "
         f"--cfg_scale {float(config.cfg_scale):.6f} "
         f"--joyvasa_inference_steps {int(config.joyvasa_inference_steps)} "
     )
+    preload_source_kind = resolve_source_input_kind(config)
+    if preload_source_kind == "image":
+        source_frame_workspace_path = to_container_workspace_path(config.source_frame, config.project_root, "Source frame")
+        worker_command += f"--preload_source_image {shlex.quote(source_frame_workspace_path)} "
+    else:
+        print(f"[info] skipping persistent TRT worker preload source_kind={preload_source_kind} source={config.source_frame}")
     if should_render_paste_back(config):
         worker_command += "--paste_back "
     if should_export_preview_composition(config):
@@ -2626,6 +2704,7 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
     responses_dir.mkdir(parents=True, exist_ok=True)
 
     if heartbeat_is_fresh(heartbeat_path, require_live_pid=True):
+        print(f"[info] reusing persistent TRT local worker ({describe_persistent_worker_heartbeat(heartbeat_path)})")
         return
 
     cfg_path = resolve_cfg_path(config)
@@ -2646,12 +2725,16 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
         str(queue_root),
         "--source_cache_dir",
         str(config.source_cache_dir),
-        "--preload_source_image",
-        str(config.source_frame),
         "--render_batch_size",
         str(int(config.render_batch_size)),
         "--animation_region",
         str(config.animation_region),
+        "--source-max-dim",
+        str(int(config.source_max_dim)),
+        "--source-crop-dsize",
+        str(int(config.source_crop_dsize)),
+        "--source-video-target-fps",
+        f"{float(config.source_video_target_fps):.6f}",
         "--driving_multiplier",
         f"{float(config.driving_multiplier):.6f}",
         "--cfg_scale",
@@ -2659,6 +2742,16 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
         "--joyvasa_inference_steps",
         str(int(config.joyvasa_inference_steps)),
     ]
+    preload_source_kind = resolve_source_input_kind(config)
+    if preload_source_kind == "image":
+        worker_command.extend(
+            [
+                "--preload_source_image",
+                str(config.source_frame),
+            ]
+        )
+    else:
+        print(f"[info] skipping persistent TRT local worker preload source_kind={preload_source_kind} source={config.source_frame}")
     if should_render_paste_back(config):
         worker_command.append("--paste_back")
     if should_export_preview_composition(config):
@@ -2670,6 +2763,7 @@ def ensure_persistent_trt_worker_local(config: RunnerConfig) -> None:
 
     printable = " ".join(worker_command)
     print(f"\n[cmd] {printable}")
+    print(f"[info] launching persistent TRT local worker ({describe_persistent_worker_heartbeat(heartbeat_path)})")
     start_detached_process(worker_command, cwd=config.faster_repo_dir, log_path=worker_log_path)
 
     deadline = time.time() + PERSISTENT_WORKER_STARTUP_TIMEOUT_SEC
@@ -2710,7 +2804,8 @@ def wait_for_persistent_worker_result(
         if not heartbeat_is_fresh(heartbeat_path, require_live_pid=True):
             raise RuntimeError(
                 "Persistent worker heartbeat became stale while waiting for a response. "
-                f"request={request_id} heartbeat={heartbeat_path} worker_log={worker_log_path}"
+                f"request={request_id} {describe_persistent_worker_heartbeat(heartbeat_path)} "
+                f"worker_log={worker_log_path}"
             )
         time.sleep(PERSISTENT_WORKER_POLL_SLEEP_SEC)
 
@@ -2816,6 +2911,31 @@ def build_audio_stream_tuning_payload(config: RunnerConfig) -> dict[str, str | i
         "audioLipSyncOffsetMs": int(config.audio_lip_sync_offset_ms),
         "audioMouthFloorStrength": float(config.audio_mouth_floor_strength),
         "audioMouthPeakClamp": float(config.audio_mouth_peak_clamp),
+    }
+
+
+def build_source_quality_cli_args(config: RunnerConfig) -> list[str]:
+    """
+    Build one single CLI fragment that controls source/template resolution and source-video FPS.
+    """
+    return [
+        "--source-max-dim",
+        str(int(config.source_max_dim)),
+        "--source-crop-dsize",
+        str(int(config.source_crop_dsize)),
+        "--source-video-target-fps",
+        f"{float(config.source_video_target_fps):.6f}",
+    ]
+
+
+def build_source_quality_payload(config: RunnerConfig) -> dict[str, int | float]:
+    """
+    Build persistent-worker payload fields that mirror the source-quality CLI contract.
+    """
+    return {
+        "sourceMaxDim": int(config.source_max_dim),
+        "sourceCropDsize": int(config.source_crop_dsize),
+        "sourceVideoTargetFps": float(config.source_video_target_fps),
     }
 
 
@@ -2946,6 +3066,7 @@ def run_faster_pipeline_local(
         "--animation_region",
         str(config.animation_region),
     ]
+    command.extend(build_source_quality_cli_args(config))
     command.extend(build_local_driving_args(config, driving_input))
     if config.stream_enabled:
         command.extend(["--stream_dir", str(config.stream_dir)])
@@ -2999,6 +3120,7 @@ def run_faster_pipeline_local_trt_persistent_worker(
         "stitchingEnabled": bool(config.stitching_enabled),
         "relativeMotionEnabled": bool(config.relative_motion_enabled),
         "sourceCacheDir": str(config.source_cache_dir),
+        **build_source_quality_payload(config),
     }
     request_payload.update(build_worker_driving_payload(config, driving_input, containerized=False))
     result_payload = wait_for_persistent_worker_result(
@@ -3049,7 +3171,10 @@ def run_faster_pipeline_docker_trt(
         f"--source_cache_dir {shlex.quote(f'/workspace/{source_cache_rel}')} "
         f"--render_batch_size {int(config.render_batch_size)} "
         f"--video_encoder {shlex.quote(config.video_encoder)} "
-        f"--animation_region {shlex.quote(config.animation_region)}"
+        f"--animation_region {shlex.quote(config.animation_region)} "
+        f"--source-max-dim {int(config.source_max_dim)} "
+        f"--source-crop-dsize {int(config.source_crop_dsize)} "
+        f"--source-video-target-fps {float(config.source_video_target_fps):.6f}"
     )
     script += " " + build_docker_driving_args(config, f"/workspace/{driving_rel}").strip()
     if config.stream_enabled:
@@ -3113,6 +3238,7 @@ def run_faster_pipeline_docker_trt_persistent_worker(
             config.project_root,
             "Source cache directory",
         ),
+        **build_source_quality_payload(config),
     }
     request_payload.update(build_worker_driving_payload(config, driving_input, containerized=True))
     result_payload = wait_for_persistent_worker_result(
@@ -3199,7 +3325,7 @@ def write_report(
     result_public: Path,
     result_concat_public: Path,
     run_output_dir: Path,
-    template_used: bool,
+    driving_template_used: bool,
     elapsed_seconds: float,
     phase_timings_seconds: dict[str, float],
 ) -> None:
@@ -3211,12 +3337,15 @@ def write_report(
     result_concat_public_viewer = to_viewer_path(result_concat_public, config.project_root)
     run_output_dir_viewer = to_viewer_path(run_output_dir, config.project_root)
 
+    source_template_pack_used = resolve_source_input_kind(config) == "template_pack"
     report = {
         "pipeline": "faster-liveportrait",
         "status": "ok",
         "backend": config.backend,
         "mode": config.mode,
-        "templateUsed": template_used,
+        "templateUsed": bool(source_template_pack_used or driving_template_used),
+        "sourceTemplatePackUsed": bool(source_template_pack_used),
+        "drivingTemplateUsed": bool(driving_template_used),
         "elapsedSeconds": round(elapsed_seconds, 3),
         "phaseTimingsSeconds": phase_timings_seconds,
         "sourceFps": source_fps,
@@ -3298,6 +3427,14 @@ def main() -> None:
         if config.source_template_pack_output is None:
             raise RuntimeError("source_template_pack_output is required when build_source_template_pack is enabled")
         config.source_template_pack_output.parent.mkdir(parents=True, exist_ok=True)
+        if config.backend == BACKEND_TRT and not config.skip_trt_engine_build:
+            publish_runner_status(
+                runner_status_writer,
+                "preparing TRT runtime",
+                RUNNER_PREPARE_PROGRESS_PREPARE_RUNTIME,
+                {"phase": "prepare_runtime"},
+            )
+            ensure_trt_engines(config)
         print(
             (
                 "[info] queued source template build "
@@ -3569,7 +3706,7 @@ def main() -> None:
         result_public=result_public,
         result_concat_public=result_concat_public,
         run_output_dir=run_output_dir,
-        template_used=template_used,
+        driving_template_used=template_used,
         elapsed_seconds=elapsed_seconds,
         phase_timings_seconds=phase_timings,
     )

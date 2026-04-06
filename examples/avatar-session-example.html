@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avatar Session Example</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      background: #0d1117;
+    }
+
+    main {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 20px;
+    }
+
+    section {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 14px;
+      padding: 16px;
+    }
+
+    h1, h2 {
+      margin: 0 0 12px;
+    }
+
+    .control {
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: #9da7b3;
+    }
+
+    input, select, button, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #e6edf3;
+      font-size: 14px;
+    }
+
+    button {
+      cursor: pointer;
+      background: #1f6feb;
+      border: none;
+      font-weight: 600;
+    }
+
+    button.secondary {
+      background: #30363d;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    video {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border-radius: 12px;
+      border: 1px solid #30363d;
+    }
+
+    pre {
+      margin: 0;
+      padding: 12px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .status-card {
+      padding: 12px;
+      border-radius: 12px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+    }
+
+    .status-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: #9da7b3;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>Avatar Session Example</h1>
+
+      <div class="control">
+        <label for="apiBaseUrl">API Base URL</label>
+        <input id="apiBaseUrl" type="url" value="http://127.0.0.1:8010" />
+      </div>
+
+      <div class="control">
+        <label for="apiToken">API Token</label>
+        <input id="apiToken" type="text" value="dev-token" />
+      </div>
+
+      <div class="control">
+        <button id="createSessionButton">1. Create Session And Start Stream</button>
+      </div>
+
+      <div class="control">
+        <label for="sourceVideoFile">Source Video For Template</label>
+        <input id="sourceVideoFile" type="file" accept=".mp4,.mov,.webm,.mkv,.avi,.m4v,.wmv" />
+      </div>
+
+      <div class="control">
+        <label for="templateName">Template Name</label>
+        <input id="templateName" type="text" value="demo-browser-template" />
+      </div>
+
+      <div class="control">
+        <button id="createTemplateButton" class="secondary">2. Create Template From Video</button>
+      </div>
+
+      <div class="control">
+        <label for="templateSelect">Existing Template</label>
+        <select id="templateSelect"></select>
+      </div>
+
+      <div class="control">
+        <button id="refreshTemplatesButton" class="secondary">Refresh Templates</button>
+      </div>
+
+      <div class="control">
+        <label for="audioFile">Audio To Enqueue</label>
+        <input id="audioFile" type="file" accept=".wav,.mp3,.m4a,.aac,.flac,.ogg" />
+      </div>
+
+      <div class="control">
+        <button id="enqueueButton">3. Upload Audio And Generate</button>
+      </div>
+    </section>
+
+    <section>
+      <video id="avatarVideo" autoplay playsinline muted></video>
+
+      <div class="status-grid">
+        <div class="status-card">
+          <strong>Session</strong>
+          <div id="sessionValue">Not connected</div>
+        </div>
+        <div class="status-card">
+          <strong>Avatar Mode</strong>
+          <div id="avatarModeValue">idle</div>
+        </div>
+        <div class="status-card">
+          <strong>Playback Progress</strong>
+          <div id="currentProgressValue">0.000</div>
+        </div>
+        <div class="status-card">
+          <strong>Generation Progress</strong>
+          <div id="runningProgressValue">0.000</div>
+        </div>
+        <div class="status-card">
+          <strong>Current Job</strong>
+          <div id="currentJobValue">-</div>
+        </div>
+        <div class="status-card">
+          <strong>Running Job</strong>
+          <div id="runningJobValue">-</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <label for="eventLog">Event Log</label>
+        <textarea id="eventLog" rows="14" readonly></textarea>
+      </div>
+
+      <div style="margin-top: 14px;">
+        <label for="statusDump">Latest Status Payload</label>
+        <pre id="statusDump">{}</pre>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { AvatarClient } from "../dist/avatar-client.esm.js?v=20260406-stream-fix-1";
+
+    const apiBaseUrlInput = document.getElementById("apiBaseUrl");
+    const apiTokenInput = document.getElementById("apiToken");
+    const createSessionButton = document.getElementById("createSessionButton");
+    const sourceVideoFileInput = document.getElementById("sourceVideoFile");
+    const templateNameInput = document.getElementById("templateName");
+    const createTemplateButton = document.getElementById("createTemplateButton");
+    const templateSelect = document.getElementById("templateSelect");
+    const refreshTemplatesButton = document.getElementById("refreshTemplatesButton");
+    const audioFileInput = document.getElementById("audioFile");
+    const enqueueButton = document.getElementById("enqueueButton");
+    const avatarVideo = document.getElementById("avatarVideo");
+    const sessionValue = document.getElementById("sessionValue");
+    const avatarModeValue = document.getElementById("avatarModeValue");
+    const currentProgressValue = document.getElementById("currentProgressValue");
+    const runningProgressValue = document.getElementById("runningProgressValue");
+    const currentJobValue = document.getElementById("currentJobValue");
+    const runningJobValue = document.getElementById("runningJobValue");
+    const eventLog = document.getElementById("eventLog");
+    const statusDump = document.getElementById("statusDump");
+
+    let client = null;
+    let statusPollTimer = 0;
+    let activeJobId = "";
+
+    function log(message) {
+      const timestamp = new Date().toLocaleTimeString();
+      eventLog.value = `[${timestamp}] ${message}\n${eventLog.value}`.trim();
+    }
+
+    function buildClient() {
+      client = new AvatarClient({
+        apiBaseUrl: apiBaseUrlInput.value.trim(),
+        token: apiTokenInput.value.trim(),
+      });
+      return client;
+    }
+
+    function renderStatus(avatarStatus, jobStatus = null) {
+      const safeAvatarStatus = avatarStatus || {};
+      const safeJobStatus = jobStatus || {};
+      sessionValue.textContent = client?.sessionId || "Not connected";
+      avatarModeValue.textContent = safeAvatarStatus.mode || "idle";
+      currentProgressValue.textContent = Number(safeAvatarStatus.currentJobProgress || 0).toFixed(3);
+      runningProgressValue.textContent = Number(safeAvatarStatus.runningJobProgress || 0).toFixed(3);
+      currentJobValue.textContent = safeAvatarStatus.currentJobId || "-";
+      runningJobValue.textContent = safeAvatarStatus.runningJobId || "-";
+      statusDump.textContent = JSON.stringify(
+        {
+          avatarStatus: safeAvatarStatus,
+          jobStatus: safeJobStatus,
+        },
+        null,
+        2
+      );
+    }
+
+    async function refreshTemplates() {
+      if (!client) {
+        return;
+      }
+      const payload = await client.listSourceTemplates();
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      templateSelect.innerHTML = "";
+      for (const item of items) {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = `${item.id} (${item.sourceType || "unknown"})`;
+        templateSelect.appendChild(option);
+      }
+      if (!items.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No templates available";
+        templateSelect.appendChild(option);
+      }
+      log(`Templates loaded: ${items.length}`);
+    }
+
+    async function pollStatus() {
+      if (!client || !client.sessionId) {
+        return;
+      }
+      try {
+        const avatarStatus = await client.fetchAvatarStatus();
+        let jobStatus = null;
+        if (activeJobId) {
+          jobStatus = await client.fetchJobStatus(activeJobId);
+          if (jobStatus.state === "done" || jobStatus.state === "error") {
+            activeJobId = "";
+          }
+        }
+        renderStatus(avatarStatus, jobStatus);
+      } catch (error) {
+        log(`Status polling failed: ${error.message || error}`);
+      }
+    }
+
+    function startStatusPolling() {
+      window.clearInterval(statusPollTimer);
+      statusPollTimer = window.setInterval(() => {
+        void pollStatus();
+      }, 500);
+    }
+
+    createSessionButton.addEventListener("click", async () => {
+      try {
+        const sessionClient = buildClient();
+        const session = await sessionClient.createSession();
+        await sessionClient.connectHttpStream({
+          videoElement: avatarVideo,
+          autoplay: true,
+          muted: true,
+          playsInline: true,
+        });
+        log(`Session created: ${session.sessionId}`);
+        await refreshTemplates();
+        await pollStatus();
+        startStatusPolling();
+      } catch (error) {
+        log(`Create session failed: ${error.message || error}`);
+      }
+    });
+
+    createTemplateButton.addEventListener("click", async () => {
+      try {
+        if (!client) {
+          buildClient();
+        }
+        const sourceVideo = sourceVideoFileInput.files?.[0];
+        if (!sourceVideo) {
+          throw new Error("Select a source video first.");
+        }
+        const template = await client.createSourceTemplate({
+          sourceVideo,
+          templateName: templateNameInput.value.trim(),
+        });
+        log(`Template created: ${template.item?.id || "unknown"}`);
+        await refreshTemplates();
+        if (template.item?.id) {
+          templateSelect.value = template.item.id;
+        }
+      } catch (error) {
+        log(`Create template failed: ${error.message || error}`);
+      }
+    });
+
+    refreshTemplatesButton.addEventListener("click", async () => {
+      try {
+        if (!client) {
+          buildClient();
+        }
+        await refreshTemplates();
+      } catch (error) {
+        log(`Refresh templates failed: ${error.message || error}`);
+      }
+    });
+
+    enqueueButton.addEventListener("click", async () => {
+      try {
+        if (!client || !client.sessionId) {
+          throw new Error("Create a session first.");
+        }
+        const audio = audioFileInput.files?.[0];
+        if (!audio) {
+          throw new Error("Select an audio file first.");
+        }
+        const sourceTemplatePack = templateSelect.value.trim();
+        if (!sourceTemplatePack) {
+          throw new Error("Select a template pack first.");
+        }
+        const job = await client.uploadAudio({
+          audio,
+          sourceTemplatePack,
+        });
+        activeJobId = job.jobId;
+        log(`Audio enqueued: ${job.jobId}`);
+        await pollStatus();
+      } catch (error) {
+        log(`Upload audio failed: ${error.message || error}`);
+      }
+    });
+  </script>
+</body>
+</html>

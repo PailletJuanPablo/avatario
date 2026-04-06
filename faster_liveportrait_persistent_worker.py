@@ -12,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import uuid
 
 
 HEARTBEAT_FILE_NAME = "worker_heartbeat.json"
@@ -39,11 +40,25 @@ def extract_option_value(arguments: list[str], option_name: str, default_value: 
 
 def write_json_atomic(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path = path.with_suffix(path.suffix + f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
     json_text = json.dumps(payload, indent=2)
     with tmp_path.open("w", encoding="utf-8") as handle:
         handle.write(json_text)
-    os.replace(str(tmp_path), str(path))
+    replace_deadline = time.time() + 2.0
+    last_error: PermissionError | None = None
+    while True:
+        try:
+            os.replace(str(tmp_path), str(path))
+            return
+        except PermissionError as exc:
+            last_error = exc
+            if time.time() >= replace_deadline:
+                break
+            time.sleep(0.05)
+    with contextlib.suppress(Exception):
+        tmp_path.unlink(missing_ok=True)
+    if last_error is not None:
+        raise last_error
 
 
 def build_heartbeat_payload(queue_dir: Path, child_pid: int, forwarded_args: list[str]) -> dict:
@@ -72,7 +87,9 @@ def main() -> int:
     )
     heartbeat_path = queue_dir / HEARTBEAT_FILE_NAME
 
-    child_command = [sys.executable, str(worker_script), *forwarded_args]
+    child_command = [sys.executable, "-u", str(worker_script), *forwarded_args]
+    child_env = dict(os.environ)
+    child_env.setdefault("PYTHONUNBUFFERED", "1")
     print(
         f"[worker-supervisor] launch queue_dir={queue_dir} heartbeat={heartbeat_path} command={subprocess.list2cmdline(child_command)}",
         flush=True,
@@ -80,6 +97,7 @@ def main() -> int:
     child_process = subprocess.Popen(
         child_command,
         cwd=str(worker_script.parent),
+        env=child_env,
     )
     try:
         while True:

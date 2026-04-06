@@ -1,0 +1,81 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - heading "Avatar Session Example" [level=1] [ref=e4]
+    - generic [ref=e5]:
+      - generic [ref=e6]: API Base URL
+      - textbox "API Base URL" [ref=e7]: http://127.0.0.1:8010
+    - generic [ref=e8]:
+      - generic [ref=e9]: API Token
+      - textbox "API Token" [ref=e10]: dev-token
+    - button "1. Create Session And Start Stream" [ref=e12] [cursor=pointer]
+    - generic [ref=e13]:
+      - generic [ref=e14]: Source Video For Template
+      - button "Source Video For Template" [ref=e15]
+    - generic [ref=e16]:
+      - generic [ref=e17]: Template Name
+      - textbox "Template Name" [ref=e18]: demo-browser-template
+    - button "2. Create Template From Video" [ref=e20] [cursor=pointer]
+    - generic [ref=e21]:
+      - generic [ref=e22]: Existing Template
+      - combobox "Existing Template" [ref=e23]:
+        - option "demo-browser-template-20260405-223553.pkl (video)"
+        - option "talking-video-regression.pkl (video)" [selected]
+        - option "demo-browser-template.pkl (image)"
+        - option "video.pkl (image)"
+        - option "talking__4.pkl (image)"
+        - option "talking__3.pkl (image)"
+        - option "talking__2.pkl (image)"
+        - option "talking__1.pkl (image)"
+        - option "new.pkl (image)"
+        - option "idlevid_old.pkl (image)"
+        - option "idlevid_idles_roundtrip_20260404_1615.pkl (image)"
+        - option "idlevid_idles_roundtrip_20260404.pkl (image)"
+        - option "idlevid_breath_backup_20260404_1615.pkl (image)"
+        - option "idlevid_breath_backup_20260404_1606.pkl (image)"
+        - option "idlevid_breath.pkl (image)"
+        - option "idlevid_before_idlenew_breath_20260323.pkl (image)"
+        - option "idlevid.pkl (image)"
+        - option "idles__2.pkl (image)"
+        - option "idles__1.pkl (image)"
+        - option "idlenew_breath.pkl (image)"
+        - option "idlenew.pkl (image)"
+        - option "example2.pkl (image)"
+        - option "example.pkl (image)"
+        - option "example.before_zoom.pkl (image)"
+        - option "example.before_body_motion.pkl (image)"
+        - option "1.pkl (image)"
+        - option "1-20260405-213935.pkl (image)"
+        - option "talking1_static_auto.pkl (image)"
+        - option "video_static.pkl (image)"
+        - option "demo-local.pkl (video)"
+    - button "Refresh Templates" [ref=e25] [cursor=pointer]
+    - generic [ref=e26]:
+      - generic [ref=e27]: Audio To Enqueue
+      - button "Audio To Enqueue" [ref=e28]
+    - button "3. Upload Audio And Generate" [active] [ref=e30] [cursor=pointer]
+  - generic [ref=e31]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - strong [ref=e35]: Session
+        - generic [ref=e36]: avatar_2fce5de5acc94ffa984c9bc8e39df57e
+      - generic [ref=e37]:
+        - strong [ref=e38]: Avatar Mode
+        - generic [ref=e39]: idle
+      - generic [ref=e40]:
+        - strong [ref=e41]: Talking Progress
+        - generic [ref=e42]: "0.000"
+      - generic [ref=e43]:
+        - strong [ref=e44]: Render Progress
+        - generic [ref=e45]: "0.020"
+      - generic [ref=e46]:
+        - strong [ref=e47]: Current Job
+        - generic [ref=e48]: "-"
+      - generic [ref=e49]:
+        - strong [ref=e50]: Running Job
+        - generic [ref=e51]: job_20260405_235839_78776b08
+    - generic [ref=e52]:
+      - generic [ref=e53]: Event Log
+      - textbox "Event Log" [ref=e54]: "[11:58:39] Audio enqueued: job_20260405_235839_78776b08 [11:52:15] Templates loaded: 30 [11:52:15] Session created: avatar_2fce5de5acc94ffa984c9bc8e39df57e"
+    - generic [ref=e55]:
+      - generic [ref=e56]: Latest Status Payload
+      - generic [ref=e57]: "{ \"avatarStatus\": { \"mode\": \"idle\", \"sequence\": 0, \"currentJobId\": \"\", \"currentJobStartedAtMs\": 0, \"currentJobEndsAtMs\": 0, \"idleStartedAtMs\": 1775443934900, \"idleVideoUrl\": \"/inputs/idlevid_breath.mp4?v=1775330150425472000\", \"bufferedStartProgress\": 0, \"avatarSessionId\": \"avatar_2fce5de5acc94ffa984c9bc8e39df57e\", \"currentJobAudioDurationSec\": 0, \"currentJobSourceFrameUrl\": \"\", \"currentJobSourceMediaType\": \"image\", \"currentJobPreviewComposition\": null, \"queueDepth\": 1, \"runningJobId\": \"job_20260405_235839_78776b08\", \"runningJobState\": \"running\", \"runningJobProgress\": 0.02, \"runningJobFrameIndex\": 0, \"runningJobFrameTotal\": 0, \"runningJobPlaybackFps\": 0, \"idleVideoAvailable\": true, \"avatarVideoHttpUrl\": \"/api/avatar/video.mp4\", \"avatarTransport\": \"http\", \"currentJobDrivingMediaUrl\": \"\", \"currentJobState\": \"\", \"currentJobRunning\": false, \"currentJobProgress\": 0, \"currentJobFrameIndex\": 0, \"currentJobFrameTotal\": 0, \"currentJobPlaybackFps\": 0, \"status\": \"ok\" }, \"jobStatus\": { \"jobId\": \"job_20260405_235839_78776b08\", \"avatarSessionId\": \"avatar_2fce5de5acc94ffa984c9bc8e39df57e\", \"state\": \"running\", \"running\": true, \"exitCode\": null, \"createdAtMs\": 1775444319818, \"startedAtMs\": 1775444319855, \"finishedAtMs\": null, \"queuePosition\": 0, \"mode\": \"preview\", \"audioDurationSec\": 4.96325, \"audioMotionStride\": 2, \"generationFrameCount\": null, \"audioEyeTamedPreset\": false, \"audioEyeSoftFactor\": 0.45, \"audioEyeHardFactor\": 0.18, \"audioEyeHardDyMin\": -0.0045, \"audioEyeHardDyMax\": 0.0035, \"audioMotionTuningEnabled\": false, \"audioReanchorFirstN\": 5, \"audioMouthOpenFactor\": 1.18, \"audioPoseSmoothWindow\": 5, \"audioExpSmoothWindow\": 3, \"audioPoseJumpThreshold\": 8, \"audioTranslationJumpThreshold\": 0.03, \"audioLipSyncAssist\": false, \"audioLipSyncMinRatio\": 0.03, \"audioLipSyncMaxRatio\": 0.32, \"audioLipSyncSmoothWindow\": 5, \"audioLipSyncStrength\": 1.15, \"audioLipSyncPower\": 0.85, \"audioLipSyncAttack\": 1, \"audioLipSyncRelease\": 1, \"audioLipSyncOffsetMs\": 0, \"audioMouthFloorStrength\": 0.26, \"audioMouthPeakClamp\": 0, \"drivingMultiplier\": 1, \"cfgScale\": 1.2, \"joyvasaInferenceSteps\": 15, \"animationRegion\": \"lip\", \"stitchingEnabled\": true, \"relativeMotionEnabled\": true, \"pasteBackEnabled\": true, \"deferPasteBackEnabled\": false, \"sourceFrame\": \"output_fasterliveportrait/source_template_packs/talking-video-regression.pkl\", \"sourceFrameUrl\": \"/output_fasterliveportrait/source_template_packs/talking-video-regression.preview.png\", \"sourceMediaType\": \"video\", \"sourceInputKind\": \"template_pack\", \"sourceTemplatePackId\": \"talking-video-regression.pkl\", \"status\": { \"state\": \"running\", \"message\": \"preparing inputs\", \"frameIndex\": 0, \"frameTotal\": 0, \"progress\": 0.02, \"fps\": 0, \"updatedAtMs\": 1775444320280, \"phase\": \"prepare_inputs\", \"sourceInputKind\": \"template_pack\" }, \"previewComposition\": null, \"statusUrl\": \"/api/jobs/job_20260405_235839_78776b08/status\", \"logUrl\": \"/api/jobs/job_20260405_235839_78776b08/log\", \"reportUrl\": \"/api/jobs/job_20260405_235839_78776b08/report\", \"resultVideoUrl\": \"\", \"resultConcatUrl\": \"\", \"drivingMediaUrl\": \"/jobs/job_20260405_235839_78776b08/inputs/driving.wav\", \"avatarReadyAtMs\": null, \"avatarPlayStartedAtMs\": null, \"avatarPlayFinishedAtMs\": null, \"sourceTemplatePack\": { \"id\": \"talking-video-regression.pkl\", \"name\": \"talking-video-regression.pkl\", \"fileName\": \"talking-video-regression.pkl\", \"path\": \"output_fasterliveportrait/source_template_packs/talking-video-regression.pkl\", \"templatePackPath\": \"E:\\\\animation\\\\output_fasterliveportrait\\\\source_template_packs\\\\talking-video-regression.pkl\", \"createdAt\": \"2026-04-05 22:27:00\", \"frameTotal\": 241, \"sourceType\": \"video\", \"sourceFps\": 24, \"sourcePath\": \"E:\\\\animation\\\\output_fasterliveportrait\\\\source_template_packs\\\\_build_inputs\\\\7e16593c231c42419374df14d364bbd7\\\\source.mp4\", \"previewUrl\": \"/output_fasterliveportrait/source_template_packs/talking-video-regression.preview.png\" } } }"

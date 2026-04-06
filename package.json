@@ -2,7 +2,14 @@
   "name": "animation-realtime-trt",
   "type": "module",
   "private": true,
+  "exports": {
+    ".": "./dist/avatar-client.esm.js",
+    "./avatar-client": "./dist/avatar-client.esm.js",
+    "./avatar-client/browser": "./dist/avatar-client.browser.js"
+  },
   "scripts": {
+    "build:avatar-client": "node ./scripts/build_avatar_client.mjs",
+    "test:avatar-client": "node ./scripts/build_avatar_client.mjs && node --test ./tests/avatar-client.test.mjs",
     "serve": "serve .",
     "up:docker": "docker compose up --build -d",
     "down:docker": "docker compose down",

@@ -210,7 +210,7 @@
 <body>
   <main>
     <h1>Standalone Avatar Client</h1>
-    <p>Pure HTML client for the realtime avatar API. Open it from the same API origin, for example <code>/standalone_avatar_client.html?token=...</code>.</p>
+    <p>Single-path HTML client for the realtime avatar API: build a source template once, then send audio against that template over the GPU-backed HTTP avatar stream.</p>
 
     <div class="grid">
       <section class="panel">
@@ -249,13 +249,13 @@
         </div>
 
         <div class="control">
-          <label for="sourceImageInput">Source media (optional)</label>
+          <label for="sourceImageInput">Source media for template build</label>
           <input id="sourceImageInput" type="file" accept="image/*,video/*,.png,.jpg,.jpeg,.webp,.mp4,.avi,.mov,.mkv,.webm,.flv,.m4v,.wmv" />
         </div>
 
         <div class="control-grid">
           <div class="control">
-            <label for="sourceTemplatePackSelect">Source template pack</label>
+            <label for="sourceTemplatePackSelect">Source template pack (required)</label>
             <select id="sourceTemplatePackSelect">
               <option value="">None</option>
             </select>
@@ -313,7 +313,7 @@
         </div>
 
         <div class="control">
-          <label for="sourceFrameInput">Source frame</label>
+          <label for="sourceFrameInput">Existing source frame for template build</label>
           <input id="sourceFrameInput" type="text" autocomplete="off" />
         </div>
 
@@ -707,7 +707,7 @@
       elements.sourceTemplatePackSelect.innerHTML = "";
       const noneOption = document.createElement("option");
       noneOption.value = "";
-      noneOption.textContent = "None";
+      noneOption.textContent = "Select template";
       elements.sourceTemplatePackSelect.appendChild(noneOption);
       state.sourceTemplatePacks.forEach((item) => {
         const option = document.createElement("option");
@@ -831,7 +831,7 @@
       state.generationFrameCountMax = Math.round(
         normalizeNumberValue(payload.generationFrameCountMax, DEFAULT_GENERATION_FRAME_COUNT_MAX, state.generationFrameCountMin, 100000)
       );
-      state.allowCustomSourceFrame = Boolean(payload.allowCustomSourceFrame ?? true);
+      state.allowCustomSourceFrame = true;
       state.sourceTemplatePacksPath = String(payload.sourceTemplatePacksUrl || DEFAULT_SOURCE_TEMPLATE_PACKS_PATH);
       state.createSourceTemplatePackPath = String(payload.createSourceTemplatePackUrl || DEFAULT_SOURCE_TEMPLATE_PACKS_PATH);
       state.audioTuningPresets = payload.audioTuningPresets && typeof payload.audioTuningPresets === "object"
@@ -978,7 +978,6 @@
             )
           )
         : null;
-      const normalizedSourceFrame = String(elements.sourceFrameInput.value || "").trim();
       const audioLipSyncMinRatio = normalizeNumberValue(
         elements.audioLipSyncMinRatioInput.value,
         DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO,
@@ -992,7 +991,6 @@
         1
       );
       return {
-        sourceFrame: state.allowCustomSourceFrame ? normalizedSourceFrame : "",
         mode: VALID_MODE_VALUES.has(normalizedMode) ? normalizedMode : DEFAULT_MODE,
         motionStride: Math.round(normalizeNumberValue(elements.motionStrideInput.value, DEFAULT_MOTION_STRIDE, 1, 6)),
         generationFrameCount,
@@ -1338,19 +1336,10 @@
       const formData = new FormData();
       formData.append("audio", audioFile);
       const selectedTemplatePackId = getSelectedSourceTemplatePackId();
-      const sourceImageFile = elements.sourceImageInput.files && elements.sourceImageInput.files[0];
-      if (!selectedTemplatePackId && sourceImageFile) {
-        const sourceFieldName = /^video\//i.test(String(sourceImageFile.type || "")) || /\.(mp4|avi|mov|mkv|webm|flv|m4v|wmv)$/i.test(sourceImageFile.name)
-          ? "source_video"
-          : "source_image";
-        formData.append(sourceFieldName, sourceImageFile, sourceImageFile.name);
+      if (!selectedTemplatePackId) {
+        throw new Error("Select one source template pack before sending audio.");
       }
-      if (selectedTemplatePackId) {
-        formData.append("source_template_pack", selectedTemplatePackId);
-      }
-      if (!selectedTemplatePackId && tuningConfig.sourceFrame) {
-        formData.append("source_frame", tuningConfig.sourceFrame);
-      }
+      formData.append("source_template_pack", selectedTemplatePackId);
       formData.append("mode", tuningConfig.mode);
       formData.append("motion_stride", String(tuningConfig.motionStride));
       if (tuningConfig.generationFrameCount !== null) {
@@ -1461,18 +1450,6 @@
 
     elements.muteCheckbox.addEventListener("change", () => {
       applyVideoMutedState();
-    });
-
-    elements.sourceImageInput.addEventListener("change", () => {
-      if (elements.sourceImageInput.files && elements.sourceImageInput.files[0]) {
-        elements.sourceTemplatePackSelect.value = "";
-      }
-    });
-
-    elements.sourceTemplatePackSelect.addEventListener("change", () => {
-      if (getSelectedSourceTemplatePackId()) {
-        elements.sourceImageInput.value = "";
-      }
     });
 
     elements.avatarVideo.addEventListener("error", () => {

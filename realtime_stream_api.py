@@ -52,9 +52,41 @@ from job_stream_shared_memory import (
 PROJECT_ROOT = Path(__file__).resolve().parent
 apply_runtime_library_environment(PROJECT_ROOT)
 RUNNER_SCRIPT = PROJECT_ROOT / "faster_liveportrait_runner.py"
-RUNNER_PYTHON = PROJECT_ROOT / ".venv-liveportrait" / "Scripts" / "python.exe"
-if not RUNNER_PYTHON.exists():
-    RUNNER_PYTHON = Path(sys.executable)
+RUNNER_PYTHON_ENV_KEY = "ANIMATION_RUNNER_PYTHON"
+RUNNER_FASTER_REPO_DIR = (PROJECT_ROOT / "third_party" / "FasterLivePortrait").resolve()
+
+
+def resolve_runner_python_path() -> Path:
+    """
+    Resolve the Python runtime that should execute the animation runner and GPU worker.
+    """
+    configured_path = str(os.getenv(RUNNER_PYTHON_ENV_KEY, "")).strip()
+    if configured_path:
+        resolved_path = Path(configured_path).expanduser().resolve()
+        if not resolved_path.exists():
+            raise RuntimeError(f"{RUNNER_PYTHON_ENV_KEY} points to a missing file: {resolved_path}")
+        return resolved_path
+    bundled_python = (PROJECT_ROOT / ".venv-liveportrait" / "Scripts" / "python.exe").resolve()
+    if bundled_python.exists():
+        return bundled_python
+    return Path(sys.executable).resolve()
+
+
+RUNNER_PYTHON = resolve_runner_python_path()
+
+
+def build_runner_invocation_base() -> list[str]:
+    """
+    Build the base command used to invoke the animation runner with the selected runtime.
+    """
+    return [
+        str(RUNNER_PYTHON),
+        str(RUNNER_SCRIPT),
+        "--faster-repo-dir",
+        str(RUNNER_FASTER_REPO_DIR),
+        "--python-executable",
+        str(RUNNER_PYTHON),
+    ]
 
 
 def resolve_media_tool_binary(tool_name: str) -> str:
@@ -85,7 +117,36 @@ def emit_runtime_log(label: str, message: str) -> None:
     """
     Emit one flushed runtime log line.
     """
-    print(f"[{label}] {message}", flush=True)
+    rendered_message = f"[{label}] {message}"
+    try:
+        print(rendered_message, flush=True)
+    except UnicodeEncodeError:
+        output_encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        safe_message = rendered_message.encode(output_encoding, errors="replace").decode(output_encoding, errors="replace")
+        print(safe_message, flush=True)
+
+
+AVATAR_STREAM_DEBUG_ENABLED = os.getenv("ANIMATION_AVATAR_STREAM_DEBUG", "0").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+}
+
+
+def emit_avatar_stream_debug_log(
+    avatar_session_id: str,
+    event_name: str,
+    **fields: Any,
+) -> None:
+    """
+    Emit detailed avatar stream diagnostics when local debugging is enabled.
+    """
+    if not AVATAR_STREAM_DEBUG_ENABLED:
+        return
+    rendered_fields: list[str] = [f"session={avatar_session_id}", f"event={event_name}"]
+    for field_name, field_value in fields.items():
+        rendered_fields.append(f"{field_name}={field_value}")
+    emit_runtime_log("avatar-stream", " ".join(rendered_fields))
 
 
 def pump_subprocess_output(
@@ -336,6 +397,9 @@ DEFAULT_DOCKER_GPU_DEVICE = os.getenv("ANIMATION_DOCKER_GPU_DEVICE", "").strip()
 DEFAULT_SKIP_TRT_ENGINE_BUILD = (
     os.getenv("ANIMATION_SKIP_TRT_ENGINE_BUILD", "0").strip().lower() in {"1", "true", "yes"}
 )
+DEFAULT_FORCE_TRT_ENGINE_REBUILD = (
+    os.getenv("ANIMATION_FORCE_TRT_ENGINE_REBUILD", "0").strip().lower() in {"1", "true", "yes"}
+)
 DEFAULT_AUDIO_MOTION_STRIDE_ENV_KEY = "ANIMATION_AUDIO_MOTION_STRIDE"
 DEFAULT_AUDIO_MOTION_STRIDE_VALUE = 2
 DEFAULT_AUDIO_MOTION_STRIDE = read_env_int(
@@ -343,6 +407,20 @@ DEFAULT_AUDIO_MOTION_STRIDE = read_env_int(
     DEFAULT_AUDIO_MOTION_STRIDE_VALUE,
     1,
     6,
+)
+DEFAULT_AUDIO_MOTION_TARGET_FPS = read_env_float(
+    "ANIMATION_AUDIO_MOTION_TARGET_FPS",
+    18.0,
+    4.0,
+    60.0,
+)
+DEFAULT_SOURCE_MAX_DIM = read_env_int("ANIMATION_SOURCE_MAX_DIM", 960, 256, 4096)
+DEFAULT_SOURCE_CROP_DSIZE = read_env_int("ANIMATION_SOURCE_CROP_DSIZE", 384, 256, 512)
+DEFAULT_SOURCE_VIDEO_TARGET_FPS = read_env_float(
+    "ANIMATION_SOURCE_VIDEO_TARGET_FPS",
+    18.0,
+    4.0,
+    60.0,
 )
 DEFAULT_AUDIO_EYE_TAMED_PRESET_ENV_KEY = "ANIMATION_AUDIO_EYE_TAMED_PRESET"
 DEFAULT_AUDIO_EYE_SOFT_FACTOR_ENV_KEY = "ANIMATION_AUDIO_EYE_SOFT_FACTOR"
@@ -495,9 +573,9 @@ DEFAULT_VIDEO_ENCODER = os.getenv("ANIMATION_VIDEO_ENCODER", VIDEO_ENCODER_AUTO)
 if DEFAULT_VIDEO_ENCODER not in VIDEO_ENCODER_CHOICES:
     DEFAULT_VIDEO_ENCODER = VIDEO_ENCODER_AUTO
 FFMPEG_ENCODER_SUPPORT_CACHE: dict[str, bool] = {}
-DEFAULT_ANIMATION_REGION = os.getenv("ANIMATION_ANIMATION_REGION", "all").strip().lower() or "all"
+DEFAULT_ANIMATION_REGION = os.getenv("ANIMATION_ANIMATION_REGION", "lip").strip().lower() or "lip"
 if DEFAULT_ANIMATION_REGION not in ANIMATION_REGION_CHOICES:
-    DEFAULT_ANIMATION_REGION = "all"
+    DEFAULT_ANIMATION_REGION = "lip"
 DEFAULT_STITCHING_ENABLED = os.getenv("ANIMATION_STITCHING_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
 DEFAULT_RELATIVE_MOTION_ENABLED = (
     os.getenv("ANIMATION_RELATIVE_MOTION_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
@@ -588,12 +666,12 @@ AVATAR_STREAM_MAX_WIDTH_ENV_KEY = "ANIMATION_AVATAR_STREAM_MAX_WIDTH"
 AVATAR_STREAM_MAX_HEIGHT_ENV_KEY = "ANIMATION_AVATAR_STREAM_MAX_HEIGHT"
 AVATAR_STREAM_OUTPUT_MAX_WIDTH = read_env_int(
     AVATAR_STREAM_MAX_WIDTH_ENV_KEY,
-    576,
+    512,
     256,
 )
 AVATAR_STREAM_OUTPUT_MAX_HEIGHT = read_env_int(
     AVATAR_STREAM_MAX_HEIGHT_ENV_KEY,
-    324,
+    288,
     256,
 )
 AVATAR_VIDEO_FALLBACK_WIDTH = AVATAR_STREAM_OUTPUT_MAX_WIDTH
@@ -650,8 +728,21 @@ WARMUP_ENABLED = os.getenv("ANIMATION_WARMUP_ENABLED", "1").strip().lower() not 
 AVATAR_MODE_IDLE = "idle"
 AVATAR_MODE_TALKING = "talking"
 AVATAR_MODE_CHOICES = {AVATAR_MODE_IDLE, AVATAR_MODE_TALKING}
+AVATAR_TRANSPORT_HTTP = "http"
 AVATAR_TRANSPORT_WEBSOCKET = "websocket"
 AVATAR_TRANSPORT_WEBRTC = "webrtc"
+LEGACY_AVATAR_TRANSPORT_DISABLED_MESSAGE = (
+    "Legacy transport disabled. Use GET /api/avatar/video.mp4 for video and HTTP status polling endpoints."
+)
+LEGACY_AVATAR_GENERATE_ENDPOINT_DISABLED_MESSAGE = (
+    "Legacy endpoint disabled. Use POST /api/avatar/enqueue with source_template_pack."
+)
+TEMPLATE_PACK_REQUIRED_MESSAGE = (
+    "source_template_pack is required. Build or select a template pack first via POST /api/source-templates."
+)
+LEGACY_RUNTIME_SOURCE_OVERRIDE_DISABLED_MESSAGE = (
+    "Legacy runtime source overrides are disabled. Build a template pack first and send source_template_pack only."
+)
 AVATAR_SESSION_ID_HEADER_NAME = "X-Avatar-Session-Id"
 AVATAR_SESSION_ID_QUERY_KEY = "sessionId"
 AVATAR_SESSION_ID_MAX_LENGTH = 128
@@ -927,6 +1018,30 @@ def resolve_source_frame(source_frame: str) -> tuple[Path, str]:
     return resolve_source_frame_candidate(source_frame)
 
 
+def resolve_enqueue_source_template_pack(
+    source_image: UploadFile | None,
+    source_video: UploadFile | None,
+    source_frame: str,
+    source_template_pack: str,
+) -> tuple[Path, str]:
+    """
+    Enforce the single runtime source-of-truth contract: only prebuilt template packs are allowed.
+    """
+    has_source_image_upload = bool(source_image is not None and source_image.filename)
+    has_source_video_upload = bool(source_video is not None and source_video.filename)
+    if has_source_image_upload or has_source_video_upload:
+        raise HTTPException(status_code=400, detail=LEGACY_RUNTIME_SOURCE_OVERRIDE_DISABLED_MESSAGE)
+    normalized_source_frame = str(source_frame or "").strip()
+    if normalized_source_frame and normalized_source_frame != DEFAULT_SOURCE_FRAME:
+        raise HTTPException(status_code=400, detail=LEGACY_RUNTIME_SOURCE_OVERRIDE_DISABLED_MESSAGE)
+    normalized_source_template_pack = str(source_template_pack or "").strip()
+    if not normalized_source_template_pack:
+        raise HTTPException(status_code=400, detail=TEMPLATE_PACK_REQUIRED_MESSAGE)
+    source_template_pack_abs = resolve_source_template_pack_path(normalized_source_template_pack)
+    source_template_pack_rel = normalize_rel_path(str(source_template_pack_abs.relative_to(PROJECT_ROOT)))
+    return source_template_pack_abs, source_template_pack_rel
+
+
 def to_runner_source_arg(source_abs_path: Path) -> str:
     """
     Convert absolute source path into runner argument (relative when inside project root).
@@ -1187,7 +1302,7 @@ def build_audio_tuning_preset_values(preset_name: str) -> dict[str, Any]:
         "audioMouthPeakClamp": 0.0,
         "drivingMultiplier": 1.0,
         "cfgScale": 4.0,
-        "animationRegion": "all",
+        "animationRegion": "lip",
         "stitchingEnabled": True,
         "relativeMotionEnabled": True,
     }
@@ -1242,6 +1357,9 @@ def build_source_template_pack_record(template_pack_path: Path) -> dict[str, Any
         "frameTotal": int(metadata.get("frame_total", 0) or 0),
         "sourceType": source_type,
         "sourceFps": metadata.get("source_fps"),
+        "sourceMaxDim": metadata.get("source_max_dim"),
+        "sourceCropDsize": metadata.get("source_crop_dsize"),
+        "sourceVideoTargetFps": metadata.get("source_video_target_fps"),
         "sourcePath": metadata.get("source_path", ""),
         "previewUrl": build_public_file_url(preview_path) if preview_path.exists() else "",
     }
@@ -2154,6 +2272,7 @@ class AvatarTalkingFrameState:
     last_output_source_frame_index: int = 0
     fallback_bounce_cursor: int = 0
     fallback_bounce_signature: tuple[int, ...] = field(default_factory=tuple)
+    last_bounce_log_at_ms: int = 0
     preview_composition_signature: str = ""
     preview_composition_matrix: np.ndarray | None = None
     preview_composition_mask: np.ndarray | None = None
@@ -2547,7 +2666,10 @@ def resolve_avatar_idle_output_fps(idle_looper: "IdleVideoLooper") -> float:
     """
     Resolve the idle stream FPS from the source loop, falling back to the stream default.
     """
-    return max(1.0, float(idle_looper.source_fps or AVATAR_VIDEO_OUTPUT_FPS))
+    source_fps = float(idle_looper.source_fps or 0.0)
+    if source_fps <= 0.0:
+        return max(1.0, float(AVATAR_VIDEO_OUTPUT_FPS))
+    return max(1.0, min(source_fps, float(AVATAR_VIDEO_OUTPUT_FPS)))
 
 
 def resolve_avatar_stream_output_fps(
@@ -2743,10 +2865,23 @@ async def create_avatar_stream_encoder(
             await forward_fragmented_mp4_chunk(chunk_sender, output_filter_state, chunk)
 
     async def drain_stderr() -> None:
+        pending_text = ""
         while True:
             chunk = await ffmpeg_process.stderr.read(VIDEO_STREAM_CHUNK_SIZE)
             if not chunk:
                 break
+            if not AVATAR_STREAM_DEBUG_ENABLED:
+                continue
+            pending_text += chunk.decode("utf-8", errors="replace")
+            while "\n" in pending_text:
+                line, pending_text = pending_text.split("\n", 1)
+                normalized_line = line.strip()
+                if normalized_line:
+                    emit_runtime_log("avatar-ffmpeg", normalized_line)
+        if AVATAR_STREAM_DEBUG_ENABLED:
+            trailing_text = pending_text.strip()
+            if trailing_text:
+                emit_runtime_log("avatar-ffmpeg", trailing_text)
 
     return AvatarStreamEncoder(
         process=ffmpeg_process,
@@ -2856,6 +2991,12 @@ async def pump_continuous_avatar_audio(
                     current_wave_reader.close()
                     current_wave_reader = None
                 current_job_id = desired_job_id
+                emit_avatar_stream_debug_log(
+                    avatar_session_id,
+                    "audio_switch",
+                    job_id=current_job_id or "-",
+                    mode=snapshot.get("mode") or AVATAR_MODE_IDLE,
+                )
                 if current_job_id:
                     with JOBS_LOCK:
                         current_job = JOBS.get(current_job_id)
@@ -2869,6 +3010,14 @@ async def pump_continuous_avatar_audio(
                         else:
                             seek_offset_sec = max(0.0, (now_ms() - started_at_ms) / 1000.0) if started_at_ms > 0 else 0.0
                         current_wave_reader = open_avatar_audio_wave_reader(current_job.stream_audio_input_abs, seek_offset_sec)
+                        emit_avatar_stream_debug_log(
+                            avatar_session_id,
+                            "audio_reader_open",
+                            job_id=current_job_id,
+                            seek_offset_sec=f"{seek_offset_sec:.3f}",
+                            playback_fps=f"{float(playback_fps or 0.0):.3f}",
+                            start_frame_index=start_frame_index,
+                        )
 
             audio_chunk = silence_chunk
             if current_wave_reader is not None:
@@ -2880,6 +3029,11 @@ async def pump_continuous_avatar_audio(
                     current_wave_reader.close()
                     current_wave_reader = None
                     audio_chunk = silence_chunk
+                    emit_avatar_stream_debug_log(
+                        avatar_session_id,
+                        "audio_reader_exhausted",
+                        job_id=current_job_id or "-",
+                    )
                 elif len(audio_chunk) < VIDEO_STREAM_AUDIO_CHUNK_BYTES:
                     audio_chunk = audio_chunk + bytes(VIDEO_STREAM_AUDIO_CHUNK_BYTES - len(audio_chunk))
 
@@ -2944,6 +3098,16 @@ async def stream_continuous_avatar_video(
     frame_interval_sec = 1.0 / max(1.0, encoder_output_fps)
     next_emit_at = time.perf_counter()
     last_output_frame_image: np.ndarray | None = None
+    last_debug_summary_at_ms = 0
+
+    emit_avatar_stream_debug_log(
+        avatar_session_id,
+        "stream_start",
+        canvas=f"{canvas_size[0]}x{canvas_size[1]}",
+        idle_fps=f"{float(encoder_output_fps):.3f}",
+        idle_video=str(resolve_idle_video_abs() or ""),
+        continuous_audio_pipe=use_continuous_audio_pipe,
+    )
 
     async def start_output_pipeline(target_fps: float) -> None:
         nonlocal encoder
@@ -2961,6 +3125,14 @@ async def stream_continuous_avatar_video(
             audio_write_fd = None
         try:
             encoder_output_fps = max(1.0, float(target_fps))
+            emit_avatar_stream_debug_log(
+                avatar_session_id,
+                "ffmpeg_start",
+                target_fps=f"{encoder_output_fps:.3f}",
+                timeline_offset_sec=f"{timeline_offset_sec:.3f}",
+                continuous_audio_pipe=use_continuous_audio_pipe,
+                emit_initialization_segment=emit_initialization_segment,
+            )
             encoder = await create_avatar_stream_encoder(
                 chunk_sender,
                 encoder_output_fps,
@@ -2996,6 +3168,12 @@ async def stream_continuous_avatar_video(
             return
         if fps_values_match(encoder_output_fps, safe_target_fps):
             return
+        emit_avatar_stream_debug_log(
+            avatar_session_id,
+            "ffmpeg_restart",
+            previous_fps=f"{float(encoder_output_fps):.3f}",
+            target_fps=f"{safe_target_fps:.3f}",
+        )
         timeline_offset_sec += await stop_avatar_stream_encoder(encoder)
         await stop_continuous_avatar_audio(audio_task, audio_stop_event, audio_write_fd)
         encoder = None
@@ -3017,6 +3195,11 @@ async def stream_continuous_avatar_video(
         if pending_idle_return_frames:
             idle_looper.seek_to_frame(0)
             idle_looper.read_next_frame()
+        emit_avatar_stream_debug_log(
+            avatar_session_id,
+            "arm_idle_return",
+            frames=len(pending_idle_return_frames),
+        )
 
     def arm_talking_intro_transition(
         start_frame_image: np.ndarray | None,
@@ -3047,6 +3230,14 @@ async def stream_continuous_avatar_video(
                 frames_per_second=stream_output_fps,
             )
         )
+        emit_avatar_stream_debug_log(
+            avatar_session_id,
+            "arm_talking_intro",
+            job_id=job.job_id,
+            frames=len(pending_talking_intro_frames),
+            start_frame_index=state.start_frame_index,
+            playback_fps=f"{float(state.playback_fps):.3f}",
+        )
 
     await start_output_pipeline(encoder_output_fps)
 
@@ -3066,6 +3257,11 @@ async def stream_continuous_avatar_video(
             snapshot = get_avatar_state_snapshot(avatar_session_id)
             desired_job_id = str(snapshot["currentJobId"] or "") if snapshot["mode"] == AVATAR_MODE_TALKING else ""
             if talking_state is not None and desired_job_id != talking_state.job_id:
+                emit_avatar_stream_debug_log(
+                    avatar_session_id,
+                    "switch_to_idle",
+                    previous_job_id=talking_state.job_id,
+                )
                 arm_idle_return_transition(talking_state.last_frame_image)
                 talking_state = None
                 talking_job = None
@@ -3088,6 +3284,18 @@ async def stream_continuous_avatar_video(
                         1.0,
                         float(resolve_stream_playback_fps(candidate_status) or resolve_avatar_idle_output_fps(idle_looper)),
                     )
+                    candidate_status_frame_index = parse_status_int(candidate_status, "frameIndex")
+                    candidate_status_frame_total = parse_status_int(candidate_status, "frameTotal")
+                    emit_avatar_stream_debug_log(
+                        avatar_session_id,
+                        "switch_to_talking",
+                        job_id=desired_job_id,
+                        start_frame_index=start_frame_index,
+                        status_frame_index=candidate_status_frame_index,
+                        status_frame_total=candidate_status_frame_total,
+                        status_progress=f"{resolve_stream_progress_ratio(candidate_status, candidate_status_frame_index, candidate_status_frame_total):.3f}",
+                        playback_fps=f"{float(talking_state.playback_fps):.3f}",
+                    )
                     await ensure_output_pipeline(resolve_avatar_stream_output_fps(idle_looper, talking_state))
                     arm_talking_intro_transition(last_output_frame_image, talking_job, talking_state)
             frame_image = None
@@ -3103,6 +3311,14 @@ async def stream_continuous_avatar_video(
                         output_fps=encoder_output_fps,
                     )
                     if is_finished:
+                        emit_avatar_stream_debug_log(
+                            avatar_session_id,
+                            "talking_finished",
+                            job_id=talking_job.job_id,
+                            output_frame_index=talking_state.output_frame_index,
+                            last_known_frame_index=talking_state.last_known_frame_index,
+                            last_known_frame_total=talking_state.last_known_frame_total,
+                        )
                         arm_idle_return_transition(talking_state.last_frame_image)
                         mark_avatar_job_finished(talking_job)
                         talking_state = None
@@ -3135,10 +3351,28 @@ async def stream_continuous_avatar_video(
                     next_emit_at = time.perf_counter()
                     continue
 
+            current_debug_timestamp_ms = now_ms()
+            if AVATAR_STREAM_DEBUG_ENABLED and current_debug_timestamp_ms - last_debug_summary_at_ms >= 1000:
+                last_debug_summary_at_ms = current_debug_timestamp_ms
+                emit_avatar_stream_debug_log(
+                    avatar_session_id,
+                    "loop",
+                    mode=AVATAR_MODE_TALKING if talking_state is not None else AVATAR_MODE_IDLE,
+                    job_id=talking_job.job_id if talking_job is not None else "-",
+                    intro_frames=len(pending_talking_intro_frames),
+                    idle_return_frames=len(pending_idle_return_frames),
+                    encoder_fps=f"{float(encoder_output_fps):.3f}",
+                    submitted_frames=encoder.submitted_frame_count if encoder is not None else 0,
+                    talking_output_index=talking_state.output_frame_index if talking_state is not None else 0,
+                    talking_next_frame=talking_state.next_frame_index if talking_state is not None else 0,
+                    talking_last_known=talking_state.last_known_frame_index if talking_state is not None else 0,
+                )
+
             next_emit_at += frame_interval_sec
             if next_emit_at < now_perf - frame_interval_sec:
                 next_emit_at = now_perf
     finally:
+        emit_avatar_stream_debug_log(avatar_session_id, "stream_stop")
         idle_looper.close()
         await stop_continuous_avatar_audio(audio_task, audio_stop_event, audio_write_fd)
         await stop_avatar_stream_encoder(encoder)
@@ -3239,7 +3473,9 @@ def enqueue_job(job_id: str) -> None:
     """
     with JOB_QUEUE_CONDITION:
         JOB_QUEUE.append(job_id)
+        queued_depth = len(JOB_QUEUE)
         JOB_QUEUE_CONDITION.notify()
+    emit_runtime_log("queue", f"queue push item_id={job_id} depth={queued_depth}")
 
 
 def register_source_template_build_task(task: SourceTemplateBuildTask) -> None:
@@ -3403,8 +3639,7 @@ def build_source_template_pack_command(source_abs: Path, template_pack_path: Pat
     Build runner command for one queued source template pack build.
     """
     command = [
-        str(RUNNER_PYTHON),
-        str(RUNNER_SCRIPT),
+        *build_runner_invocation_base(),
         "--backend",
         DEFAULT_BACKEND,
         "--trt-runtime",
@@ -3418,6 +3653,12 @@ def build_source_template_pack_command(source_abs: Path, template_pack_path: Pat
         "--build-source-template-pack",
         "--animation-region",
         DEFAULT_ANIMATION_REGION,
+        "--source-max-dim",
+        str(DEFAULT_SOURCE_MAX_DIM),
+        "--source-crop-dsize",
+        str(DEFAULT_SOURCE_CROP_DSIZE),
+        "--source-video-target-fps",
+        f"{float(DEFAULT_SOURCE_VIDEO_TARGET_FPS):.6f}",
     ]
     if not DEFAULT_PASTE_BACK_ENABLED:
         command.append("--no-paste-back")
@@ -3425,6 +3666,8 @@ def build_source_template_pack_command(source_abs: Path, template_pack_path: Pat
         command.append("--no-stitching")
     if not DEFAULT_RELATIVE_MOTION_ENABLED:
         command.append("--no-relative-motion")
+    if DEFAULT_FORCE_TRT_ENGINE_REBUILD:
+        command.append("--force-trt-engine-rebuild")
     return command
 
 
@@ -3541,6 +3784,8 @@ def job_worker_loop() -> None:
             while not JOB_QUEUE:
                 JOB_QUEUE_CONDITION.wait()
             queue_item_id = JOB_QUEUE.popleft()
+            remaining_depth = len(JOB_QUEUE)
+        emit_runtime_log("queue", f"queue pop item_id={queue_item_id} remaining_depth={remaining_depth}")
         template_task = get_source_template_build_task(queue_item_id)
         if template_task is not None:
             set_active_queue_task(template_task.task_id, "template_build")
@@ -3733,8 +3978,6 @@ def get_avatar_state_snapshot(avatar_session_id: str) -> dict[str, Any]:
         "idleVideoUrl": resolve_idle_video_url(),
         "bufferedStartProgress": buffered_start_progress,
         "avatarSessionId": avatar_session_id,
-        "currentJobVideoWsUrl": f"/ws/jobs/{current_job_id}/video" if current_job_id else "",
-        "currentJobStatusWsUrl": f"/ws/jobs/{current_job_id}" if current_job_id else "",
         "currentJobAudioDurationSec": current_job.audio_duration_sec if current_job is not None else 0.0,
         "currentJobSourceFrameUrl": build_public_file_url(current_job.source_frame_abs) if current_job is not None else "",
         "currentJobSourceMediaType": (
@@ -3779,29 +4022,110 @@ def build_avatar_payload(avatar_session_id: str) -> dict[str, Any]:
     running_job = get_running_job_record()
     current_job: JobRecord | None = None
     current_job_id = str(snapshot["currentJobId"] or "")
+    current_job_stream_status: dict[str, Any] | None = None
+    running_job_stream_status: dict[str, Any] | None = None
     if current_job_id:
         with JOBS_LOCK:
             current_job = JOBS.get(current_job_id)
         if current_job is not None and current_job.avatar_session_id != avatar_session_id:
             current_job = None
-    with WEBRTC_SESSIONS_LOCK:
-        active_webrtc_sessions = sum(
-            1 for session in WEBRTC_SESSIONS.values() if session.avatar_session_id == avatar_session_id
-        )
+    if current_job is not None:
+        current_job_stream_status = read_job_stream_status(current_job)
+    if running_job is not None:
+        running_job_stream_status = read_job_stream_status(running_job)
+    current_job_render_frame_index = parse_status_int(current_job_stream_status, "frameIndex")
+    current_job_render_frame_total = parse_status_int(current_job_stream_status, "frameTotal")
+    current_job_frame_index = 0
+    current_job_frame_total = 0
+    current_job_progress = 0.0
+    if current_job is not None:
+        current_job_playback_fps = resolve_stream_playback_fps(current_job_stream_status)
+        current_job_audio_duration_sec = max(0.0, float(current_job.audio_duration_sec or 0.0))
+        if current_job_render_frame_total > 0:
+            current_job_frame_total = current_job_render_frame_total
+        elif current_job_playback_fps > 0 and current_job_audio_duration_sec > 0:
+            current_job_frame_total = max(1, int(math.ceil(current_job_playback_fps * current_job_audio_duration_sec)))
+        if (
+            str(snapshot.get("mode") or "") == AVATAR_MODE_TALKING
+            and str(snapshot.get("currentJobId") or "") == current_job.job_id
+        ):
+            current_job_started_at_ms = int(snapshot.get("currentJobStartedAtMs") or 0)
+            elapsed_playback_sec = (
+                max(0.0, (now_ms() - current_job_started_at_ms) / 1000.0)
+                if current_job_started_at_ms > 0
+                else 0.0
+            )
+            if current_job_audio_duration_sec > 0:
+                current_job_progress = clamp_float(
+                    elapsed_playback_sec / current_job_audio_duration_sec,
+                    0.0,
+                    1.0,
+                )
+            elif current_job_frame_total > 0 and current_job_playback_fps > 0:
+                current_job_progress = clamp_float(
+                    elapsed_playback_sec / (float(current_job_frame_total) / float(current_job_playback_fps)),
+                    0.0,
+                    1.0,
+                )
+            if current_job_frame_total > 0:
+                current_job_frame_index = min(
+                    current_job_frame_total,
+                    max(0, int(math.floor(current_job_progress * float(current_job_frame_total)))),
+                )
+            elif current_job_playback_fps > 0:
+                current_job_frame_index = max(0, int(math.floor(elapsed_playback_sec * current_job_playback_fps)))
+    current_job_state = (
+        determine_job_state(current_job, current_job_stream_status)
+        if current_job is not None
+        else ""
+    )
+    current_job_running = bool(
+        current_job is not None
+        and current_job.process is not None
+        and current_job.process.poll() is None
+    )
+    running_job_frame_index = parse_status_int(running_job_stream_status, "frameIndex")
+    running_job_frame_total = parse_status_int(running_job_stream_status, "frameTotal")
+    running_job_progress = resolve_stream_progress_ratio(
+        running_job_stream_status,
+        running_job_frame_index,
+        running_job_frame_total,
+    )
+    running_job_state = (
+        determine_job_state(running_job, running_job_stream_status)
+        if running_job is not None
+        else ""
+    )
     return {
         **snapshot,
         "queueDepth": queue_depth,
         "runningJobId": running_job.job_id if running_job is not None else "",
+        "runningJobState": running_job_state,
+        "runningJobProgress": running_job_progress if running_job is not None else 0.0,
+        "runningJobFrameIndex": running_job_frame_index,
+        "runningJobFrameTotal": running_job_frame_total,
+        "runningJobPlaybackFps": resolve_stream_playback_fps(running_job_stream_status) if running_job is not None else 0.0,
         "idleVideoAvailable": bool(snapshot["idleVideoUrl"]),
-        "avatarVideoWsUrl": "/ws/avatar/video",
         "avatarVideoHttpUrl": "/api/avatar/video.mp4",
-        "avatarWebrtcOfferUrl": WEBRTC_OFFER_API_PATH,
-        "avatarTransport": AVATAR_TRANSPORT_WEBSOCKET,
-        "webrtcEnabled": False,
-        "webrtcIceServers": WEBRTC_ICE_SERVER_PAYLOADS,
-        "webrtcIceTransportPolicy": DEFAULT_WEBRTC_ICE_TRANSPORT_POLICY,
-        "activeWebrtcSessions": active_webrtc_sessions,
+        "avatarTransport": AVATAR_TRANSPORT_HTTP,
         "currentJobDrivingMediaUrl": build_public_file_url(current_job.audio_input_abs) if current_job is not None else "",
+        "currentJobState": current_job_state,
+        "currentJobRunning": current_job_running,
+        "currentJobProgress": current_job_progress if current_job is not None else 0.0,
+        "currentJobFrameIndex": current_job_frame_index,
+        "currentJobFrameTotal": current_job_frame_total,
+        "currentJobPlaybackFps": resolve_stream_playback_fps(current_job_stream_status) if current_job is not None else 0.0,
+        "currentJobRenderFrameIndex": current_job_render_frame_index,
+        "currentJobRenderFrameTotal": current_job_render_frame_total,
+        "currentJobRenderProgress": (
+            resolve_stream_progress_ratio(
+                current_job_stream_status,
+                current_job_render_frame_index,
+                current_job_render_frame_total,
+            )
+            if current_job is not None
+            else 0.0
+        ),
         "status": "ok",
     }
 
@@ -3810,8 +4134,6 @@ def build_public_avatar_health_payload() -> dict[str, Any]:
     """
     Build one session-neutral avatar payload for infrastructure health checks.
     """
-    with WEBRTC_SESSIONS_LOCK:
-        active_webrtc_sessions = len(WEBRTC_SESSIONS)
     idle_video_url = resolve_idle_video_url()
     return {
         "avatarSessionId": "",
@@ -3823,22 +4145,28 @@ def build_public_avatar_health_payload() -> dict[str, Any]:
         "idleStartedAtMs": PROCESS_STARTED_AT_MS,
         "idleVideoUrl": idle_video_url,
         "bufferedStartProgress": 0.0,
-        "currentJobVideoWsUrl": "",
-        "currentJobStatusWsUrl": "",
         "currentJobAudioDurationSec": 0.0,
         "currentJobSourceFrameUrl": "",
         "currentJobPreviewComposition": None,
+        "currentJobState": "",
+        "currentJobRunning": False,
+        "currentJobProgress": 0.0,
+        "currentJobFrameIndex": 0,
+        "currentJobFrameTotal": 0,
+        "currentJobPlaybackFps": 0.0,
+        "currentJobRenderFrameIndex": 0,
+        "currentJobRenderFrameTotal": 0,
+        "currentJobRenderProgress": 0.0,
         "queueDepth": 0,
         "runningJobId": "",
+        "runningJobState": "",
+        "runningJobProgress": 0.0,
+        "runningJobFrameIndex": 0,
+        "runningJobFrameTotal": 0,
+        "runningJobPlaybackFps": 0.0,
         "idleVideoAvailable": bool(idle_video_url),
-        "avatarVideoWsUrl": "/ws/avatar/video",
         "avatarVideoHttpUrl": "/api/avatar/video.mp4",
-        "avatarWebrtcOfferUrl": WEBRTC_OFFER_API_PATH,
-        "avatarTransport": AVATAR_TRANSPORT_WEBSOCKET,
-        "webrtcEnabled": False,
-        "webrtcIceServers": WEBRTC_ICE_SERVER_PAYLOADS,
-        "webrtcIceTransportPolicy": DEFAULT_WEBRTC_ICE_TRANSPORT_POLICY,
-        "activeWebrtcSessions": active_webrtc_sessions,
+        "avatarTransport": AVATAR_TRANSPORT_HTTP,
         "currentJobDrivingMediaUrl": "",
         "status": "ok",
     }
@@ -3903,22 +4231,26 @@ def resolve_avatar_required_ready_frame_count(
         )
 
     estimated_generation_fps = estimate_generation_fps(stream_status, 0.0)
-    safety_frame_count = 0
-    if estimated_generation_fps > 0 and playback_fps > 0 and AVATAR_READY_DYNAMIC_MARGIN_SEC > 0:
-        generation_gap_ratio = clamp_float(
-            max(0.0, float(playback_fps) - float(estimated_generation_fps)) / float(playback_fps),
-            0.0,
-            1.0,
-        )
-        if generation_gap_ratio > 0:
-            safety_frame_count = int(
-                math.ceil(float(playback_fps) * float(AVATAR_READY_DYNAMIC_MARGIN_SEC) * generation_gap_ratio)
-            )
+    dynamic_generation_guard_frame_count = 0
+    if estimated_generation_fps > 0 and playback_fps > 0:
+        generation_gap_fps = max(0.0, float(playback_fps) - float(estimated_generation_fps))
+        if generation_gap_fps > 0:
+            required_playback_duration_sec = max(0.0, float(job.audio_duration_sec or 0.0))
+            if required_playback_duration_sec <= 0 and frame_total > 0:
+                required_playback_duration_sec = float(frame_total) / float(playback_fps)
+            if required_playback_duration_sec > 0:
+                dynamic_generation_guard_frame_count = int(
+                    math.ceil(generation_gap_fps * required_playback_duration_sec)
+                )
+                if AVATAR_READY_DYNAMIC_MARGIN_SEC > 0:
+                    dynamic_generation_guard_frame_count += int(
+                        math.ceil(float(playback_fps) * float(AVATAR_READY_DYNAMIC_MARGIN_SEC))
+                    )
 
-    required_frame_count = max(1, min(frame_total, baseline_frame_count + safety_frame_count))
-    if maximum_progress_frame_count > 0:
+    required_frame_count = max(1, baseline_frame_count, dynamic_generation_guard_frame_count)
+    if dynamic_generation_guard_frame_count <= 0 and maximum_progress_frame_count > 0:
         required_frame_count = min(required_frame_count, maximum_progress_frame_count)
-    return required_frame_count
+    return min(frame_total, required_frame_count)
 
 
 def resolve_avatar_idle_anchor_source_frame(
@@ -4037,12 +4369,23 @@ def activate_avatar_idle_mode(avatar_session_id: str) -> None:
         session_state.current_job_ends_at_ms = 0
         session_state.idle_started_at_ms = now_ms()
         session_state.sequence += 1
+        current_sequence = session_state.sequence
+    emit_avatar_stream_debug_log(
+        avatar_session_id,
+        "scheduler_idle",
+        sequence=current_sequence,
+    )
 
 
 def activate_avatar_job(avatar_session_id: str, job: JobRecord) -> None:
     """
     Switch one interaction session to a talking job and record playback timestamps.
     """
+    current_status = read_job_stream_status(job)
+    current_frame_index = parse_status_int(current_status, "frameIndex")
+    current_required_frame_count = resolve_avatar_required_ready_frame_count(job, current_status)
+    current_playback_fps = resolve_stream_playback_fps(current_status)
+    current_generation_fps = estimate_generation_fps(current_status, 0.0)
     started_at_ms = now_ms()
     with JOBS_LOCK:
         job.avatar_play_started_at_ms = started_at_ms
@@ -4053,6 +4396,18 @@ def activate_avatar_job(avatar_session_id: str, job: JobRecord) -> None:
         session_state.current_job_started_at_ms = started_at_ms
         session_state.current_job_ends_at_ms = 0
         session_state.sequence += 1
+        current_sequence = session_state.sequence
+    emit_avatar_stream_debug_log(
+        avatar_session_id,
+        "scheduler_talking",
+        sequence=current_sequence,
+        job_id=job.job_id,
+        audio_duration_sec=f"{float(job.audio_duration_sec or 0.0):.3f}",
+        frame_index=current_frame_index,
+        required_frame_count=current_required_frame_count,
+        playback_fps=f"{float(current_playback_fps or 0.0):.3f}",
+        generation_fps=f"{float(current_generation_fps or 0.0):.3f}",
+    )
 
 
 def resolve_avatar_job_expected_end_at_ms(
@@ -4170,6 +4525,8 @@ def should_defer_preview_paste_back(
     """
     Defer paste-back only for preview jobs that still require stitched full-frame output.
     """
+    if is_source_template_pack_path(source_media_path):
+        return False
     if is_video_backed_source_path(source_media_path):
         return False
     return bool(str(mode or "").strip().lower() == "preview" and paste_back_enabled and stitching_enabled)
@@ -4180,8 +4537,7 @@ def build_runner_command(job: JobRecord) -> list[str]:
     Build runner command for a specific job.
     """
     command = [
-        str(RUNNER_PYTHON),
-        str(RUNNER_SCRIPT),
+        *build_runner_invocation_base(),
         "--backend",
         DEFAULT_BACKEND,
         "--trt-runtime",
@@ -4256,6 +4612,12 @@ def build_runner_command(job: JobRecord) -> list[str]:
         job.stream_shm_prefix,
         "--animation-region",
         job.animation_region,
+        "--source-max-dim",
+        str(DEFAULT_SOURCE_MAX_DIM),
+        "--source-crop-dsize",
+        str(DEFAULT_SOURCE_CROP_DSIZE),
+        "--source-video-target-fps",
+        f"{float(DEFAULT_SOURCE_VIDEO_TARGET_FPS):.6f}",
     ]
     if DEFAULT_DOCKER_GPU_DEVICE:
         command.extend(
@@ -4284,6 +4646,8 @@ def build_runner_command(job: JobRecord) -> list[str]:
         command.append("--no-relative-motion")
     if DEFAULT_SKIP_TRT_ENGINE_BUILD:
         command.append("--skip-trt-engine-build")
+    if DEFAULT_FORCE_TRT_ENGINE_REBUILD:
+        command.append("--force-trt-engine-rebuild")
     return command
 
 
@@ -4812,20 +5176,23 @@ def reset_avatar_bounce_fallback_state(state: AvatarTalkingFrameState) -> None:
 
 def build_avatar_bounce_cycle(frame_indices: list[int]) -> tuple[int, ...]:
     """
-    Build one short reverse-forward cycle from the newest available frame indices.
+    Build one minimal bounce cycle from the newest available frame indices.
     """
     if not frame_indices:
         return ()
     ordered_frame_indices = sorted({int(frame_index) for frame_index in frame_indices if int(frame_index) > 0})
     if not ordered_frame_indices:
         return ()
-    descending_frame_indices = list(reversed(ordered_frame_indices))
-    if len(descending_frame_indices) <= 2:
-        return tuple(descending_frame_indices)
-    return tuple(descending_frame_indices + ordered_frame_indices[1:-1])
+    newest_frame_indices = ordered_frame_indices[-2:]
+    if len(newest_frame_indices) == 1:
+        return (newest_frame_indices[0],)
+    newest_frame_index = newest_frame_indices[-1]
+    previous_frame_index = newest_frame_indices[-2]
+    return (newest_frame_index, previous_frame_index)
 
 
 def resolve_avatar_bounce_frame_image(
+    job: JobRecord,
     state: AvatarTalkingFrameState,
     requested_frame_index: int,
 ) -> np.ndarray | None:
@@ -4843,7 +5210,7 @@ def resolve_avatar_bounce_frame_image(
         frame_index
         for frame_index in state.source_frame_images.keys()
         if frame_index <= fallback_frame_ceiling
-    )[-AVATAR_FALLBACK_BOUNCE_WINDOW_FRAMES:]
+    )[-2:]
     bounce_cycle = build_avatar_bounce_cycle(recent_frame_indices)
     if not bounce_cycle:
         return state.last_frame_image
@@ -4855,6 +5222,18 @@ def resolve_avatar_bounce_frame_image(
     bounce_frame_image = state.source_frame_images.get(bounce_frame_index)
     if bounce_frame_image is not None:
         state.last_output_source_frame_index = bounce_frame_index
+        current_timestamp_ms = now_ms()
+        if current_timestamp_ms - int(state.last_bounce_log_at_ms or 0) >= 500:
+            state.last_bounce_log_at_ms = current_timestamp_ms
+            emit_avatar_stream_debug_log(
+                job.avatar_session_id,
+                "bounce_wait",
+                job_id=job.job_id,
+                requested_frame_index=requested_frame_index,
+                emitted_frame_index=bounce_frame_index,
+                last_known_frame_index=state.last_known_frame_index,
+                last_known_frame_total=state.last_known_frame_total,
+            )
         return bounce_frame_image
     return state.last_frame_image
 
@@ -4951,7 +5330,7 @@ def resolve_avatar_talking_frame(
 
     base_frame_image = state.source_frame_images.get(base_frame_index)
     if base_frame_image is None:
-        fallback_frame_image = resolve_avatar_bounce_frame_image(state, base_frame_index)
+        fallback_frame_image = resolve_avatar_bounce_frame_image(job, state, base_frame_index)
         if fallback_frame_image is None:
             return None, False
         state.last_frame_image = fallback_frame_image
@@ -4959,8 +5338,17 @@ def resolve_avatar_talking_frame(
         return fallback_frame_image, False
 
     next_frame_image = state.source_frame_images.get(next_frame_index)
-    if not source_position_advanced and state.last_output_source_frame_index == base_frame_index:
-        fallback_frame_image = resolve_avatar_bounce_frame_image(state, base_frame_index)
+    waiting_for_new_generated_frame = bool(
+        running
+        and next_frame_image is None
+        and base_frame_index >= max(1, state.last_known_frame_index)
+    )
+    if (
+        not source_position_advanced
+        and state.last_output_source_frame_index == base_frame_index
+        and waiting_for_new_generated_frame
+    ):
+        fallback_frame_image = resolve_avatar_bounce_frame_image(job, state, base_frame_index)
         if fallback_frame_image is not None:
             state.last_frame_image = fallback_frame_image
             state.output_frame_index += 1
@@ -5457,8 +5845,7 @@ def build_warmup_command(audio_rel_path: Path) -> list[str]:
     output_root_rel = WARMUP_OUTPUT_ROOT_REL
     stream_rel = output_root_rel / WARMUP_STREAM_SUBDIR_NAME
     command = [
-        str(RUNNER_PYTHON),
-        str(RUNNER_SCRIPT),
+        *build_runner_invocation_base(),
         "--backend",
         DEFAULT_BACKEND,
         "--trt-runtime",
@@ -5487,6 +5874,12 @@ def build_warmup_command(audio_rel_path: Path) -> list[str]:
         WARMUP_STREAM_SHM_PREFIX,
         "--animation-region",
         DEFAULT_ANIMATION_REGION,
+        "--source-max-dim",
+        str(DEFAULT_SOURCE_MAX_DIM),
+        "--source-crop-dsize",
+        str(DEFAULT_SOURCE_CROP_DSIZE),
+        "--source-video-target-fps",
+        f"{float(DEFAULT_SOURCE_VIDEO_TARGET_FPS):.6f}",
     ]
     if should_defer_preview_paste_back(
         "preview",
@@ -5503,6 +5896,8 @@ def build_warmup_command(audio_rel_path: Path) -> list[str]:
         command.append("--no-relative-motion")
     if DEFAULT_SKIP_TRT_ENGINE_BUILD:
         command.append("--skip-trt-engine-build")
+    if DEFAULT_FORCE_TRT_ENGINE_REBUILD:
+        command.append("--force-trt-engine-rebuild")
     return command
 
 
@@ -5705,9 +6100,6 @@ def build_job_payload(job: JobRecord) -> dict[str, Any]:
         "sourceTemplatePackId": job.source_template_pack_id,
         "status": public_stream_status,
         "previewComposition": public_preview_composition,
-        "streamUrl": f"/api/jobs/{job.job_id}/stream.mjpg",
-        "wsUrl": f"/ws/jobs/{job.job_id}",
-        "videoWsUrl": f"/ws/jobs/{job.job_id}/video",
         "statusUrl": f"/api/jobs/{job.job_id}/status",
         "logUrl": f"/api/jobs/{job.job_id}/log",
         "reportUrl": f"/api/jobs/{job.job_id}/report",
@@ -6025,18 +6417,14 @@ async def create_and_enqueue_audio_job(
     await save_upload_file(audio, input_abs)
     stream_audio_input_abs = normalize_stream_audio_input(input_abs, stream_audio_abs)
     audio_duration_sec = probe_media_duration_sec(input_abs)
-    source_frame_abs, source_frame_arg = await resolve_requested_source_frame(
-        source_frame=source_frame,
-        source_template_pack=source_template_pack,
+    source_frame_abs, source_frame_arg = resolve_enqueue_source_template_pack(
         source_image=source_image,
         source_video=source_video,
-        output_abs=output_abs,
-        output_rel=output_rel,
-        audio_duration_sec=audio_duration_sec,
-        avatar_session_id=avatar_session_id,
+        source_frame=source_frame,
+        source_template_pack=source_template_pack,
     )
-    source_template_pack_abs = source_frame_abs if is_source_template_pack_path(source_frame_abs) else None
-    source_template_pack_id = source_template_pack_abs.name if source_template_pack_abs is not None else ""
+    source_template_pack_abs = source_frame_abs
+    source_template_pack_id = source_template_pack_abs.name
     emit_runtime_log(
         "queue",
         (
@@ -6187,7 +6575,9 @@ def create_app() -> FastAPI:
             "trtRuntime": DEFAULT_TRT_RUNTIME,
             "trtPrecision": DEFAULT_TRT_PRECISION,
             "skipTrtEngineBuild": DEFAULT_SKIP_TRT_ENGINE_BUILD,
+            "forceTrtEngineRebuild": DEFAULT_FORCE_TRT_ENGINE_REBUILD,
             "defaultAudioMotionStride": DEFAULT_AUDIO_MOTION_STRIDE,
+            "defaultAudioMotionTargetFps": DEFAULT_AUDIO_MOTION_TARGET_FPS,
             "defaultMode": DEFAULT_MODE,
             "generationFrameCountSupported": True,
             "generationFrameCountMin": GENERATION_FRAME_COUNT_MIN,
@@ -6195,6 +6585,9 @@ def create_app() -> FastAPI:
             "defaultRenderBatchSize": DEFAULT_RENDER_BATCH_SIZE,
             "defaultTrtEngineBatchSize": DEFAULT_TRT_ENGINE_BATCH_SIZE,
             "defaultAnimationRegion": DEFAULT_ANIMATION_REGION,
+            "defaultSourceMaxDim": DEFAULT_SOURCE_MAX_DIM,
+            "defaultSourceCropDsize": DEFAULT_SOURCE_CROP_DSIZE,
+            "defaultSourceVideoTargetFps": DEFAULT_SOURCE_VIDEO_TARGET_FPS,
             "defaultStitchingEnabled": DEFAULT_STITCHING_ENABLED,
             "defaultRelativeMotionEnabled": DEFAULT_RELATIVE_MOTION_ENABLED,
             "defaultPasteBackEnabled": DEFAULT_PASTE_BACK_ENABLED,
@@ -6231,6 +6624,8 @@ def create_app() -> FastAPI:
             "sourceTemplatePacksUrl": "/api/source-templates",
             "createSourceTemplatePackUrl": "/api/source-templates",
             "defaultVideoEncoder": DEFAULT_VIDEO_ENCODER,
+            "runnerPython": str(RUNNER_PYTHON),
+            "runnerFasterRepoDir": str(RUNNER_FASTER_REPO_DIR),
             "authEnabled": API_TOKEN_ENABLED,
             "authHeaderName": "Authorization",
             "authScheme": AUTHORIZATION_HEADER_VALUE,
@@ -6266,15 +6661,9 @@ def create_app() -> FastAPI:
             "avatarCurrentJobEndsAtMs": avatar_payload["currentJobEndsAtMs"],
             "avatarIdleVideoUrl": avatar_payload["idleVideoUrl"],
             "avatarBufferedStartProgress": avatar_payload["bufferedStartProgress"],
-            "avatarVideoWsUrl": avatar_payload["avatarVideoWsUrl"],
             "avatarVideoHttpUrl": avatar_payload["avatarVideoHttpUrl"],
             "avatarTransport": avatar_payload["avatarTransport"],
-            "avatarWebrtcOfferUrl": avatar_payload["avatarWebrtcOfferUrl"],
             "avatarQueueDepth": avatar_payload["queueDepth"],
-            "webrtcEnabled": avatar_payload["webrtcEnabled"],
-            "webrtcIceServers": avatar_payload["webrtcIceServers"],
-            "webrtcIceTransportPolicy": avatar_payload["webrtcIceTransportPolicy"],
-            "activeWebrtcSessions": avatar_payload["activeWebrtcSessions"],
             "containerLogPath": str(CONTAINER_LOG_REL),
             "workerLogPath": str(PERSISTENT_WORKER_LOG_REL),
         }
@@ -6314,8 +6703,9 @@ def create_app() -> FastAPI:
                         f"Allowed: {sorted(ALLOWED_SOURCE_VIDEO_EXTENSIONS)}"
                     ),
                 )
-            source_abs = (build_root / f"source{extension}").resolve()
-            await save_upload_file(source_video, source_abs)
+            source_video_abs = (build_root / f"source{extension}").resolve()
+            await save_upload_file(source_video, source_video_abs)
+            source_abs = source_video_abs
         elif has_source_image_upload:
             extension = Path(str(source_image.filename)).suffix.lower()
             if extension not in ALLOWED_SOURCE_IMAGE_EXTENSIONS:
@@ -6395,36 +6785,8 @@ def create_app() -> FastAPI:
         return JSONResponse(build_avatar_payload(avatar_session_id))
 
     @app.post(WEBRTC_OFFER_API_PATH)
-    async def webrtc_offer(request: Request, offer: WebRtcOfferRequest) -> JSONResponse:
-        ensure_avatar_worker_started()
-        if str(offer.type or "").strip().lower() != "offer":
-            raise HTTPException(status_code=400, detail="WebRTC request type must be 'offer'.")
-        avatar_session_id = get_avatar_session_id_from_request(request)
-        session = AvatarWebRtcSession(str(uuid.uuid4()), avatar_session_id, build_webrtc_rtc_configuration())
-        register_webrtc_session(session)
-        try:
-            await session.peer_connection.setRemoteDescription(
-                RTCSessionDescription(sdp=offer.sdp, type=offer.type)
-            )
-            answer = await session.peer_connection.createAnswer()
-            await session.peer_connection.setLocalDescription(answer)
-            await wait_for_ice_gathering_complete(session.peer_connection)
-            local_description = session.peer_connection.localDescription
-            if local_description is None:
-                raise HTTPException(status_code=500, detail="WebRTC answer was not generated.")
-            return JSONResponse(
-                {
-                    "type": local_description.type,
-                    "sdp": local_description.sdp,
-                    "sessionId": session.session_id,
-                }
-            )
-        except HTTPException:
-            await close_webrtc_session(session)
-            raise
-        except Exception as exc:
-            await close_webrtc_session(session)
-            raise HTTPException(status_code=500, detail=f"WebRTC negotiation failed: {exc}") from exc
+    async def webrtc_offer(request: Request) -> JSONResponse:
+        raise HTTPException(status_code=410, detail=LEGACY_AVATAR_TRANSPORT_DISABLED_MESSAGE)
 
     @app.post("/api/warmup")
     async def warmup() -> JSONResponse:
@@ -6480,101 +6842,14 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/api/generate")
-    async def generate(
-        request: Request,
-        audio: UploadFile = File(...),
-        source_image: UploadFile | None = File(None),
-        source_video: UploadFile | None = File(None),
-        source_frame: str = Form(DEFAULT_SOURCE_FRAME),
-        source_template_pack: str = Form(""),
-        audio_tuning_preset: str = Form(""),
-        mode: str = Form(DEFAULT_MODE),
-        motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
-        generation_frame_count: int | None = Form(None),
-        audio_eye_tamed_preset: bool = Form(DEFAULT_AUDIO_EYE_TAMED_PRESET),
-        audio_eye_soft_factor: float = Form(DEFAULT_AUDIO_EYE_SOFT_FACTOR),
-        audio_eye_hard_factor: float = Form(DEFAULT_AUDIO_EYE_HARD_FACTOR),
-        audio_eye_hard_dy_min: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MIN),
-        audio_eye_hard_dy_max: float = Form(DEFAULT_AUDIO_EYE_HARD_DY_MAX),
-        audio_motion_tuning_enabled: bool = Form(DEFAULT_AUDIO_MOTION_TUNING_ENABLED),
-        audio_reanchor_first_n: int = Form(DEFAULT_AUDIO_REANCHOR_FIRST_N),
-        audio_mouth_open_factor: float = Form(DEFAULT_AUDIO_MOUTH_OPEN_FACTOR),
-        audio_pose_smooth_window: int = Form(DEFAULT_AUDIO_POSE_SMOOTH_WINDOW),
-        audio_exp_smooth_window: int = Form(DEFAULT_AUDIO_EXP_SMOOTH_WINDOW),
-        audio_pose_jump_threshold: float = Form(DEFAULT_AUDIO_POSE_JUMP_THRESHOLD),
-        audio_translation_jump_threshold: float = Form(DEFAULT_AUDIO_TRANSLATION_JUMP_THRESHOLD),
-        audio_lip_sync_assist: bool = Form(DEFAULT_AUDIO_LIP_SYNC_ASSIST),
-        audio_lip_sync_min_ratio: float = Form(DEFAULT_AUDIO_LIP_SYNC_MIN_RATIO),
-        audio_lip_sync_max_ratio: float = Form(DEFAULT_AUDIO_LIP_SYNC_MAX_RATIO),
-        audio_lip_sync_smooth_window: int = Form(DEFAULT_AUDIO_LIP_SYNC_SMOOTH_WINDOW),
-        audio_lip_sync_strength: float = Form(DEFAULT_AUDIO_LIP_SYNC_STRENGTH),
-        audio_lip_sync_power: float = Form(DEFAULT_AUDIO_LIP_SYNC_POWER),
-        audio_lip_sync_attack: float = Form(DEFAULT_AUDIO_LIP_SYNC_ATTACK),
-        audio_lip_sync_release: float = Form(DEFAULT_AUDIO_LIP_SYNC_RELEASE),
-        audio_lip_sync_offset_ms: int = Form(DEFAULT_AUDIO_LIP_SYNC_OFFSET_MS),
-        audio_mouth_floor_strength: float = Form(DEFAULT_AUDIO_MOUTH_FLOOR_STRENGTH),
-        audio_mouth_peak_clamp: float = Form(DEFAULT_AUDIO_MOUTH_PEAK_CLAMP),
-        driving_multiplier: float = Form(DEFAULT_DRIVING_MULTIPLIER),
-        cfg_scale: float = Form(DEFAULT_CFG_SCALE),
-        joyvasa_inference_steps: int = Form(DEFAULT_JOYVASA_INFERENCE_STEPS),
-        animation_region: str = Form(DEFAULT_ANIMATION_REGION),
-        stitching: bool = Form(DEFAULT_STITCHING_ENABLED),
-        relative_motion: bool = Form(DEFAULT_RELATIVE_MOTION_ENABLED),
-        paste_back: bool = Form(DEFAULT_PASTE_BACK_ENABLED),
-    ) -> JSONResponse:
-        avatar_session_id = get_avatar_session_id_from_request(request)
-        payload = await create_and_enqueue_audio_job(
-            avatar_session_id=avatar_session_id,
-            audio=audio,
-            source_image=source_image,
-            source_video=source_video,
-            source_frame=source_frame,
-            source_template_pack=source_template_pack,
-            audio_tuning_preset=audio_tuning_preset,
-            mode=mode,
-            motion_stride=motion_stride,
-            generation_frame_count=generation_frame_count,
-            audio_eye_tamed_preset=audio_eye_tamed_preset,
-            audio_eye_soft_factor=audio_eye_soft_factor,
-            audio_eye_hard_factor=audio_eye_hard_factor,
-            audio_eye_hard_dy_min=audio_eye_hard_dy_min,
-            audio_eye_hard_dy_max=audio_eye_hard_dy_max,
-            audio_motion_tuning_enabled=audio_motion_tuning_enabled,
-            audio_reanchor_first_n=audio_reanchor_first_n,
-            audio_mouth_open_factor=audio_mouth_open_factor,
-            audio_pose_smooth_window=audio_pose_smooth_window,
-            audio_exp_smooth_window=audio_exp_smooth_window,
-            audio_pose_jump_threshold=audio_pose_jump_threshold,
-            audio_translation_jump_threshold=audio_translation_jump_threshold,
-            audio_lip_sync_assist=audio_lip_sync_assist,
-            audio_lip_sync_min_ratio=audio_lip_sync_min_ratio,
-            audio_lip_sync_max_ratio=audio_lip_sync_max_ratio,
-            audio_lip_sync_smooth_window=audio_lip_sync_smooth_window,
-            audio_lip_sync_strength=audio_lip_sync_strength,
-            audio_lip_sync_power=audio_lip_sync_power,
-            audio_lip_sync_attack=audio_lip_sync_attack,
-            audio_lip_sync_release=audio_lip_sync_release,
-            audio_lip_sync_offset_ms=audio_lip_sync_offset_ms,
-            audio_mouth_floor_strength=audio_mouth_floor_strength,
-            audio_mouth_peak_clamp=audio_mouth_peak_clamp,
-            driving_multiplier=driving_multiplier,
-            cfg_scale=cfg_scale,
-            joyvasa_inference_steps=joyvasa_inference_steps,
-            animation_region=animation_region,
-            stitching=stitching,
-            relative_motion=relative_motion,
-            paste_back=paste_back,
-        )
-        return JSONResponse(payload)
+    async def generate(request: Request) -> JSONResponse:
+        raise HTTPException(status_code=410, detail=LEGACY_AVATAR_GENERATE_ENDPOINT_DISABLED_MESSAGE)
 
     @app.post("/api/avatar/enqueue")
     async def enqueue_avatar_audio(
         request: Request,
         audio: UploadFile = File(...),
-        source_image: UploadFile | None = File(None),
-        source_video: UploadFile | None = File(None),
-        source_frame: str = Form(DEFAULT_SOURCE_FRAME),
-        source_template_pack: str = Form(""),
+        source_template_pack: str = Form(...),
         audio_tuning_preset: str = Form(""),
         mode: str = Form(DEFAULT_MODE),
         motion_stride: int = Form(DEFAULT_AUDIO_MOTION_STRIDE),
@@ -6614,9 +6889,9 @@ def create_app() -> FastAPI:
         payload = await create_and_enqueue_audio_job(
             avatar_session_id=avatar_session_id,
             audio=audio,
-            source_image=source_image,
-            source_video=source_video,
-            source_frame=source_frame,
+            source_image=None,
+            source_video=None,
+            source_frame=DEFAULT_SOURCE_FRAME,
             source_template_pack=source_template_pack,
             audio_tuning_preset=audio_tuning_preset,
             mode=mode,
@@ -6685,6 +6960,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/jobs/{job_id}/stream.mjpg")
     async def job_stream(job_id: str, request: Request) -> StreamingResponse:
+        raise HTTPException(status_code=410, detail=LEGACY_AVATAR_TRANSPORT_DISABLED_MESSAGE)
         avatar_session_id = get_avatar_session_id_from_request(request)
         job = get_job(job_id, avatar_session_id)
 
@@ -6722,6 +6998,8 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/jobs/{job_id}")
     async def job_stream_ws(websocket: WebSocket, job_id: str) -> None:
+        await websocket.close(code=1008, reason=LEGACY_AVATAR_TRANSPORT_DISABLED_MESSAGE)
+        return
         if not is_websocket_request_authorized(websocket):
             await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
             return
@@ -6848,6 +7126,8 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/avatar/video")
     async def avatar_video_ws(websocket: WebSocket) -> None:
+        await websocket.close(code=1008, reason=LEGACY_AVATAR_TRANSPORT_DISABLED_MESSAGE)
+        return
         if not is_websocket_request_authorized(websocket):
             await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
             return
@@ -6873,6 +7153,8 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/avatar")
     async def avatar_status_ws(websocket: WebSocket) -> None:
+        await websocket.close(code=1008, reason=LEGACY_AVATAR_TRANSPORT_DISABLED_MESSAGE)
+        return
         if not is_websocket_request_authorized(websocket):
             await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
             return
@@ -6907,6 +7189,8 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/jobs/{job_id}/video")
     async def job_video_ws(websocket: WebSocket, job_id: str) -> None:
+        await websocket.close(code=1008, reason=LEGACY_AVATAR_TRANSPORT_DISABLED_MESSAGE)
+        return
         if not is_websocket_request_authorized(websocket):
             await websocket.close(code=WEBSOCKET_UNAUTHORIZED_CLOSE_CODE, reason=AUTH_FAILURE_MESSAGE)
             return

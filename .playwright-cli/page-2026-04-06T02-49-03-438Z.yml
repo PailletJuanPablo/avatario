@@ -1,0 +1,51 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - heading "Avatar Session Example" [level=1] [ref=e4]
+    - generic [ref=e5]:
+      - generic [ref=e6]: API Base URL
+      - textbox "API Base URL" [ref=e7]: http://127.0.0.1:8010
+    - generic [ref=e8]:
+      - generic [ref=e9]: API Token
+      - textbox "API Token" [ref=e10]: dev-token
+    - button "1. Create Session And Start Stream" [active] [ref=e12] [cursor=pointer]
+    - generic [ref=e13]:
+      - generic [ref=e14]: Source Video For Template
+      - button "Source Video For Template" [ref=e15]
+    - generic [ref=e16]:
+      - generic [ref=e17]: Template Name
+      - textbox "Template Name" [ref=e18]: demo-browser-template
+    - button "2. Create Template From Video" [ref=e20] [cursor=pointer]
+    - generic [ref=e21]:
+      - generic [ref=e22]: Existing Template
+      - combobox "Existing Template" [ref=e23]
+    - button "Refresh Templates" [ref=e25] [cursor=pointer]
+    - generic [ref=e26]:
+      - generic [ref=e27]: Audio To Enqueue
+      - button "Audio To Enqueue" [ref=e28]
+    - button "3. Upload Audio And Generate" [ref=e30] [cursor=pointer]
+  - generic [ref=e31]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - strong [ref=e35]: Session
+        - generic [ref=e36]: Not connected
+      - generic [ref=e37]:
+        - strong [ref=e38]: Avatar Mode
+        - generic [ref=e39]: idle
+      - generic [ref=e40]:
+        - strong [ref=e41]: Talking Progress
+        - generic [ref=e42]: "0.000"
+      - generic [ref=e43]:
+        - strong [ref=e44]: Render Progress
+        - generic [ref=e45]: "0.000"
+      - generic [ref=e46]:
+        - strong [ref=e47]: Current Job
+        - generic [ref=e48]: "-"
+      - generic [ref=e49]:
+        - strong [ref=e50]: Running Job
+        - generic [ref=e51]: "-"
+    - generic [ref=e52]:
+      - generic [ref=e53]: Event Log
+      - textbox "Event Log" [ref=e54]
+    - generic [ref=e55]:
+      - generic [ref=e56]: Latest Status Payload
+      - generic [ref=e57]: "{}"
